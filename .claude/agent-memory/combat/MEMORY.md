@@ -1,0 +1,4 @@
+- 2026-10-08: Memory file did not exist at first task (HP orb); created. Absolute paths only (CLAUDE.md Promoted lessons).
+- 2026-10-08: Strict deserialize pattern to copy: isPlain + getOwnPropertyNames exact keys + Object.hasOwn (see core/inventory/logic.ts); Result via @core/utils err/ok.
+- 2026-10-08: Max HP is never stored; always a parameter (feature can't import xp). Tick signature takes extra `maxHp` arg, so it is not a plain `System`; integrator wraps it.
+- 2026-10-08: Unused `_ctx` param passes eslint here; tsc/eslint/prettier/vitest all clean first try.

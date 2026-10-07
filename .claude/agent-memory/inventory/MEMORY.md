@@ -1,0 +1,6 @@
+- 2026-10-08: macOS sed -i needs an arg (BSD); use perl -pi -e for in-place edits. Bank code lives in bank.ts and reuses validQty/isPlain/hasExactKeys exported from logic.ts (not from index).
+- 2026-10-08: Bank deposit clamps to MAX_STACK room (partial ok, zero room = bankFull); depositAll is all-or-nothing per id; added extra error 'invalidQuantity' beyond the spec.
+- 2026-10-08: Bash cwd resets between calls and `cd` into a not-yet-existing dir fails silently, so heredocs land in the project root. `mkdir -p` first and use absolute paths for every write.
+- 2026-10-08: The registry is `@core/items` `ItemRegistry` (get/has/isStackable). `isStackable` throws on unknown ids, so use `get` first.
+- 2026-10-08: removeItem takes from the first slots, so tests should compare counts and free slots, not whole-state equality, after add-then-remove.
+- 2026-10-08: Deserialize checks with `Object.getOwnPropertyNames` and exact key sets. This catches `__proto__` own keys that JSON.parse creates.

@@ -1,0 +1,2 @@
+- 2026-10-08: A chained `cd dir; cat > file` where dir doesn't exist writes into the cwd (project root) and silently overwrote stray root files (index.ts, logic.ts, logic.test.ts). Always `mkdir -p` first and use absolute paths.
+- 2026-10-08: MVP scope = tools only (ToolDef keyed by item id in a tool table, not on ItemDef); gear/bonus/equip deferred. Registry takes ownedItemIds + levelOf callback, no inventory import.

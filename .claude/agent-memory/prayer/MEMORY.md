@@ -1,0 +1,4 @@
+- 2026-10-08: `CombatModifier` does NOT exist in core/contracts yet (only TickContext/TickResult/System/GameEvent/Rng/Requirement). Check before assuming; propose it to main session.
+- 2026-10-08: Pure helpers available: `clamp`, `ok`/`err`/`Result` from `@core/utils`; `makeCtx` in `@test-utils/index`. No tick-timer helper exists in core/utils yet.
+- 2026-10-08: Use absolute paths and `mkdir -p`; run tsc, `npx eslint <dir>`, `npx prettier --check <dir>`, `npx vitest run <dir>` for verification.
+- 2026-10-08: Deserialize pattern: reject non-object/array, own-property check, integer >= 0, then clamp to max (`Object.create` inherited-field test case).

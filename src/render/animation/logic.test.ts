@@ -1,0 +1,118 @@
+import { describe, expect, it } from 'vitest';
+import {
+  STATIC_AXE_ANGLE,
+  chopAngle,
+  computePose,
+  makePose,
+  nextAnimState,
+  tapAngle,
+} from './logic';
+import { CHOP_SWING_PERIOD_MS, MOTION, REDUCED_FADE_MS } from './data';
+
+describe('nextAnimState', () => {
+  const idle = { moving: false, gathering: false };
+  it('idles by default', () => expect(nextAnimState('chop', idle)).toBe('idle'));
+  it('walks when moving', () =>
+    expect(nextAnimState('idle', { ...idle, moving: true })).toBe('walk'));
+  it('chops with an axe', () =>
+    expect(nextAnimState('idle', { ...idle, gathering: true, toolKind: 'axe' })).toBe('chop'));
+  it('does not chop with an unknown or missing tool', () => {
+    expect(nextAnimState('idle', { ...idle, gathering: true })).toBe('idle');
+    expect(nextAnimState('idle', { ...idle, gathering: true, toolKind: 'spoon' })).toBe('idle');
+  });
+  it('moving beats gathering', () =>
+    expect(nextAnimState('chop', { moving: true, gathering: true, toolKind: 'axe' })).toBe('walk'));
+});
+
+describe('computePose', () => {
+  it('shows the axe only while chopping', () => {
+    const p = makePose();
+    expect(computePose('idle', 0, p).axeVisible).toBe(false);
+    expect(computePose('walk', 100, p).axeVisible).toBe(false);
+    expect(computePose('chop', 0, p).axeVisible).toBe(true);
+  });
+  it('swings back then strikes forward over one period', () => {
+    const back = chopAngle(0.55);
+    const hit = chopAngle(0.7);
+    expect(back).toBeLessThan(chopAngle(0));
+    expect(hit).toBeGreaterThan(0);
+    expect(chopAngle(1)).toBeCloseTo(chopAngle(0));
+  });
+  it('is periodic in swingPeriodMs', () => {
+    const a = computePose('chop', 300, makePose()).axeAngle;
+    const b = computePose('chop', 300 + CHOP_SWING_PERIOD_MS, makePose()).axeAngle;
+    expect(b).toBeCloseTo(a);
+  });
+  it('walk is still with motionScale 0 and reuses the object', () => {
+    const p = makePose();
+    expect(computePose('walk', 130, p, 0)).toBe(p);
+    expect(p.bodyBobY).toBeCloseTo(0);
+    expect(p.legFrontX).toBeCloseTo(0);
+  });
+});
+
+describe('motion modes', () => {
+  const P = CHOP_SWING_PERIOD_MS;
+  it('on: walk bobs and chop swings through a wide arc', () => {
+    const w = computePose('walk', 130, makePose(), 1, P, 'on');
+    expect(Math.abs(w.legFrontX) + Math.abs(w.bodyBobY)).toBeGreaterThan(0.5);
+    const angles = [0, 0.3, 0.55, 0.7].map(
+      (ph) => computePose('chop', ph * P, makePose(), 1, P, 'on').axeAngle,
+    );
+    expect(Math.max(...angles) - Math.min(...angles)).toBeGreaterThan(1.5);
+  });
+  it('reduced: walk is still', () => {
+    const w = computePose('walk', 130, makePose(), 1, P, 'reduced');
+    expect(
+      [w.bodyBobY, w.legFrontX, w.legBackLift, w.armAngle].every((v) => Math.abs(v) < 1e-9),
+    ).toBe(true);
+  });
+  it('reduced: chop is a 2-frame tap, still visible', () => {
+    const seen = new Set<number>();
+    for (let ph = 0; ph < 1; ph += 0.01) {
+      const p = computePose('chop', ph * P, makePose(), 1, P, 'reduced');
+      expect(p.axeVisible).toBe(true);
+      seen.add(p.axeAngle);
+    }
+    expect(seen.size).toBe(2);
+    expect(tapAngle(0.7)).not.toBe(tapAngle(0.1));
+  });
+  it('reduced tree tweens: short fade, no tilt, no pop', () => {
+    const r = MOTION.reduced;
+    expect(r.fallMs).toBeLessThanOrEqual(120);
+    expect(r.regrowMs).toBeLessThanOrEqual(120);
+    expect(REDUCED_FADE_MS).toBeLessThanOrEqual(120);
+    expect(r.fallTiltDeg).toBe(0);
+    expect(r.regrowFromScale).toBe(1);
+    expect(MOTION.on.fallTiltDeg).toBeGreaterThan(0);
+    expect(MOTION.on.regrowFromScale).toBeLessThan(1);
+  });
+});
+
+describe('motion mode off', () => {
+  const P = CHOP_SWING_PERIOD_MS;
+  it('walk is still', () => {
+    const w = computePose('walk', 130, makePose(), 1, P, 'off');
+    expect(
+      [w.bodyBobY, w.legFrontX, w.legBackLift, w.armAngle].every((v) => Math.abs(v) < 1e-9),
+    ).toBe(true);
+  });
+  it('chop holds the axe visible in one static pose at every phase', () => {
+    const seen = new Set<number>();
+    for (let ph = 0; ph < 1; ph += 0.01) {
+      const p = computePose('chop', ph * P, makePose(), 1, P, 'off');
+      expect(p.axeVisible).toBe(true);
+      seen.add(p.axeAngle);
+    }
+    expect([...seen]).toEqual([STATIC_AXE_ANGLE]);
+  });
+  it('tree swaps are instant', () => {
+    expect(MOTION.off.fallMs).toBe(0);
+    expect(MOTION.off.regrowMs).toBe(0);
+    expect(MOTION.off.fallTiltDeg).toBe(0);
+    expect(MOTION.off.regrowFromScale).toBe(1);
+  });
+  it('facing flips are unaffected (facingScaleX is independent of mode)', () => {
+    expect(MOTION.off.walkScale).toBe(0);
+  });
+});

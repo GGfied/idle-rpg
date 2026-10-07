@@ -1,16 +1,15 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import path from 'path'
+import react from '@vitejs/plugin-react';
+import tsconfigPaths from 'vite-tsconfig-paths';
+import { defineConfig } from 'vitest/config';
+import pkg from './package.json';
 
+// Path aliases are defined once, in tsconfig.json, and picked up here.
 export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    alias: {
-      '@': path.resolve(process.cwd(), './src'),
-    },
-  },
-  server: {
-    port: 4321, // Change this to your desired port number
-    open: true, // Optional: automatically open browser when server starts
+  // Build version shown in settings; declared in src/env.d.ts. Bump package.json to release.
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
+  plugins: [react(), tsconfigPaths()],
+  test: {
+    environment: 'node',
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
   },
 });

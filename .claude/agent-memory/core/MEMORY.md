@@ -1,0 +1,1 @@
+- [Tooling lessons](tooling.md) — versions/audit/lint-boundary gotchas for the idle-rpg scaffold

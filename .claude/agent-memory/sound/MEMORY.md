@@ -1,0 +1,9 @@
+# sound memory
+- 2026-10-08: Built src/audio as pure Web Audio synth (no asset files): data.ts holds SOUND_DEFS layers + EVENT_SOUNDS, system.ts one generic renderer. Fake AudioContext injected via options.createContext; tests need no real audio.
+- 2026-10-08: ESLint forbids audio importing @app/@features; keep event shape local (AudioEvent) instead of importing engine types.
+- 2026-10-08: Can't hear output as an agent; always report that the main session must listen.
+- 2026-10-08: Mix graph = layer -> channel bus (sfx/ui) -> master -> DynamicsCompressor -> destination. Peak test (sum of overlapping layer gains x MASTER_CEILING <= 1) caught chop at 1.3; lower layer gains, not the ceiling. Fake ctx creates gains in order master, sfx, ui, layers.
+- 2026-10-08: User found audio too quiet (ceiling 0.35 x 0.5). Check loudness of defaults at the destination, not only relative levels. Settings API changes must stay additive (old {volume,muted} migrates via migrateSettings/initialVolume).
+- 2026-10-08: tsc has noUncheckedIndexedAccess; macOS sed needs `-i ''`; other agents' in-flight edits can break `npm run build` outside src/audio, so report it as not mine.
+- 2026-10-08: Added music/ambience (scenes: ambience.ts, music.ts, notes.ts; data AMBIENCE/MUSIC). Scene = gain node faded by linear ramp, old scene stopped + disposed via setTimeout after fade; lookahead scheduler = setTimeout chain (200 ms, 1.5 s ahead) reading ctx.currentTime. Fake ctx now creates 5 buses first (master, sfx, ui, music, ambience); tests move audio clock by setting f.ctx.currentTime then advancing fake timers. Filtered noise loses ~10-20 dB, so bed gains are pre-filter (0.3-0.7). Mutation checks done in a scratchpad rsync copy with node_modules symlinked; real tree untouched.
+- 2026-10-08: audio had no suspend(); added additive suspend() (runtime.ts onHidden should call it, unlock() resumes).

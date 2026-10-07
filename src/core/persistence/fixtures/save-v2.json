@@ -1,0 +1,112 @@
+{
+  "version": 2,
+  "savedAt": 1760100000000,
+  "data": {
+    "inventory": {
+      "slots": [
+        {
+          "itemId": "bronze_axe",
+          "quantity": 1
+        },
+        {
+          "itemId": "logs",
+          "quantity": 1
+        },
+        {
+          "itemId": "logs",
+          "quantity": 1
+        },
+        {
+          "itemId": "logs",
+          "quantity": 1
+        },
+        {
+          "itemId": "logs",
+          "quantity": 1
+        },
+        {
+          "itemId": "logs",
+          "quantity": 1
+        },
+        {
+          "itemId": "logs",
+          "quantity": 1
+        },
+        {
+          "itemId": "logs",
+          "quantity": 1
+        },
+        {
+          "itemId": "logs",
+          "quantity": 1
+        },
+        {
+          "itemId": "logs",
+          "quantity": 1
+        },
+        {
+          "itemId": "logs",
+          "quantity": 1
+        },
+        {
+          "itemId": "logs",
+          "quantity": 1
+        },
+        {
+          "itemId": "logs",
+          "quantity": 1
+        },
+        {
+          "itemId": "logs",
+          "quantity": 1
+        },
+        {
+          "itemId": "logs",
+          "quantity": 1
+        },
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "progression": {
+      "xp": {
+        "woodcutting": 1154,
+        "hitpoints": 1154,
+        "prayer": 0
+      }
+    },
+    "movement": {
+      "position": {
+        "x": 12,
+        "y": 9
+      },
+      "running": false
+    },
+    "meta": {
+      "playTimeMs": 734200
+    },
+    "bank": {
+      "items": [
+        {
+          "itemId": "logs",
+          "quantity": 120
+        },
+        {
+          "itemId": "oak_logs",
+          "quantity": 5
+        }
+      ]
+    }
+  }
+}

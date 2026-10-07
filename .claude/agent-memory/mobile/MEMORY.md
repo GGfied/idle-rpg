@@ -1,0 +1,5 @@
+- 2026-10-08: NEVER hard-code library enum numbers from memory: I wrote Phaser `mode: 3` as RESIZE; it is FIT (RESIZE=5) -> letterbox + 1.25x click offset. Verify in node_modules source and pin with a test (here a `?raw` import of Phaser's SCALE_MODE_CONST.js, since root 'phaser' needs a browser and node types are absent).
+- 2026-10-08: Phaser is type-only in platform, so enums are literals; Phaser 3.90 Scale has no DPR option.
+- 2026-10-08: vitest (esbuild) does not type-check; a TS arity bug passed tests. Always run `npx tsc --noEmit` too.
+- 2026-10-08: Gesture design: pure `gestureReducer(state, raw, now)` + thin DOM wiring; touch long-press = timer dispatching `hold` that the reducer re-validates; dedupe the browser's follow-up `contextmenu` after a touch long-press.
+- 2026-10-08: MVP scope excludes PWA/public/; use absolute paths and `mkdir -p`.
