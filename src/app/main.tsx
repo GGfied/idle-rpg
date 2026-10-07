@@ -1,4 +1,5 @@
 import { applySafeAreaVars } from '@platform/viewport';
+import { clampTickMs } from '@app/game/retimeTicker';
 import { createRuntime } from '@app/runtime';
 import { frameAlpha } from '@app/scenes/renderTrail';
 import { createGame } from '@app/scenes/createGame';
@@ -31,7 +32,15 @@ const stop = runtime.start();
 
 // QA hook, DEV only: Vite replaces `import.meta.env.DEV` with false in production, so this is removed.
 if (import.meta.env.DEV) {
-  window.__idleRpg = { store: runtime.store, scene: () => game$.world.debugHandles() };
+  const setTickMs = (ms: number): void => runtime.ticker.retime(clampTickMs(ms), performance.now());
+  const fromUrl = new URLSearchParams(location.search).get('tickMs');
+  if (fromUrl !== null) setTickMs(Number(fromUrl));
+  window.__idleRpg = {
+    store: runtime.store,
+    scene: () => game$.world.debugHandles(),
+    setTickMs,
+    tickMs: () => runtime.ticker.intervalMs,
+  };
 }
 
 // Hot reload: tear the old runtime down (ticker, autosave, listeners, Phaser) so a stale copy can

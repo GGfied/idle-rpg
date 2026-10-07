@@ -1,5 +1,5 @@
 import type { Tile } from '@core/contracts';
-import { pointerToTile } from '@render/index';
+import { isoProjection } from '@render/index';
 
 export interface ClientRect {
   left: number;
@@ -25,7 +25,7 @@ export interface MapBounds {
 /**
  * Pointer position in page (client) px -> map tile, or null outside the map.
  * `rect` is the canvas's displayed box and `canvas` its backing size, so a CSS-scaled canvas
- * still maps correctly: client px -> canvas px -> world px -> tile.
+ * still maps correctly: client px -> canvas px -> world px -> iso diamond tile.
  */
 export function clientToTile(
   clientX: number,
@@ -36,7 +36,8 @@ export function clientToTile(
   bounds: MapBounds,
 ): Tile | null {
   const w = clientToWorld(clientX, clientY, rect, canvas, cam);
-  return w && pointerToTile(w.x, w.y, bounds);
+  const t = w && isoProjection.pickTile(w.x, w.y, bounds.width, bounds.height);
+  return t ? { x: t.tx, y: t.ty } : null;
 }
 
 /** Pointer position in page px -> world px (same maths as clientToTile, before tiling). */

@@ -17,3 +17,41 @@ export interface ItemRegistry {
   all(): readonly ItemDef[];
   isStackable(id: string): boolean;
 }
+
+/** An item lying on a tile. Not persisted: ground items are cleared on reload. */
+export interface GroundItem {
+  id: string;
+  itemId: string;
+  qty: number;
+  x: number;
+  y: number;
+  spawnTick: number;
+  /** Removed once `tick >= despawnTick`. */
+  despawnTick: number;
+}
+
+export interface GroundItemsState {
+  items: GroundItem[];
+  nextId: number;
+}
+
+export interface DropGroundItemInput {
+  itemId: string;
+  qty: number;
+  x: number;
+  y: number;
+  tick: number;
+}
+
+interface GroundItemEventBase {
+  id: string;
+  itemId: string;
+  qty: number;
+  x: number;
+  y: number;
+}
+
+export type GroundItemEvent =
+  | ({ type: 'groundItemDropped' } & GroundItemEventBase)
+  | ({ type: 'groundItemTaken' } & GroundItemEventBase)
+  | ({ type: 'groundItemDespawned' } & GroundItemEventBase);

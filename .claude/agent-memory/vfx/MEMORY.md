@@ -1,4 +1,5 @@
 # vfx memory
+- 2026-10-08: Iso move: effect defs carry `layer` (ground/world/overhead) + `lift` px in data; planEvent applies lift and computes depth via pure `effectDepth` (isoProjection.worldToTile->depthFor, ground -0.5, world +0.5, overhead LAYERS.VFX). Inputs stay feet world px so the API did not change. @render/index imports fine in vitest (no Phaser crash).
 - 2026-10-08: Cross-module facts (skill colours) are injected as optional createVfx callbacks, not duplicated; put the resolve/fallback in a pure logic.ts fn so vitest covers it without Phaser.
 - 2026-10-08: Cue matching (`when`) + per-cue `throttleMs` live in data/planEvent; throttle is a pure `createThrottle`. macOS sed needs `-i ''`; back up the file before mutation-testing.
 - 2026-10-08: tsconfig has noUncheckedIndexedAccess: `EFFECTS[id]` is possibly undefined; guard it. Eslint blocks `../depth`; use `@render/depth` even inside src/render.

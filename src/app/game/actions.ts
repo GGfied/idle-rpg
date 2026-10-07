@@ -1,6 +1,6 @@
 /** Player intents as pure state changes. The store calls these; the tick does the rest. */
 import type { Tile } from '@core/contracts';
-import { countItem, deposit, itemIds, removeSlot, withdraw } from '@core/inventory';
+import { countItem, deposit, itemIds, swapSlots, withdraw } from '@core/inventory';
 import { isDepleted, stopGather } from '@core/skills';
 import { facilityDef, optionsFor, reachRuleFor, requirementsFor } from '@features/facilities';
 import { getNpcDef, optionsFor as npcOptions } from '@features/npc';
@@ -8,6 +8,7 @@ import { findPathToAdjacent, setDestination, setPath } from '@features/movement'
 import { NODE_EXAMINE } from '@app/registry';
 import type { Content } from '@app/registry';
 import { addChat, addImportantChat } from '@app/game/chat';
+import { dropSlot, takeGround } from '@app/game/ground';
 import { findPathToTalk } from '@app/game/reach';
 import { meets } from '@app/game/requirements';
 import { NOTHING_TO_CHOP } from '@app/game/systems';
@@ -21,6 +22,7 @@ function cancelActions(state: GameState): GameState {
     pendingInteraction: null,
     pendingFacility: null,
     pendingNpc: null,
+    pendingGround: null,
     talk: null,
     bankOpen: false,
   };
@@ -63,12 +65,28 @@ export function examineItem(state: GameState, content: Content, slot: number): G
   return def ? addChat(state, def.examine) : state;
 }
 
-/** Drop (delete) the item in a slot. */
-export function dropSlot(state: GameState, content: Content, slot: number): GameState {
-  const { inv, removed } = removeSlot(state.inventory, slot);
-  if (!removed) return state;
-  const name = content.items.get(removed.itemId)?.name ?? removed.itemId;
-  return addChat({ ...state, inventory: inv }, `You drop the ${name.toLowerCase()}.`);
+export { dropSlot };
+
+/** Walk to a ground item and take it (the ground system finishes on arrival). */
+export const takeGroundItem = (state: GameState, content: Content, id: string): GameState =>
+  takeGround(state, content, id, cancelActions);
+
+/** Drag-and-drop: swap two inventory slots. */
+export function swapInventorySlots(state: GameState, a: number, b: number): GameState {
+  const inventory = swapSlots(state.inventory, a, b);
+  return inventory === state.inventory ? state : { ...state, inventory };
+}
+
+/** What an inventory item can be used on. */
+export type UseTarget =
+  { kind: 'item'; slot: number } | { kind: 'object'; id: string } | { kind: 'npc'; id: string };
+
+/**
+ * Use the selected item on a target. No recipe or interaction takes it yet, so every pairing says so;
+ * skills add their combinations here later, as data, without branching on item ids.
+ */
+export function useItemOn(state: GameState, _item: string, _target: UseTarget): GameState {
+  return addChat(state, 'Nothing interesting happens.');
 }
 
 /**

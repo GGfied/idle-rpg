@@ -13,20 +13,52 @@ export const DEFAULT_MIN_GAP_MS = 60;
 export const MASTER_CEILING = 0.8;
 
 export const SOUND_DEFS: Record<SoundId, SoundDef> = {
-  chop: {
+  // Axe impact: a short woody "thock" on every swing that lands. Alternates differ in body pitch
+  // and click colour; pitch and gain jitter on top keep repeats from machine-gunning.
+  axeHit: {
     channel: 'sfx',
-    pitchVariance: 0.12,
+    minGapMs: 150,
+    pitchVariance: 0.08,
+    gainVariance: 0.15,
     layers: [
-      { kind: 'tone', wave: 'triangle', from: 190, to: 90, duration: 0.11, gain: 0.7 },
-      { kind: 'noise', from: 1800, duration: 0.05, gain: 0.45, filter: 'bandpass' },
+      { kind: 'tone', wave: 'triangle', from: 210, to: 95, duration: 0.09, gain: 0.7 },
+      { kind: 'noise', from: 1400, duration: 0.04, gain: 0.45, filter: 'bandpass' },
+    ],
+    variants: [
+      [
+        { kind: 'tone', wave: 'triangle', from: 175, to: 80, duration: 0.1, gain: 0.7 },
+        { kind: 'noise', from: 1000, duration: 0.045, gain: 0.5, filter: 'bandpass' },
+      ],
+      [
+        { kind: 'tone', wave: 'sine', from: 240, to: 110, duration: 0.08, gain: 0.55 },
+        { kind: 'noise', from: 2000, duration: 0.03, gain: 0.3, filter: 'bandpass' },
+        {
+          kind: 'tone',
+          wave: 'triangle',
+          from: 120,
+          to: 70,
+          duration: 0.07,
+          gain: 0.3,
+          delay: 0.015,
+        },
+      ],
+      [
+        { kind: 'tone', wave: 'triangle', from: 150, to: 75, duration: 0.12, gain: 0.7 },
+        { kind: 'noise', from: 800, duration: 0.05, gain: 0.5, filter: 'lowpass' },
+      ],
     ],
   },
+  // A log is gained: a wood crack/split, then a soft two-note "item get" chime (sine, so it never
+  // reads as the square-wave level-up fanfare).
   logGained: {
     channel: 'sfx',
-    pitchVariance: 0.06,
+    minGapMs: 120,
+    pitchVariance: 0.04,
     layers: [
-      { kind: 'tone', wave: 'sine', from: 330, to: 260, duration: 0.09, gain: 0.5, delay: 0.1 },
-      { kind: 'tone', wave: 'sine', from: 440, to: 380, duration: 0.07, gain: 0.3, delay: 0.14 },
+      { kind: 'noise', from: 3200, duration: 0.05, gain: 0.5, filter: 'highpass' },
+      { kind: 'tone', wave: 'sawtooth', from: 520, to: 130, duration: 0.06, gain: 0.3 },
+      { kind: 'tone', wave: 'sine', from: 660, duration: 0.12, gain: 0.3, delay: 0.09 },
+      { kind: 'tone', wave: 'sine', from: 880, duration: 0.2, gain: 0.25, delay: 0.17 },
     ],
   },
   treeFall: {
@@ -82,8 +114,9 @@ export const SOUND_DEFS: Record<SoundId, SoundDef> = {
  * `gatherStopped` for depleted/cancelled intentionally has no entry (no error sound).
  */
 export const EVENT_SOUNDS: readonly EventSoundEntry[] = [
-  { type: 'gatherStarted', sounds: ['chop'] },
-  { type: 'itemGathered', sounds: ['chop', 'logGained'] },
+  // swingImpact is emitted by the scene on the axe-strike frame of every swing (hit or miss).
+  { type: 'swingImpact', sounds: ['axeHit'] },
+  { type: 'itemGathered', sounds: ['logGained'] },
   { type: 'nodeDepleted', sounds: ['treeFall'] },
   { type: 'levelUp', sounds: ['levelUp'] },
   { type: 'gatherStopped', reason: 'inventoryFull', sounds: ['inventoryFull'] },

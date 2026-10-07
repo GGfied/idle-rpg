@@ -169,18 +169,24 @@ describe('chopping behaviour', () => {
     });
   });
 
-  it('a full inventory stops the action', () => {
+  it('a full inventory refuses to start (no session, no roll)', () => {
     const env = makeEnv({ canFit: () => false });
+    expect(startGather(createGatheringState(), 'tree_1', 'tree', env)).toEqual({
+      ok: false,
+      error: 'inventoryFull',
+    });
+  });
+
+  it('a running session stops with inventoryFull when the bag fills mid-session', () => {
+    let full = false;
+    const env = makeEnv({ canFit: () => !full });
     let s = begin('tree_1', 'tree', env);
-    for (let t = 1; t <= 3; t++) s = tickGathering(s, ctx(t, [0]), env).state;
-    const r = tickGathering(s, ctx(4, [0, 0]), env);
-    expect(r.events).toEqual([
-      {
-        type: 'gatherStopped',
-        nodeId: 'tree_1',
-        defId: 'tree',
-        reason: 'inventoryFull',
-      },
+    s = tickGathering(s, ctx(1, [0]), env).state;
+    expect(s.session).not.toBeNull();
+    full = true;
+    const r = tickGathering(s, ctx(2, [0]), env); // refused before any roll
+    expect(r.events).toMatchObject([
+      { type: 'gatherStopped', nodeId: 'tree_1', defId: 'tree', reason: 'inventoryFull' },
     ]);
     expect(r.state.session).toBeNull();
   });

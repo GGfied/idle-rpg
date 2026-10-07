@@ -95,7 +95,7 @@ describe('Willowbrook Bank', () => {
     expect(NPC_SPAWNS.map((n) => n.spawnId)).toEqual(['banker_1', 'banker_2']);
     expect(findDuplicates(NPC_SPAWNS.map((n) => n.spawnId))).toEqual([]);
     NPC_SPAWNS.forEach((n, i) => {
-      expect(n.npcId).toBe('banker');
+      expect(n.npcId).toBe(i === 1 ? 'banker_f' : 'banker');
       expect(n.wanderRadius).toBe(0);
       expect(grid.isWalkable(n.x, n.y)).toBe(true);
       expect(reach.has(pointKey(n))).toBe(false);

@@ -46,7 +46,9 @@ Work must be resumable by a fresh session at any point.
   (`.claude/hooks/agents-only.sh`) blocks main-session edits outside `CLAUDE.md`, `CHANGELOG*.md`, `docs/` and `.claude/`.
 - **Changelog + versioning (user, 2026-10-08).** Semver (`package.json` `version`, shown in Settings via the build-time
   `__APP_VERSION__`). The main session keeps `CHANGELOG.md` (year index) + `CHANGELOG-YYYY.md` with the `changelog` skill:
-  the unpushed commit is the `latest` entry; each release bumps the version, gets an entry and a `vX.Y.Z` tag.
+  each release bumps the version and gets an entry; the `vX.Y.Z` tag is created by the GitHub pipeline from
+  `package.json` on push to `main` (user, 2026-10-08: never tag by hand). Entry headers use the VERSION, not `latest` or a
+  commit hash (user, 2026-10-08): `### v0.1.1 · YYYY-MM-DD SGT`; unreleased work goes into the entry for the next version.
 - Run independent agents in parallel (a Workflow or parallel Agent calls), then have `qa` verify.
   The owner fixes `qa`'s findings, and `integrator` wires the result into `app/`.
 - Agent files added mid-session are picked up automatically (seen 2026-10-08). If a new agent doesn't
@@ -76,8 +78,11 @@ Work must be resumable by a fresh session at any point.
   round. Otherwise the running game writes current-version saves missing a slice, which later fail to load.
   (Seen twice, v2 and v3, 2026-10-08; it cost the user their progress once.)
 - **QA gate (user rule, always).** No change counts as done, and nothing is reported to the user as
-  working, until `qa` has run `npm run lint && npm run test && npm run build` plus the browser smoke test
-  (`npm run e2e`, desktop + phone viewport) on the change and reported. Every integrator round is followed by
+  working, until `qa` has checked it in the browser and reported. **One qa agent per feature** (user: "always 1 slice
+  each"), all in parallel on their own ports; a qa agent that finds its feature too big reports a split at once and
+  the main session dispatches the parts. Lint/test/build + `npm run e2e` + core smoke run once per round as their own
+  **gate** slice, not inside every feature slice. Never cut a qa run short; a run with no progress for 2 minutes is
+  stuck, so kill it and fix the cause. Every integrator round is followed by
   a `qa` round; its findings go to the owners, and the fix gets another `qa` round. The main session's own
   browser checks add to qa; they don't replace it. (User, 2026-10-08: "we need enforce qa always".)
 - **Money is not an item (user rule).** Coins/currency are a player balance (a "wallet" save slice owned by `economy`:
@@ -97,8 +102,11 @@ Work must be resumable by a fresh session at any point.
   ln -s /Users/Derrick/Projects/idle-rpg/node_modules "$SCRATCH/mut/node_modules"`, mutate there, then
   `npx vitest run --root "$SCRATCH/mut" <file>`. "A copy is too much work" is not a reason to mutate live files. Use absolute paths in generated edit scripts. (Seen 3×, 2026-10-08: integrator's stray CSS file,
   the half-built sidebar, animation's mangled data.ts.)
+- **Every agent runs e2e scripts in the FOREGROUND** (`node tests/e2e/<x>.e2e.mjs`, Bash timeout 420000) and reads the
+  output directly. Never background a test and poll a log for a word (a `until grep -q SUMMARY` loop waited forever on a
+  finished run that printed "13/15 checks passed"; 2026-10-08). The harness exits by itself.
 - **Clean up background processes.** Any agent that starts a dev server or headless browser kills it when done (also on
-  failure); headless Chrome always runs with `--mute-audio`. (2026-10-08: orphaned test browsers played game audio on the
+  failure), by its own PID only, never `pkill`/`killall` by pattern (other agents' browsers die too); headless Chrome always runs with `--mute-audio`. (2026-10-08: orphaned test browsers played game audio on the
   user's speakers; the main session had to kill 7.)
 - **Wire as you go.** A finished module isn't done until `integrator` has wired it into the running game
   and it's visible. Don't queue several finished modules for one big integration round later. (User,
@@ -108,13 +116,20 @@ Work must be resumable by a fresh session at any point.
   files by absolute path. A failed `cd X && …` silently runs the rest in the project root, where
   parallel agents overwrite each other's files. (Seen by `items` and `equipment`, 2026-10-08.)
 
+- **QA results are recorded in real time (user rule).** Every qa/balance/performance run appends one line to
+  `docs/qa-log.md` (single `>>`, append-only) the moment it finishes, before its report. The main session updates
+  `docs/qa-coverage.md` in the same response as each log line or report it sees (⏳ with port when dispatched, the
+  result when it lands), never batched to the end of a round. Reason: when the session hits its usage limit, results
+  that were only in an agent's head are lost and must be re-run. (User, 2026-10-08, after the 04:55 restart.)
+
 ## Stack
 
 Vite + TypeScript (strict) · Phaser 3 for the world · React 18 for the HUD panels · Zustand for
 shared state · vite-plugin-pwa for install/offline · Vitest for tests · ESLint + Prettier.
 
 **Hosting:** a static site (`dist/`) on **Cloudflare Workers Builds (static assets)**, connected by the user
-(2026-10-08) to the personal repo `GGfied/idle-rpg`: every push to `main` builds (`npm run build`) and deploys
+(2026-10-08) to the personal repo `GGfied/idle-rpg`. Live: https://idle-rpg.chunyuan90.workers.dev (previews:
+`*-idle-rpg.chunyuan90.workers.dev`; `curl` checks need a browser `-A` user-agent or Cloudflare returns error 1042): every push to `main` builds (`npm run build`) and deploys
 (`npx wrangler deploy`, config `wrangler.jsonc`: assets ./dist, SPA fallback); other branches upload preview
 versions (`npx wrangler versions upload`). `NODE_VERSION=20.18.1`, Vite `base: '/'`, headers in `public/_headers`.
 No deploy workflow; no backend yet. GitHub Actions runs CI (lint/test/build) on pushes/PRs. **A push deploys**, so never commit or push

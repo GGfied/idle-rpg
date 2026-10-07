@@ -107,6 +107,24 @@ describe('startGather / stopGather', () => {
     expect(r).toEqual({ ok: false, error: reason });
   });
 
+  it.each([
+    ['full bag, nothing fits', () => false, false],
+    ['free slot or stackable already held', () => true, true],
+    ['only the stackable yield fits', (id: string) => id === 'ash', true],
+  ] as const)('product fit: %s', (_n, canFit, allowed) => {
+    const twoYield: GatherDef = {
+      ...tree,
+      yields: [
+        { weight: 1, value: { itemId: 'logs', quantity: 1 } },
+        { weight: 1, value: { itemId: 'ash', quantity: 1 } },
+      ],
+    };
+    const env = makeEnv({ canFit }, [twoYield]);
+    const r = startGather(createGatheringState(), 't1', tree.id, env);
+    expect(r.ok).toBe(allowed);
+    if (!r.ok) expect(r.error).toBe('inventoryFull');
+  });
+
   it('refuses a depleted node', () => {
     const state = { session: null, nodes: { t1: depleteNode(1, 10) } };
     expect(startGather(state, 't1', tree.id, makeEnv())).toEqual({ ok: false, error: 'depleted' });

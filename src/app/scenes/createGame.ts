@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { phaserScaleConfig } from '@platform/viewport';
+import { watchViewport } from '@app/scenes/remeasure';
 import { WorldScene } from '@app/scenes/WorldScene';
 import type { SceneDeps } from '@app/scenes/WorldScene';
 
@@ -35,8 +36,12 @@ export function createGame(parent: HTMLElement, deps: SceneDeps): GameHandle {
   const raf = requestAnimationFrame(refresh);
   void document.fonts?.ready.then(refresh);
   window.addEventListener('load', refresh);
+  // Zoom / display moves change devicePixelRatio and the visual viewport, which the parent's
+  // ResizeObserver can miss; re-measure on those too (one rAF per burst).
+  const unwatch = watchViewport(window, refresh);
   return {
     destroy: () => {
+      unwatch();
       observer?.disconnect();
       cancelAnimationFrame(raf);
       window.removeEventListener('load', refresh);

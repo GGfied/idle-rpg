@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   STATIC_AXE_ANGLE,
+  facingFromStep,
+  facingIsBack,
+  facingIsLeft,
+  fallVector,
   chopAngle,
   computePose,
   makePose,
   nextAnimState,
   tapAngle,
+  foreshortenSwing,
 } from './logic';
-import { CHOP_SWING_PERIOD_MS, MOTION, REDUCED_FADE_MS } from './data';
+import { CHOP_SWING_PERIOD_MS, MOTION, REDUCED_FADE_MS, SWING_IMPACT_PHASE } from './data';
 
 describe('nextAnimState', () => {
   const idle = { moving: false, gathering: false };
@@ -47,7 +52,7 @@ describe('computePose', () => {
     const p = makePose();
     expect(computePose('walk', 130, p, 0)).toBe(p);
     expect(p.bodyBobY).toBeCloseTo(0);
-    expect(p.legFrontX).toBeCloseTo(0);
+    expect(p.thighFront).toBeCloseTo(0);
   });
 });
 
@@ -55,7 +60,7 @@ describe('motion modes', () => {
   const P = CHOP_SWING_PERIOD_MS;
   it('on: walk bobs and chop swings through a wide arc', () => {
     const w = computePose('walk', 130, makePose(), 1, P, 'on');
-    expect(Math.abs(w.legFrontX) + Math.abs(w.bodyBobY)).toBeGreaterThan(0.5);
+    expect(Math.abs(w.thighFront) + Math.abs(w.bodyBobY)).toBeGreaterThan(0.3);
     const angles = [0, 0.3, 0.55, 0.7].map(
       (ph) => computePose('chop', ph * P, makePose(), 1, P, 'on').axeAngle,
     );
@@ -64,7 +69,7 @@ describe('motion modes', () => {
   it('reduced: walk is still', () => {
     const w = computePose('walk', 130, makePose(), 1, P, 'reduced');
     expect(
-      [w.bodyBobY, w.legFrontX, w.legBackLift, w.armAngle].every((v) => Math.abs(v) < 1e-9),
+      [w.bodyBobY, w.thighFront, w.kneeBack, w.armAngle].every((v) => Math.abs(v) < 1e-9),
     ).toBe(true);
   });
   it('reduced: chop is a 2-frame tap, still visible', () => {
@@ -94,7 +99,7 @@ describe('motion mode off', () => {
   it('walk is still', () => {
     const w = computePose('walk', 130, makePose(), 1, P, 'off');
     expect(
-      [w.bodyBobY, w.legFrontX, w.legBackLift, w.armAngle].every((v) => Math.abs(v) < 1e-9),
+      [w.bodyBobY, w.thighFront, w.kneeBack, w.armAngle].every((v) => Math.abs(v) < 1e-9),
     ).toBe(true);
   });
   it('chop holds the axe visible in one static pose at every phase', () => {
@@ -114,5 +119,72 @@ describe('motion mode off', () => {
   });
   it('facing flips are unaffected (facingScaleX is independent of mode)', () => {
     expect(MOTION.off.walkScale).toBe(0);
+  });
+});
+
+describe('iso facing', () => {
+  // tile delta -> facing, flip (null = keep), back
+  const cases: [string, number, number, string, boolean | null, boolean][] = [
+    ['no movement', 0, 0, 's', null, false],
+    ['+x tile', 1, 0, 'se', false, false],
+    ['+x +y (down screen)', 1, 1, 's', null, false],
+    ['+y tile', 0, 1, 'sw', true, false],
+    ['-x tile', -1, 0, 'nw', true, true],
+    ['-x -y (up screen)', -1, -1, 'n', null, true],
+    ['-y tile', 0, -1, 'ne', false, true],
+    ['+x -y (right on screen)', 1, -1, 'e', false, false],
+    ['-x +y (left on screen)', -1, 1, 'w', true, false],
+  ];
+  it.each(cases)('%s', (_n, dx, dy, facing, left, back) => {
+    const f = facingFromStep(dx, dy);
+    expect(f).toBe(facing);
+    expect(facingIsBack(f)).toBe(back);
+    if (left === null) {
+      expect(facingIsLeft(f, true)).toBe(true);
+      expect(facingIsLeft(f, false)).toBe(false);
+    } else {
+      expect(facingIsLeft(f, !left)).toBe(left);
+    }
+  });
+  it('covers all 8 directions', () => {
+    expect(new Set(cases.map((c) => c[3]))).toEqual(
+      new Set(['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']),
+    );
+  });
+});
+
+describe('fallVector', () => {
+  it('slides away from the player along the screen axis, unit length', () => {
+    const v = fallVector(1, -1, { slideX: 0, slideY: 0, tilt: 0 });
+    expect(v.tilt).toBeCloseTo(1);
+    expect(Math.hypot(v.slideX, v.slideY)).toBeCloseTo(10);
+  });
+  it('(0,0) is the right-falling default', () => {
+    expect(fallVector(0, 0, { slideX: 5, slideY: 5, tilt: 0 })).toEqual({
+      slideX: 0,
+      slideY: 0,
+      tilt: 1,
+    });
+  });
+});
+
+describe('SWING_IMPACT_PHASE', () => {
+  it('is where the strike ends: the axe reaches the hit angle there and not before', () => {
+    const hit = chopAngle(SWING_IMPACT_PHASE + 0.01);
+    expect(chopAngle(SWING_IMPACT_PHASE)).toBeCloseTo(hit, 6);
+    expect(chopAngle(SWING_IMPACT_PHASE - 0.02)).toBeLessThan(hit - 0.05);
+  });
+});
+
+describe('foreshortenSwing', () => {
+  it('reach 1 is the identity', () => {
+    for (const a of [-2, -1, 0, 0.7]) expect(foreshortenSwing(a, 1)).toBeCloseTo(a);
+  });
+  it('keeps the vertical part and scales the sideways part', () => {
+    const a = -115 * (Math.PI / 180);
+    const f = foreshortenSwing(a, 0.5);
+    expect(Math.tan(f)).toBeCloseTo(0.5 * Math.tan(a));
+    expect(Math.cos(f)).toBeLessThan(0);
+    expect(foreshortenSwing(0, 0.5)).toBe(0);
   });
 });

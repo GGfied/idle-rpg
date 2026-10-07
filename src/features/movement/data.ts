@@ -12,3 +12,5 @@ export const MIN_RUN_ENERGY = 100;
 export const RUN_DRAIN_PER_TILE = 67;
 /** Regen per tick when not running-and-moving: ~0.45% (OSRS base, no Agility yet). */
 export const RUN_REGEN_PER_TICK = 45;
+/** When a capped walk stalls (no progress), re-path once with the cap multiplied by this. */
+export const STALL_CAP_FACTOR = 4;

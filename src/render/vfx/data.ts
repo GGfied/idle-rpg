@@ -1,3 +1,4 @@
+import { ISO } from '@render/index';
 import type { BlockedLabel, EffectDef, VfxCue, VfxLimits } from './types';
 
 /** Same blocked cue plays at most once per this many ms (the game can re-emit every tick). */
@@ -60,6 +61,8 @@ export const BLOCKED_TEXT: Readonly<Record<string, BlockedLabel>> = {
 export const EFFECTS: Readonly<Record<string, EffectDef>> = {
   woodChips: {
     kind: 'burst',
+    layer: 'world',
+    lift: 24,
     decorative: true,
     count: 6,
     colors: [0x8b5a2b, 0x6b4423, 0xa8772f],
@@ -72,6 +75,8 @@ export const EFFECTS: Readonly<Record<string, EffectDef>> = {
   },
   treeFallDust: {
     kind: 'burst',
+    layer: 'world',
+    lift: 6,
     decorative: true,
     count: 8,
     colors: [0xc8b89a, 0xb3a384, 0xd9cdb4],
@@ -85,6 +90,8 @@ export const EFFECTS: Readonly<Record<string, EffectDef>> = {
   },
   levelUpSparkle: {
     kind: 'burst',
+    layer: 'overhead',
+    lift: 40,
     decorative: true,
     count: 12,
     colors: [0xffe14d, 0xffffff, 0xffb830],
@@ -95,16 +102,36 @@ export const EFFECTS: Readonly<Record<string, EffectDef>> = {
     lifeMs: 800,
     jitter: 6,
   },
-  levelUpRing: { kind: 'ring', color: 0xffe14d, radius: [6, 30], width: 3, lifeMs: 600 },
-  xpDrop: { kind: 'xpDrop', riseY: 34, lifeMs: 1100, fontPx: 14, defaultColor: '#ffffff' },
+  levelUpRing: {
+    kind: 'ring',
+    layer: 'ground',
+    squashY: 0.5,
+    color: 0xffe14d,
+    radius: [10, 48],
+    width: 3,
+    lifeMs: 600,
+  },
+  xpDrop: {
+    kind: 'xpDrop',
+    layer: 'overhead',
+    lift: 56,
+    riseY: 34,
+    lifeMs: 1100,
+    fontPx: 14,
+    defaultColor: '#ffffff',
+  },
   clickMarker: {
     kind: 'marker',
+    layer: 'ground',
     colors: { walk: 0xffee33, interact: 0xff3b30 },
-    half: 7,
+    halfW: ISO.tileWidth / 2,
+    halfH: ISO.tileHeight / 2,
     lifeMs: 450,
   },
   blockedCross: {
     kind: 'cross',
+    layer: 'world',
+    lift: 24,
     color: 0xff3b30,
     half: 9,
     fromScale: 0.5,
@@ -113,6 +140,8 @@ export const EFFECTS: Readonly<Record<string, EffectDef>> = {
   },
   blockedText: {
     kind: 'blockedText',
+    layer: 'overhead',
+    lift: 56,
     color: '#ff5a4d',
     fontPx: 14,
     riseY: 14,

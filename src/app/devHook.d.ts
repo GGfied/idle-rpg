@@ -7,6 +7,9 @@ declare global {
     __idleRpg?: {
       store: AppStore;
       scene: () => ReturnType<WorldScene['debugHandles']>;
+      /** Set the game tick interval (clamped 30-600 ms); `?tickMs=60` does it at boot. */
+      setTickMs: (ms: number) => void;
+      tickMs: () => number;
     };
   }
 }

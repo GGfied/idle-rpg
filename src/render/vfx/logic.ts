@@ -1,3 +1,4 @@
+import { LAYERS, isoProjection } from '@render/index';
 import { BLOCKED_TEXT, EFFECTS, EVENT_VFX, REDUCED_LIFE_SCALE } from './data';
 import type {
   BlockedLabel,
@@ -5,6 +6,7 @@ import type {
   VfxContext,
   VfxCue,
   VfxEvent,
+  EffectLayer,
   VfxMode,
   VfxOptions,
 } from './types';
@@ -34,6 +36,8 @@ export interface Placement {
   effect: string;
   x: number;
   y: number;
+  /** Draw depth from the effect's layer and the tile under its feet point. */
+  depth: number;
   /** Throttle key and window, when the cue is throttled. */
   throttle?: { key: string; ms: number };
 }
@@ -57,7 +61,12 @@ export function planEvent(
     if (!def || (def.kind === 'xpDrop' && !opts.xpDrops)) continue;
     const node = cue.at === 'node' && nodeId ? ctx.nodeWorld?.(nodeId) : undefined;
     const p = node ?? ctx.playerWorld;
-    const placement: Placement = { effect: cue.effect, x: p.x, y: p.y };
+    const placement: Placement = {
+      effect: cue.effect,
+      x: p.x,
+      y: p.y - (def.lift ?? 0),
+      depth: effectDepth(def.layer, p.x, p.y),
+    };
     if (cue.throttleMs) {
       const key = `${event.type}:${cue.effect}:${JSON.stringify(cue.when ?? {})}`;
       placement.throttle = { key, ms: cue.throttleMs };
@@ -65,6 +74,27 @@ export function planEvent(
     out.push(placement);
   }
   return out;
+}
+
+/**
+ * Depth for an effect at a feet-point world pixel. 'overhead' sits above the whole world; the others
+ * share the entity depth scale so they sort with it ('ground' just behind an entity on the same tile,
+ * 'world' just in front of it).
+ */
+export function effectDepth(layer: EffectLayer, x: number, y: number): number {
+  if (layer === 'overhead') return LAYERS.VFX;
+  const t = isoProjection.worldToTile(x, y);
+  return isoProjection.depthFor(t.tx, t.ty) + (layer === 'ground' ? -0.5 : 0.5);
+}
+
+/** Corner points (relative to the centre) of the iso diamond marker. */
+export function diamondPoints(halfW: number, halfH: number): { x: number; y: number }[] {
+  return [
+    { x: 0, y: -halfH },
+    { x: halfW, y: 0 },
+    { x: 0, y: halfH },
+    { x: -halfW, y: 0 },
+  ];
 }
 
 function matches(cue: VfxCue, event: VfxEvent): boolean {

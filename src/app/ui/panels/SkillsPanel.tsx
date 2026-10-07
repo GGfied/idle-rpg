@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import {
   MAX_LEVEL,
   SKILLS,
@@ -64,8 +65,13 @@ export function SkillsPanel() {
 function SkillDetail({ skillId, name }: { skillId: (typeof SKILLS)[number]['id']; name: string }) {
   const xp = useApp((s) => s.game.progression.xp[skillId]);
   const level = levelForXp(xp);
+  const ref = useRef<HTMLDivElement>(null);
+  // On a phone the detail sits below the fold of the scrolling sheet; bring it into view.
+  useEffect(() => {
+    ref.current?.scrollIntoView({ block: 'nearest' });
+  }, [skillId]);
   return (
-    <div className="skill-detail">
+    <div className="skill-detail" ref={ref}>
       <strong>{name}</strong>
       <div>
         Level {level} / {MAX_LEVEL}

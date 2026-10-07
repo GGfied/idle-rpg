@@ -1,3 +1,15 @@
+/**
+ * Where an effect sorts: 'ground' = flat on the tile (under whatever stands on it), 'world' = in the
+ * scene at the tile (just in front of what stands on it), 'overhead' = above everything in the world (LAYERS.VFX).
+ */
+export type EffectLayer = 'ground' | 'world' | 'overhead';
+
+/** Fields every effect has. `lift` = px above the feet point where it plays. */
+export interface EffectBase {
+  layer: EffectLayer;
+  lift?: number;
+}
+
 export type VfxAnchor = 'player' | 'node';
 
 /** One thing to play when an event arrives. `effect` is a key of `EFFECTS`. */
@@ -26,7 +38,7 @@ export interface VfxOptions {
   xpDrops: boolean;
 }
 
-export interface BurstEffect {
+export interface BurstEffect extends EffectBase {
   kind: 'burst';
   /** Decorative only: dropped in 'reduced' mode. */
   decorative?: boolean;
@@ -47,15 +59,17 @@ export interface BurstEffect {
   jitter: number;
 }
 
-export interface RingEffect {
+export interface RingEffect extends EffectBase {
   kind: 'ring';
   color: number;
+  /** Vertical squash (0.5 = flat on an iso ground plane). */
+  squashY?: number;
   radius: readonly [number, number];
   width: number;
   lifeMs: number;
 }
 
-export interface XpDropEffect {
+export interface XpDropEffect extends EffectBase {
   kind: 'xpDrop';
   riseY: number;
   lifeMs: number;
@@ -63,18 +77,20 @@ export interface XpDropEffect {
   defaultColor: string;
 }
 
-export interface MarkerEffect {
+export interface MarkerEffect extends EffectBase {
   kind: 'marker';
   /** Colour per marker kind. */
   colors: Readonly<Record<MarkerKind, number>>;
-  half: number;
+  /** Diamond half-extents in px (the iso tile is 64x32, so 32 x 16). */
+  halfW: number;
+  halfH: number;
   lifeMs: number;
 }
 
 export type MarkerKind = 'walk' | 'interact';
 
 /** Short pop-and-fade cross (reuses the marker pool). */
-export interface CrossEffect {
+export interface CrossEffect extends EffectBase {
   kind: 'cross';
   color: number;
   half: number;
@@ -84,7 +100,7 @@ export interface CrossEffect {
 }
 
 /** Floating label above the player that jitters left-right (the "head shake"). */
-export interface BlockedTextEffect {
+export interface BlockedTextEffect extends EffectBase {
   kind: 'blockedText';
   color: string;
   fontPx: number;

@@ -4,10 +4,11 @@ import { scriptedRng } from '@test-utils/index';
 import { CONTENT } from '@app/registry';
 import { createAppStore } from '@app/store';
 import { examineNpc, interactNpc, walkTo } from '@app/game/actions';
-import { advanceTalk } from '@app/game/dialogue';
+import { advanceTalk, startTalk } from '@app/game/dialogue';
 import { applyIntent } from '@app/game/intents';
 import { facilityMenu, npcMenu } from '@app/game/menus';
 import { newGame } from '@app/game/newGame';
+import { createNpcSystem } from '@app/game/systems';
 import { step } from '@app/game/step';
 import type { GameState } from '@app/game/types';
 
@@ -20,7 +21,7 @@ function run(state: GameState, ticks: number): GameState {
 
 describe('npcs in content', () => {
   it('both bankers exist and their tiles block walking', () => {
-    expect([...CONTENT.npcs.keys()]).toEqual(['banker_1', 'banker_2']);
+    expect([...CONTENT.npcs.keys()]).toEqual(['banker_1', 'banker_2', 'banker_3', 'banker_4']);
     expect(CONTENT.grid.isWalkable(12, 8)).toBe(false);
   });
 });
@@ -104,5 +105,22 @@ describe('intents and menus', () => {
       'Examine Banker',
     ]);
     expect(facilityMenu('bank_booth').entries[0]?.optionId).toBe('bank');
+  });
+});
+
+describe('spawn dialogue vars', () => {
+  it('startTalk passes vars so the greeting names the place', () => {
+    const s = startTalk(newGame(CONTENT), 'banker_3', 'banker_greeting', { place: 'Fernhaven' });
+    expect(currentView(s.talk!.dialogue)?.text).toContain('Welcome to Fernhaven Bank');
+  });
+  it("the npc system hands the spawn's dialogueVars to the dialogue", () => {
+    const content = {
+      ...CONTENT,
+      npcDialogueVars: new Map([['banker_1', { place: 'Fernhaven' }]]),
+    };
+    const g = interactNpc(newGame(content), content, 'banker_1');
+    const near = { ...g, movement: { ...g.movement, position: { x: 12, y: 9 }, path: [] } };
+    const s = createNpcSystem(content)(near, { tick: 1, rng: scriptedRng([0]) }).state;
+    expect(currentView(s.talk!.dialogue)?.text).toContain('Welcome to Fernhaven Bank');
   });
 });

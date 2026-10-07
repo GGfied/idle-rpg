@@ -1,6 +1,8 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { currentView, type DialogueState, type DialogueView } from '@features/story';
 import { useApp } from '@app/ui/context';
+import { SpeakerAvatar } from '@app/ui/components/SpeakerAvatar';
+import { speakerPortrait } from '@app/ui/dialoguePortrait';
 import { dialogueKeyAction, tapAdvances } from '@app/ui/dialogueKeys';
 
 function safeView(state: DialogueState | null): DialogueView | null {
@@ -12,9 +14,32 @@ function safeView(state: DialogueState | null): DialogueView | null {
   }
 }
 
-/** OSRS-style NPC dialogue box: say nodes tap/Space/Enter to continue, choice nodes use 1-9. */
+const TYPE_MS = 16;
+
+/** Characters of `text` revealed so far; instant unless animations are On. Returns [count, finish]. */
+function useTyped(text: string, animate: boolean): [number, () => void] {
+  const [n, setN] = useState(animate ? 0 : text.length);
+  useEffect(() => {
+    if (!animate) {
+      setN(text.length);
+      return;
+    }
+    setN(0);
+    const id = window.setInterval(() => {
+      setN((c) => {
+        if (c + 1 >= text.length) window.clearInterval(id);
+        return c + 1;
+      });
+    }, TYPE_MS);
+    return () => window.clearInterval(id);
+  }, [text, animate]);
+  return [n, () => setN(text.length)];
+}
+
+/** Modern NPC dialogue box: say nodes tap/Space/Enter to continue, choice nodes use 1-9. */
 export function DialoguePanel() {
   const state = useApp((s) => s.dialogue);
+  const look = useApp((s) => s.speakerLook);
   const advance = useApp((s) => s.advanceDialogue);
   const close = useApp((s) => s.closeDialogue);
   const mode = useApp((s) => s.prefs.visuals.animations);
@@ -36,7 +61,12 @@ export function DialoguePanel() {
     return () => window.removeEventListener('keydown', onKey);
   }, [view, advance, close]);
 
+  const speaker = view?.speaker ?? '';
+  const portrait = useMemo(() => speakerPortrait(speaker, 24, undefined, look), [speaker, look]);
+  const text = view?.text ?? '';
+  const [shown, finish] = useTyped(text, mode === 'on');
   if (!view) return null;
+  const typing = shown < text.length;
   const isPlayer = view.speaker === 'player';
   const canTap = tapAdvances(view);
   return (
@@ -52,15 +82,19 @@ export function DialoguePanel() {
       <div
         className="dialogue-main"
         data-tap={canTap}
-        onClick={canTap ? () => advance() : undefined}
+        onClick={canTap ? () => (typing ? finish() : advance()) : undefined}
       >
         <div className="dialogue-name" data-player={isPlayer}>
+          <SpeakerAvatar name={view.speakerName} src={portrait} />
           {view.speakerName}
         </div>
         {canTap ? (
           <>
-            <p className="dialogue-text">{view.text}</p>
-            <div className="dialogue-continue">
+            <p className="dialogue-text">
+              {text.slice(0, shown)}
+              <span className="dialogue-rest">{text.slice(shown)}</span>
+            </p>
+            <div className="dialogue-continue" data-typing={typing}>
               <span className="dialogue-continue-desktop">Click here to continue</span>
               <span className="dialogue-continue-touch">Tap to continue</span>
             </div>

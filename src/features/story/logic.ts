@@ -47,6 +47,7 @@ function settle(
   def: DialogueDef,
   startId: string,
   ctx: DialogueContext,
+  vars: Readonly<Record<string, string>>,
 ): { state: DialogueState; intents: DialogueIntent[] } {
   const intents: DialogueIntent[] = [];
   let id = startId;
@@ -59,20 +60,24 @@ function settle(
       continue;
     }
     if (n.type === 'end') break;
-    return { state: { dialogueId: def.id, nodeId: id, done: false, ctx }, intents };
+    return { state: { dialogueId: def.id, nodeId: id, done: false, ctx, vars }, intents };
   }
-  return { state: { dialogueId: def.id, nodeId: '', done: true, ctx }, intents };
+  return { state: { dialogueId: def.id, nodeId: '', done: true, ctx, vars }, intents };
 }
 
 /** Throws on an unknown dialogue id. */
-export function startDialogue(dialogueId: string, ctx: DialogueContext): DialogueState {
+export function startDialogue(
+  dialogueId: string,
+  ctx: DialogueContext,
+  vars: Readonly<Record<string, string>> = {},
+): DialogueState {
   const def = getDialogue(dialogueId);
   if (!def) throw new Error(`Unknown dialogue "${dialogueId}"`);
   const first = node(def, def.start);
   if (first.type !== 'say' && first.type !== 'choice') {
     throw new Error(`Dialogue "${dialogueId}" must start on a say or choice node`);
   }
-  return settle(def, def.start, ctx).state;
+  return settle(def, def.start, ctx, vars).state;
 }
 
 /**
@@ -95,8 +100,13 @@ export function advance(state: DialogueState, choiceIndex?: number): AdvanceResu
   } else {
     return stay;
   }
-  const { state: next, intents } = settle(def, nextId, state.ctx);
+  const { state: next, intents } = settle(def, nextId, state.ctx, state.vars);
   return { state: next, intents, done: next.done };
+}
+
+function fill(def: DialogueDef, state: DialogueState, text: string): string {
+  const all = { ...def.vars, ...state.vars };
+  return text.replace(/\{(\w+)\}/g, (m, k: string) => all[k] ?? m);
 }
 
 /** What the dialogue box shows now; null when the dialogue is finished. */
@@ -110,7 +120,7 @@ export function currentView(state: DialogueState): DialogueView | null {
     return {
       speaker: player ? 'player' : def.npcId,
       speakerName: player ? 'You' : def.npcName,
-      text: n.text,
+      text: fill(def, state, n.text),
       choices: [],
     };
   }

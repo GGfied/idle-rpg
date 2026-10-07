@@ -16,7 +16,7 @@ import {
   interactTree,
   walkTo,
 } from '@app/game/actions';
-import { NOTHING_TO_CHOP } from '@app/game/systems';
+import { NOTHING_TO_CHOP, OUT_OF_RUN_ENERGY } from '@app/game/systems';
 import { CHAT_LIMIT, addChat } from '@app/game/chat';
 import { fromSave, newGame } from '@app/game/newGame';
 import { facilityMenu } from '@app/game/menus';
@@ -43,7 +43,8 @@ describe('step: click tree -> walk -> chop', () => {
     expect(s.pendingInteraction).toBeNull();
     expect(countItem(s.inventory, 'logs')).toBeGreaterThanOrEqual(1);
     expect(s.progression.xp.woodcutting).toBeGreaterThanOrEqual(25);
-    expect(texts(s)).toContain('You swing your axe at the tree.');
+    // swing lines now come from the animator's impact (scene), not from the tick
+    expect(texts(s)).not.toContain('You swing your axe at the tree.');
     expect(texts(s)).toContain('You get some logs.');
     expect(s.gathering.session).toBeNull(); // the tree fell after one log
   });
@@ -106,7 +107,7 @@ describe('step: click tree -> walk -> chop', () => {
       s = step(s, { tick: t, rng }).state;
       s = interactTree(s, CONTENT, tree.nodeId); // the player keeps tapping the tree
     }
-    expect(texts(s).filter((m) => m === 'You swing your axe at the tree.')).toHaveLength(1);
+    expect(texts(s).filter((m) => m === 'You swing your axe at the tree.')).toHaveLength(0);
     expect(countItem(s.inventory, 'logs')).toBe(1);
   });
 
@@ -263,5 +264,28 @@ describe('bank', () => {
       { itemId: 'bronze_axe', quantity: 1 },
     ]);
     expect(texts(s)).toContain('You deposit your inventory.');
+  });
+});
+
+describe('step: run energy', () => {
+  it('says once in chat when run energy hits 0 while running', () => {
+    const g = newGame(CONTENT);
+    const start = g.movement.position;
+    const s0: GameState = {
+      ...g,
+      movement: {
+        ...g.movement,
+        running: true,
+        runEnergy: 1,
+        path: [
+          { x: start.x + 1, y: start.y },
+          { x: start.x + 2, y: start.y },
+        ],
+      },
+    };
+    const s = run(s0, 3);
+    expect(s.movement.running).toBe(false);
+    expect(texts(s).filter((t) => t === OUT_OF_RUN_ENERGY)).toHaveLength(1);
+    expect(s.chat.find((l) => l.text === OUT_OF_RUN_ENERGY)?.important).toBe(true);
   });
 });

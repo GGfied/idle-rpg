@@ -15,6 +15,9 @@ import {
   bankWithdraw,
   closeBank,
   dropSlot,
+  swapInventorySlots,
+  takeGroundItem,
+  useItemOn,
   examineItem,
   examineTree,
   examineFacility,
@@ -24,11 +27,19 @@ import {
   interactTree,
   walkTo,
 } from '@app/game/actions';
+import type { UseTarget } from '@app/game/actions';
+import { getNpcDef } from '@features/npc';
 import { advanceTalk, closeTalk } from '@app/game/dialogue';
 import type { GameState } from '@app/game/types';
 import type { DialogueState } from '@features/story';
 import { SOUND_CHANNELS, applyChannel, clampVolume } from '@app/game/soundSettings';
 import type { AudioControl, SoundChannel, SoundSettings } from '@app/game/soundSettings';
+
+/** The inventory item picked with "Use", waiting for a target. */
+export interface UseSelection {
+  slot: number;
+  itemId: string;
+}
 
 export type TabId = 'inventory' | 'skills';
 
@@ -80,6 +91,8 @@ export interface AppState {
   game: GameState;
   /** The open conversation, mirrored from `game.talk` (null when none). Read it with `currentView`. */
   dialogue: DialogueState | null;
+  /** Sprite key (portrait look) of the NPC being talked to; null when no conversation. */
+  speakerLook: string | null;
   tab: TabId;
   /** Phone bottom sheet: whether the active panel is expanded. */
   panelOpen: boolean;
@@ -97,6 +110,8 @@ export interface AppState {
   areaBanner: AreaBanner | null;
   /** Skill whose detail is open in the Skills panel. */
   skillDetail: SkillId | null;
+  /** The item chosen with Use (cleared when its slot changes or empties); null when none. */
+  useSelection: UseSelection | null;
   /** Bumped when the camera should snap back to following the player. */
   recentre: number;
   // Intents (they call pure game actions; nothing here runs game logic itself).
@@ -107,6 +122,15 @@ export interface AppState {
   examineTree(nodeId: string): void;
   examineItem(slot: number): void;
   dropSlot(slot: number): void;
+  /** Drag-and-drop: swap two inventory slots. */
+  swapInventorySlots(a: number, b: number): void;
+  /** Pick the item in a slot for "Use X ->"; the next tap on an item, object or NPC uses it there. */
+  useItem(slot: number): void;
+  /** Use the selected item on a target (tapping the selected item itself cancels), then clear it. */
+  useItemOn(target: UseTarget): void;
+  cancelUse(): void;
+  /** Walk to a ground item and pick it up. */
+  takeGroundItem(id: string): void;
   /** Walk beside a facility and use its option (default: the first, e.g. "Bank"). */
   interactFacility(objectId: string, optionId?: string): void;
   examineFacility(objectId: string): void;
@@ -163,9 +187,20 @@ export function createAppStore(
     ...joined(s, fn(s.game)),
     menu: null,
   });
+  const lookOf = (g: GameState): string | null => {
+    const inst = g.talk ? content.npcs.get(g.talk.spawnId) : undefined;
+    return (inst && getNpcDef(inst.npcId)?.spriteKey) ?? null;
+  };
   const joined = (s: AppState, next: GameState) => {
     const game = filterNewChat(s.game, next, s.prefs.notifications.gameMessages);
-    return { game, dialogue: game.talk?.dialogue ?? null };
+    const sel = s.useSelection;
+    const keep = sel !== null && game.inventory.slots[sel.slot]?.itemId === sel.itemId;
+    return {
+      game,
+      dialogue: game.talk?.dialogue ?? null,
+      speakerLook: lookOf(game),
+      useSelection: keep ? sel : null,
+    };
   };
   let noticeId = 0;
   let audio: AudioControl | null = null;
@@ -175,6 +210,7 @@ export function createAppStore(
   const store = createStore<AppState>()((set, get) => ({
     game: initial,
     dialogue: initial.talk?.dialogue ?? null,
+    speakerLook: lookOf(initial),
     tab: 'inventory',
     panelOpen: true,
     menu: null,
@@ -186,6 +222,7 @@ export function createAppStore(
     levelUp: null,
     areaBanner: null,
     skillDetail: null,
+    useSelection: null,
     recentre: 0,
     setGame: (game) => set((s) => joined(s, game)),
     toggleRun: () => set((s) => ({ game: { ...s.game, movement: toggleRun(s.game.movement) } })),
@@ -194,6 +231,19 @@ export function createAppStore(
     examineTree: (id) => set(act((g) => examineTree(g, content, id))),
     examineItem: (slot) => set(act((g) => examineItem(g, content, slot))),
     dropSlot: (slot) => set(act((g) => dropSlot(g, content, slot))),
+    swapInventorySlots: (a, b) => set(act((g) => swapInventorySlots(g, a, b))),
+    useItem: (slot) => {
+      const itemId = get().game.inventory.slots[slot]?.itemId;
+      set({ useSelection: itemId ? { slot, itemId } : null, menu: null });
+    },
+    useItemOn: (target) => {
+      const sel = get().useSelection;
+      if (!sel) return;
+      if (target.kind === 'item' && target.slot === sel.slot) return set({ useSelection: null });
+      set((s) => ({ ...act((g) => useItemOn(g, sel.itemId, target))(s), useSelection: null }));
+    },
+    cancelUse: () => set({ useSelection: null }),
+    takeGroundItem: (id) => set(follow(act((g) => takeGroundItem(g, content, id)))),
     interactFacility: (id, opt) => set(follow(act((g) => interactFacility(g, content, id, opt)))),
     examineFacility: (id) => set(act((g) => examineFacility(g, content, id))),
     interactNpc: (id, opt) => set(follow(act((g) => interactNpc(g, content, id, opt)))),

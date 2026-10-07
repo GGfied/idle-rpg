@@ -2,3 +2,4 @@
 - 2026-10-08: Core `Requirement` has no evaluator for quest/item/flag; story takes `ctx.meets(req)` from the integrator and owns `requirementText`.
 - 2026-10-08: Keep the dialogue registry a plain array looked up with find, so tests can push a temp tree (gated choices) without a registry API.
 - 2026-10-08: Prove-a-test-fails by copying the module to src/features/<name>copy, mutating data, running vitest, then deleting the copy.
+- 2026-10-08: Dialogue text supports {var} placeholders; vars from startDialogue(id, ctx, vars) + DialogueDef.vars defaults (bank name per spawn).

@@ -13,7 +13,7 @@ import {
   serializeInventory,
 } from '@core/inventory';
 import { createItemRegistry } from '@core/items';
-import type { ItemRegistry } from '@core/items';
+import type { GroundItemEvent, ItemRegistry } from '@core/items';
 import { createSaveSchema } from '@core/persistence';
 import type { SaveSlice } from '@core/persistence';
 import {
@@ -44,13 +44,14 @@ import {
 import { spawnNpcs } from '@features/npc';
 import type { NpcInstance } from '@features/npc';
 import {
-  NPC_SPAWNS,
-  OBJECT_SPAWNS,
   PLAYER_SPAWN,
-  TREE_SPAWNS,
-  createCollisionGrid,
+  WORLD_NPC_SPAWNS,
+  WORLD_OBJECT_SPAWNS,
+  WORLD_TREES,
+  createWorldCollisionGrid,
 } from '@features/world';
 import type { ObjectSpawn, TreeSpawn } from '@features/world';
+import { createGroundSystem } from '@app/game/ground';
 import {
   createFacilitySystem,
   createNpcSystem,
@@ -63,7 +64,8 @@ import {
 import type { GameState, MetaState } from '@app/game/types';
 
 /** Every event a system can emit. Add a feature's event union here. */
-export type AppEvent = GatherEvent | MovementEvent | ProgressionEvent | CombatEvent | PrayerEvent;
+export type AppEvent =
+  GatherEvent | MovementEvent | ProgressionEvent | CombatEvent | PrayerEvent | GroundItemEvent;
 
 export interface Content {
   items: ItemRegistry;
@@ -74,20 +76,32 @@ export interface Content {
   objects: ReadonlyMap<string, ObjectSpawn>;
   /** Placed NPCs by spawn id (idle: they never move, so this is content, not state). */
   npcs: ReadonlyMap<string, NpcInstance>;
+  /** Per-spawn dialogue variables (e.g. { place: 'Fernhaven' }), from the spawn's `dialogueVars`. */
+  npcDialogueVars?: ReadonlyMap<string, Readonly<Record<string, string>>>;
   /** Counters (booths) people may talk across. */
   isCounter(tile: Tile): boolean;
   spawn: Tile;
+}
+
+/** `dialogueVars` on an NPC spawn (added by map/npc); read structurally so either side can land first. */
+interface SpawnVars {
+  dialogueVars?: Readonly<Record<string, string>>;
 }
 
 export const CONTENT: Content = {
   items: createItemRegistry(WOODCUTTING_ITEMS),
   tools: createToolRegistry(WOODCUTTING_TOOLS),
   gatherDefs: new Map(WOODCUTTING_NODES.map((d) => [d.id, d])),
-  grid: createCollisionGrid(NPC_SPAWNS),
-  trees: new Map(TREE_SPAWNS.map((t) => [t.nodeId, t])),
-  objects: new Map(OBJECT_SPAWNS.map((o) => [o.objectId, o])),
-  npcs: new Map(spawnNpcs(NPC_SPAWNS).map((n) => [n.spawnId, n])),
-  isCounter: (t) => OBJECT_SPAWNS.some((o) => o.x === t.x && o.y === t.y),
+  grid: createWorldCollisionGrid(WORLD_NPC_SPAWNS),
+  trees: new Map(WORLD_TREES.map((t) => [t.nodeId, t])),
+  objects: new Map(WORLD_OBJECT_SPAWNS.map((o) => [o.objectId, o])),
+  npcs: new Map(spawnNpcs(WORLD_NPC_SPAWNS).map((n) => [n.spawnId, n])),
+  npcDialogueVars: new Map(
+    WORLD_NPC_SPAWNS.flatMap((s: (typeof WORLD_NPC_SPAWNS)[number] & SpawnVars) =>
+      s.dialogueVars ? [[s.spawnId, s.dialogueVars] as const] : [],
+    ),
+  ),
+  isCounter: (t) => WORLD_OBJECT_SPAWNS.some((o) => o.x === t.x && o.y === t.y),
   spawn: PLAYER_SPAWN,
 };
 
@@ -106,6 +120,7 @@ export const SYSTEMS: readonly System<GameState, AppEvent>[] = [
   playTimeSystem,
   hpSystem,
   prayerSystem,
+  createGroundSystem(CONTENT),
 ];
 
 /** `meta` save slice: { playTimeMs } finite and >= 0. */

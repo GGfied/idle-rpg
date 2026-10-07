@@ -6,6 +6,8 @@ import {
   blockedLabel,
   createPool,
   createThrottle,
+  diamondPoints,
+  effectDepth,
   planEvent,
   resolveEffect,
   resolveXpColor,
@@ -110,7 +112,7 @@ export function createVfx(
 
   const throttle = createThrottle();
 
-  function burst(def: BurstEffect, x: number, y: number): void {
+  function burst(def: BurstEffect, x: number, y: number, depth: number): void {
     const ease = ballistic(def.rise, def.fall);
     for (let i = 0; i < def.count; i++) {
       const p = particles.acquire();
@@ -118,6 +120,7 @@ export function createVfx(
       p.setPosition(x + Phaser.Math.FloatBetween(-def.jitter, def.jitter), y)
         .setRadius(size / 2)
         .setFillStyle(Phaser.Utils.Array.GetRandom(def.colors as number[]) as number, 1)
+        .setDepth(depth)
         .setAlpha(1)
         .setScale(1)
         .setActive(true)
@@ -136,12 +139,14 @@ export function createVfx(
     }
   }
 
-  function ring(def: RingEffect, x: number, y: number): void {
+  function ring(def: RingEffect, x: number, y: number, depth: number): void {
     const r = rings.acquire();
     r.setPosition(x, y)
       .setRadius(def.radius[0])
       .setFillStyle()
       .setStrokeStyle(def.width, def.color, 1)
+      .setScale(1, def.squashY ?? 1)
+      .setDepth(depth)
       .setAlpha(1)
       .setActive(true)
       .setVisible(true);
@@ -153,7 +158,7 @@ export function createVfx(
     });
   }
 
-  function xpDrop(def: XpDropEffect, x: number, y: number, event: VfxEvent): void {
+  function xpDrop(def: XpDropEffect, x: number, y: number, depth: number, event: VfxEvent): void {
     const amount = typeof event.amount === 'number' ? event.amount : 0;
     const skill = typeof event.skill === 'string' ? event.skill : '';
     const tag = Object.hasOwn(SKILL_TAG, skill)
@@ -167,11 +172,12 @@ export function createVfx(
     );
     const t = texts.acquire();
     t.spawnedAt = now;
-    const startY = y - 22 + stackOffset(slot, XP_STACK_LINE_PX);
+    const startY = y + stackOffset(slot, XP_STACK_LINE_PX);
     t.setText(tag ? `+${amount} ${tag}` : `+${amount}`)
       .setFontSize(def.fontPx)
       .setColor(resolveXpColor(skill, skillColor, def.defaultColor))
       .setPosition(x, startY)
+      .setDepth(depth)
       .setAlpha(1)
       .setActive(true)
       .setVisible(true);
@@ -186,6 +192,7 @@ export function createVfx(
   function cross(
     x: number,
     y: number,
+    depth: number,
     color: number,
     half: number,
     from: number,
@@ -198,6 +205,7 @@ export function createVfx(
       .lineBetween(-half, -half, half, half)
       .lineBetween(-half, half, half, -half)
       .setPosition(x, y)
+      .setDepth(depth)
       .setScale(from)
       .setAlpha(1)
       .setActive(true)
@@ -208,24 +216,41 @@ export function createVfx(
   function clickMarker(x: number, y: number, kind: MarkerKind): void {
     const def = resolveEffect('clickMarker', opts.mode);
     if (def?.kind !== 'marker') return;
-    cross(x, y, def.colors[kind], def.half, 1.3, 0.7, def.lifeMs);
+    const g = markers.acquire();
+    g.clear()
+      .lineStyle(2, def.colors[kind], 1)
+      .strokePoints(diamondPoints(def.halfW, def.halfH), true, true)
+      .setPosition(x, y - (def.lift ?? 0))
+      .setDepth(effectDepth(def.layer, x, y))
+      .setScale(1.3)
+      .setAlpha(1)
+      .setActive(true)
+      .setVisible(true);
+    fade(markers, g, { scale: 0.7, alpha: 0, duration: def.lifeMs, ease: 'Quad.easeOut' });
   }
 
-  function crossEffect(def: CrossEffect, x: number, y: number): void {
-    cross(x, y, def.color, def.half, def.fromScale, def.toScale, def.lifeMs);
+  function crossEffect(def: CrossEffect, x: number, y: number, depth: number): void {
+    cross(x, y, depth, def.color, def.half, def.fromScale, def.toScale, def.lifeMs);
   }
 
   /** Red label above the player; it jitters left-right (we can't move the player view from here). */
-  function blockedText(def: BlockedTextEffect, x: number, y: number, event: VfxEvent): void {
+  function blockedText(
+    def: BlockedTextEffect,
+    x: number,
+    y: number,
+    depth: number,
+    event: VfxEvent,
+  ): void {
     const label = blockedLabel(event);
     if (!label) return;
     const t = texts.acquire();
     t.spawnedAt = -Infinity; // does not stack with XP drops
-    const startY = y - 22;
+    const startY = y;
     t.setText(label)
       .setFontSize(def.fontPx)
       .setColor(def.color)
       .setPosition(x, startY)
+      .setDepth(depth)
       .setAlpha(1)
       .setActive(true)
       .setVisible(true);
@@ -253,15 +278,15 @@ export function createVfx(
 
   return {
     handleEvent(event, ctx) {
-      for (const { effect, x, y, throttle: th } of planEvent(event, ctx, EVENT_VFX, opts)) {
+      for (const { effect, x, y, depth, throttle: th } of planEvent(event, ctx, EVENT_VFX, opts)) {
         const def = resolveEffect(effect, opts.mode);
         if (!def) continue;
         if (th && !throttle.allow(th.key, scene.time.now, th.ms)) continue;
-        if (def.kind === 'burst') burst(def, x, y);
-        else if (def.kind === 'ring') ring(def, x, y);
-        else if (def.kind === 'xpDrop') xpDrop(def, x, y, event);
-        else if (def.kind === 'cross') crossEffect(def, x, y);
-        else if (def.kind === 'blockedText') blockedText(def, x, y, event);
+        if (def.kind === 'burst') burst(def, x, y, depth);
+        else if (def.kind === 'ring') ring(def, x, y, depth);
+        else if (def.kind === 'xpDrop') xpDrop(def, x, y, depth, event);
+        else if (def.kind === 'cross') crossEffect(def, x, y, depth);
+        else if (def.kind === 'blockedText') blockedText(def, x, y, depth, event);
       }
     },
     clickMarker,

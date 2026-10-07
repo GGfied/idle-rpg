@@ -29,6 +29,8 @@ export interface DialogueDef {
   npcName: string;
   /** Must be a say or choice node. */
   start: string;
+  /** Fallback values for `{name}` placeholders in text. */
+  vars?: Record<string, string>;
   nodes: Record<string, DialogueNode>;
 }
 
@@ -43,6 +45,8 @@ export interface DialogueState {
   readonly nodeId: string;
   readonly done: boolean;
   readonly ctx: DialogueContext;
+  /** Values for `{name}` placeholders (e.g. place), from the talked-to npc. */
+  readonly vars: Readonly<Record<string, string>>;
 }
 
 export interface DialogueChoiceView {

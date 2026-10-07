@@ -82,6 +82,18 @@ describe('every dialogue tree', () => {
   });
 });
 
+describe('banker_greeting bank name', () => {
+  it.each([
+    ['no vars (default)', undefined, 'Willowbrook Bank'],
+    ['Willowbrook', { place: 'Willowbrook' }, 'Willowbrook Bank'],
+    ['Fernhaven', { place: 'Fernhaven' }, 'Fernhaven Bank'],
+  ])('%s', (_n, vars, expected) => {
+    const v = currentView(startDialogue('banker_greeting', allow, vars));
+    expect(v?.text).toContain(expected);
+    expect(v?.text).not.toContain('{');
+  });
+});
+
 describe('banker_greeting', () => {
   it('greets, then offers three choices', () => {
     let s = startDialogue('banker_greeting', allow);

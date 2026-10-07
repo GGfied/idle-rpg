@@ -32,6 +32,11 @@ You own `src/render/animation/` in a small OSRS-inspired browser RPG. Read `CLAU
 - Vitest for the pure parts: state-machine transitions and priorities, facing from movement
   delta, interpolation position at t = 0, ½ and 1 tick, run (2 tiles), and late-tick catch-up.
   Verify the feel in `npm run dev` (desktop and phone viewport).
+- Before flipping a `FigureLook` flag or changing a shared constant (look, rig, timing), grep every test and e2e
+  that uses it and update them in the same change. (Seen twice, 2026-10-08: PLAYER_LOOK rigLegs broke
+  figureLegs.test; a rig change left animation.e2e asserting a 5-child rig.)
+- Natural human gait (user, 2026-10-08: "same timing looks weird"): arms swing opposite to the same-side leg
+  (contralateral), legs swing more than arms, the arm lags slightly, the swing knee bends, 2 bobs per stride.
 
 ## Learning loop (self-improvement)
 - **Before every task:** read your memory, `.claude/agent-memory/animation/MEMORY.md` (Claude Code loads it

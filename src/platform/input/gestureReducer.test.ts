@@ -163,4 +163,31 @@ describe('gestureReducer', () => {
     ]);
     expect(r.emitted.map((e) => e.type)).toEqual(['longPress']);
   });
+  it('the first tap after a drag, a pinch or a long-press still emits (no stale state, B2 regression)', () => {
+    const prefixes: [RawEvent, number][][] = [
+      [
+        [down(1, 5, 5), 0],
+        [move(1, 60, 60), 20],
+        [up(1, 60, 60), 40],
+      ],
+      [
+        [down(1, 100, 100), 0],
+        [down(2, 160, 100), 5],
+        [move(2, 200, 100), 20],
+        [up(2, 200, 100), 40],
+        [up(1, 100, 100), 45],
+      ],
+      [
+        [down(1, 5, 5), 0],
+        [{ type: 'hold' }, 450],
+        [up(1, 5, 5), 500],
+      ],
+    ];
+    for (const prefix of prefixes) {
+      const r = run([...prefix, [down(3, 243, 398), 2000], [up(3, 243, 398), 2030]]);
+      expect(r.emitted.filter((e) => e.type === 'tap')).toEqual([
+        { type: 'tap', payload: { x: 243, y: 398 } },
+      ]);
+    }
+  });
 });

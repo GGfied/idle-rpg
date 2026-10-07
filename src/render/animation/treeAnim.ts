@@ -1,6 +1,9 @@
 import type Phaser from 'phaser';
+import { ART_SCALE } from '@render/index';
 import type { TreeView } from '@render/index';
-import { MOTION } from './data';
+import { GHOST_DEPTH_EPS, MOTION } from './data';
+import { fallVector } from './logic';
+import type { FallVector } from './logic';
 import type { MotionMode } from './types';
 
 export interface TreeFallStyle {
@@ -11,6 +14,8 @@ export interface TreeFallStyle {
 
 export interface TreeAnimOpts {
   mode?: MotionMode;
+  /** Tile offset of the tree from the player; the tree falls away from them. Omitted: falls right. */
+  awayFrom?: { dx: number; dy: number };
 }
 
 /**
@@ -29,7 +34,16 @@ export function animateTreeFall(
   c.setScale(1).setAlpha(1);
   treeView.setDepleted(true);
   if (m.fallMs <= 0) return Promise.resolve(); // off: instant swap, no ghost
-  const ghost = scene.add.container(c.x, c.y).setDepth(c.depth + 1);
+  const v: FallVector = fallVector(opts.awayFrom?.dx ?? 0, opts.awayFrom?.dy ?? 0, {
+    slideX: 0,
+    slideY: 0,
+    tilt: 1,
+  });
+  const slide = m.fallTiltDeg === 0 ? 0 : 1;
+  const ghost = scene.add
+    .container(c.x, c.y)
+    .setDepth(c.depth + GHOST_DEPTH_EPS)
+    .setScale(ART_SCALE);
   const g = scene.add.graphics();
   g.fillStyle(style.trunk ?? treeView.colors.trunk, 1).fillRect(-4, -16, 8, 16);
   g.fillStyle(style.leaf ?? treeView.colors.leaf, 1).fillCircle(0, -26, style.radius ?? 13);
@@ -37,9 +51,10 @@ export function animateTreeFall(
   return new Promise<void>((resolve) => {
     scene.tweens.add({
       targets: ghost,
-      angle: m.fallTiltDeg,
+      angle: m.fallTiltDeg * v.tilt,
       alpha: 0,
-      y: ghost.y + (m.fallTiltDeg === 0 ? 0 : 2),
+      x: ghost.x + v.slideX * slide,
+      y: ghost.y + v.slideY * slide,
       duration: m.fallMs,
       ease: 'Quad.easeIn',
       onComplete: () => {

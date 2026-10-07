@@ -15,6 +15,7 @@ export const DEFAULT_PALETTE: TilePalette = {
   wall: { base: 0x6b6b72, variation: 8 },
   floor: { base: 0xa8793f, variation: 6 },
   flowers: { base: 0x4f8a3c, variation: 10 },
+  bridge: { base: 0x8a5f33, variation: 6 },
 };
 
 export const FALLBACK_STYLE: TileStyle = { base: 0xff00ff, variation: 0 };

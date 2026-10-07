@@ -1,6 +1,6 @@
 import type { CollisionGrid, Tile, TickContext, TickResult } from '@core/contracts';
 import type { Result } from '@core/utils';
-import { chebyshev, createMinHeap, err, isAdjacent, ok, pointKey, pointsEqual } from '@core/utils';
+import { chebyshev, createMinHeap, err, isAdjacent, ok, pointsEqual } from '@core/utils';
 import {
   MAX_RUN_ENERGY,
   MAX_SEARCH_NODES,
@@ -8,6 +8,7 @@ import {
   RUN_DRAIN_PER_TILE,
   RUN_REGEN_PER_TICK,
   RUN_SPEED,
+  STALL_CAP_FACTOR,
   WALK_SPEED,
 } from './data';
 import type { MovementEvent, MovementState, PathOptions } from './types';
@@ -45,41 +46,55 @@ interface Node {
   g: number;
   f: number;
   parent: Node | null;
+  closed: boolean;
 }
 
 const toPath = (node: Node): Tile[] => {
   const out: Tile[] = [];
-  for (let n: Node | null = node; n?.parent; n = n.parent) out.unshift(n.tile);
-  return out;
+  for (let n: Node | null = node; n?.parent; n = n.parent) out.push(n.tile);
+  return out.reverse();
 };
 
+/** Result of one A* run. `expanded` is the number of nodes popped and expanded. */
+export interface SearchResult {
+  /** Path to the first goal reached (excludes `from`), or null. */
+  path: Tile[] | null;
+  /** Path to the explored tile nearest `focus`; [] when a goal was found. */
+  closest: Tile[];
+  /** True when the node cap stopped the search (the target may still be reachable). */
+  capped: boolean;
+  expanded: number;
+}
+
 /**
- * The one A* implementation. Returns the path to the first goal reached, plus the path to the
- * explored node nearest `focus` (fallback when no goal is reachable or the cap is hit).
+ * The one A* implementation (player and NPCs). Works on any CollisionGrid, including a world of
+ * many chunks behind one `isWalkable`. Scratch state is a Map keyed by tile index, so memory is
+ * proportional to the nodes touched, never to the world size.
  */
-function search(
+export function search(
   grid: CollisionGrid,
   from: Tile,
   isGoal: (t: Tile) => boolean,
   focus: Tile,
   maxNodes: number,
-): { path: Tile[] | null; closest: Tile[] } {
-  const start: Node = { tile: from, g: 0, f: octile(from, focus), parent: null };
+): SearchResult {
+  const w = Math.max(1, grid.width);
+  const start: Node = { tile: from, g: 0, f: octile(from, focus), parent: null, closed: false };
   const open = createMinHeap<Node>((a, b) => a.f - b.f || b.g - a.g);
-  const best = new Map<string, number>([[pointKey(from), 0]]);
-  const closed = new Set<string>();
+  const nodes = new Map<number, Node>([[from.y * w + from.x, start]]);
   open.push(start);
   let nearest = start;
-  let nearestD = octile(from, focus);
+  let nearestD = start.f;
   let expanded = 0;
 
-  while (open.size > 0 && expanded < maxNodes) {
+  while (open.size > 0) {
+    if (expanded >= maxNodes)
+      return { path: null, closest: toPath(nearest), capped: true, expanded };
     const node = open.pop() as Node;
-    const key = pointKey(node.tile);
-    if (closed.has(key)) continue;
-    closed.add(key);
+    if (node.closed) continue;
+    node.closed = true;
     expanded++;
-    if (isGoal(node.tile)) return { path: toPath(node), closest: [] };
+    if (isGoal(node.tile)) return { path: toPath(node), closest: [], capped: false, expanded };
     const d = octile(node.tile, focus);
     if (d < nearestD || (d === nearestD && node.g < nearest.g)) {
       nearest = node;
@@ -88,15 +103,19 @@ function search(
     for (const dir of DIRS) {
       const next = { x: node.tile.x + dir.x, y: node.tile.y + dir.y };
       if (!canStep(grid, node.tile, next)) continue;
-      const nk = pointKey(next);
+      const nk = next.y * w + next.x;
       const g = node.g + (dir.x !== 0 && dir.y !== 0 ? Math.SQRT2 : 1);
-      if (closed.has(nk) || g >= (best.get(nk) ?? Infinity)) continue;
-      best.set(nk, g);
-      open.push({ tile: next, g, f: g + octile(next, focus), parent: node });
+      const seen = nodes.get(nk);
+      if (seen && (seen.closed || g >= seen.g)) continue;
+      const n: Node = { tile: next, g, f: g + octile(next, focus), parent: node, closed: false };
+      nodes.set(nk, n);
+      open.push(n);
     }
   }
-  return { path: null, closest: toPath(nearest) };
+  return { path: null, closest: toPath(nearest), capped: false, expanded };
 }
+
+const cap = (opts: PathOptions): number => opts.maxNodes ?? MAX_SEARCH_NODES;
 
 /** Shortest path from `from` to `to` (excludes from, includes to), or null if none / cap hit. */
 export function findPath(
@@ -106,7 +125,7 @@ export function findPath(
   opts: PathOptions = {},
 ): Tile[] | null {
   if (!walkable(grid, to)) return null;
-  return search(grid, from, (t) => pointsEqual(t, to), to, opts.maxNodes ?? MAX_SEARCH_NODES).path;
+  return search(grid, from, (t) => pointsEqual(t, to), to, cap(opts)).path;
 }
 
 /** Like findPath, but if `to` is blocked/unreachable, walk to the reachable tile closest to it. */
@@ -116,8 +135,21 @@ export function findPathToNearest(
   to: Tile,
   opts: PathOptions = {},
 ): Tile[] {
-  const r = search(grid, from, (t) => pointsEqual(t, to), to, opts.maxNodes ?? MAX_SEARCH_NODES);
-  return r.path ?? r.closest;
+  return planPath(grid, from, to, opts).path;
+}
+
+/**
+ * Click-to-move planner. `partial` is true only when the node cap cut the search short, i.e. the
+ * path is a waypoint leg toward `to` and the caller should re-path on arrival.
+ */
+export function planPath(
+  grid: CollisionGrid,
+  from: Tile,
+  to: Tile,
+  opts: PathOptions = {},
+): { path: Tile[]; partial: boolean; expanded: number } {
+  const r = search(grid, from, (t) => pointsEqual(t, to), to, cap(opts));
+  return { path: r.path ?? r.closest, partial: r.path === null && r.capped, expanded: r.expanded };
 }
 
 /** True when `position` is 4-adjacent to `target`. */
@@ -135,7 +167,7 @@ export function findPathToAdjacent(
 ): Tile[] | null {
   if (isAdjacentTo(from, target)) return [];
   const goal = (t: Tile): boolean => isAdjacentTo(t, target);
-  return search(grid, from, goal, target, opts.maxNodes ?? MAX_SEARCH_NODES).path;
+  return search(grid, from, goal, target, cap(opts)).path;
 }
 
 export const createMovementState = (spawn: Tile): MovementState => ({
@@ -145,10 +177,11 @@ export const createMovementState = (spawn: Tile): MovementState => ({
   runEnergy: MAX_RUN_ENERGY,
 });
 
-export const setPath = (state: MovementState, path: Tile[]): MovementState => ({
-  ...state,
-  path: path.map((t) => ({ ...t })),
-});
+export const setPath = (state: MovementState, path: Tile[]): MovementState => {
+  const rest = { ...state };
+  delete rest.destination;
+  return { ...rest, path: path.map((t) => ({ ...t })) };
+};
 
 export const clearPath = (state: MovementState): MovementState => setPath(state, []);
 
@@ -163,7 +196,12 @@ export const setDestination = (
   state: MovementState,
   grid: CollisionGrid,
   target: Tile,
-): MovementState => setPath(state, findPathToNearest(grid, state.position, target));
+): MovementState => {
+  const { path, partial } = planPath(grid, state.position, target);
+  const next = setPath(state, path);
+  // Cap hit: remember the goal so tickMovement re-paths from the waypoint.
+  return partial && path.length > 0 ? { ...next, destination: { ...target } } : next;
+};
 
 /** Regen while not running-and-moving; drain per tile run; auto-disable run at 0. */
 function applyEnergy(
@@ -218,11 +256,29 @@ export function tickMovement(
   if (!pointsEqual(position, state.position)) {
     events.push({ type: 'entityMoved', from: state.position, to: position });
   }
-  const path = blocked ? [] : state.path.slice(i);
+  let path = blocked ? [] : state.path.slice(i);
+  let destination = blocked ? undefined : state.destination;
+  if (!blocked && path.length === 0 && destination && !pointsEqual(position, destination)) {
+    // Waypoint reached on a capped long walk: re-path toward the real destination.
+    let leg = planPath(grid, position, destination);
+    // Stalled against a wall (closest tile is where we stand): one wider search to find the detour.
+    if (leg.partial && leg.path.length === 0) {
+      leg = planPath(grid, position, destination, {
+        maxNodes: MAX_SEARCH_NODES * STALL_CAP_FACTOR,
+      });
+    }
+    if (leg.path.length > 0) path = leg.path;
+    if (!leg.partial || leg.path.length === 0) destination = undefined;
+  } else if (path.length === 0) destination = undefined;
   if (blocked) events.push({ type: 'movementBlocked', position });
   else if (path.length === 0) events.push({ type: 'destinationReached', position });
   const energy = applyEnergy(state, tilesMoved, events);
-  return { state: { ...state, position, path, ...energy }, events };
+  const base = { ...state };
+  delete base.destination;
+  return {
+    state: { ...base, position, path, ...(destination ? { destination } : {}), ...energy },
+    events,
+  };
 }
 
 /** Save slice: position, run toggle and run energy. The path is dropped. */

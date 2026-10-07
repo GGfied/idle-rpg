@@ -1,5 +1,5 @@
 export type SoundId =
-  | 'chop'
+  | 'axeHit'
   | 'logGained'
   | 'treeFall'
   | 'levelUp'
@@ -122,6 +122,10 @@ export interface SoundDef {
   /** Mix channel; effective gain = master x channel x layer gain. */
   channel: Channel;
   layers: readonly SoundLayer[];
+  /** Alternate layer sets; each play picks one at random from `layers` + these. */
+  variants?: readonly (readonly SoundLayer[])[];
+  /** Gain is multiplied by 1 - rand * gainVariance (quieter only, never louder). */
+  gainVariance?: number;
   /** Pitch is multiplied by 1 ± pitchVariance so repeats don't fatigue. */
   pitchVariance?: number;
   /** Minimum ms between two plays of this sound. Defaults to DEFAULT_MIN_GAP_MS. */

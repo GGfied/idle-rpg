@@ -1,47 +1,44 @@
 import { describe, expect, it } from 'vitest';
+import { isoProjection } from '@render/index';
 import { clientToTile } from './clientToTile';
 
 const bounds = { width: 40, height: 30 };
-// Camera 800x600 looking at world (0,0) with zoom 1: canvas px == world px; tile = 32 px.
 const cam = { scrollX: 0, scrollY: 0, zoom: 1, width: 800, height: 600 };
+const canvas = { width: 800, height: 600 };
+const rect = { left: 10, top: 20, width: 800, height: 600 };
+/** Client px of a tile's diamond centre for a camera at scroll (0,0), zoom 1, no CSS scale. */
+const centreOf = (x: number, y: number) => {
+  const w = isoProjection.tileToWorld(x, y);
+  return { x: rect.left + w.x, y: rect.top + w.y };
+};
 
 describe('clientToTile', () => {
-  it('maps an unscaled canvas offset by the page position', () => {
-    const rect = { left: 10, top: 20, width: 800, height: 600 };
-    expect(clientToTile(10 + 33, 20 + 65, rect, { width: 800, height: 600 }, cam, bounds)).toEqual({
-      x: 1,
-      y: 2,
-    });
+  it('maps the centre of an iso tile back to that tile (offset canvas)', () => {
+    const c = centreOf(12, 9);
+    expect(clientToTile(c.x, c.y, rect, canvas, cam, bounds)).toEqual({ x: 12, y: 9 });
   });
 
   it('accounts for a CSS-scaled canvas (the 880x728 backing vs 1100x910 box bug)', () => {
-    const rect = { left: 0, top: 0, width: 1000, height: 750 }; // 1.25x
-    // client (1000*0.5+..): canvas px (400+33, 300+65) -> tile (13, 11) with 32px tiles
-    const tile = clientToTile(
-      (400 + 33) * 1.25,
-      (300 + 65) * 1.25,
-      rect,
-      { width: 800, height: 600 },
-      cam,
-      bounds,
-    );
-    expect(tile).toEqual({ x: 13, y: 11 });
+    const scaled = { left: 0, top: 0, width: 1000, height: 750 }; // 1.25x
+    const w = isoProjection.tileToWorld(14, 11);
+    const tile = clientToTile(w.x * 1.25, w.y * 1.25, scaled, canvas, cam, bounds);
+    expect(tile).toEqual({ x: 14, y: 11 });
   });
 
   it('applies camera scroll and zoom about the viewport centre', () => {
-    const rect = { left: 0, top: 0, width: 800, height: 600 };
     const z = { scrollX: 100, scrollY: 50, zoom: 2, width: 800, height: 600 };
-    // centre pixel (400,300) is world (100+400, 50+300) = (500,350); +64 screen px = +32 world px
-    expect(clientToTile(464, 300, rect, { width: 800, height: 600 }, z, bounds)).toEqual({
-      x: 16,
-      y: 10,
+    const w = isoProjection.tileToWorld(10, 7);
+    // world -> canvas px: centre + (w - (scroll + centre)) * zoom
+    const cx = 400 + (w.x - (100 + 400)) * 2;
+    const cy = 300 + (w.y - (50 + 300)) * 2;
+    expect(clientToTile(rect.left + cx, rect.top + cy, rect, canvas, z, bounds)).toEqual({
+      x: 10,
+      y: 7,
     });
   });
 
   it('returns null outside the map and for a zero-size rect', () => {
-    const rect = { left: 0, top: 0, width: 800, height: 600 };
-    const c = { width: 800, height: 600 };
-    expect(clientToTile(-5, 10, rect, c, cam, bounds)).toBeNull();
-    expect(clientToTile(5, 5, { ...rect, width: 0 }, c, cam, bounds)).toBeNull();
+    expect(clientToTile(-500, 10, rect, canvas, cam, bounds)).toBeNull();
+    expect(clientToTile(5, 5, { ...rect, width: 0 }, canvas, cam, bounds)).toBeNull();
   });
 });

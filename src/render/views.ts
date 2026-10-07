@@ -1,11 +1,18 @@
 import type Phaser from 'phaser';
-import { TILE_SIZE } from './coords';
-import { depthFor } from './depth';
+import { ISO } from './iso';
+import { isoProjection } from './projection';
+import { cullToCamera } from './viewCull';
+import { getTreeTexture, TREE_ORIGIN_Y, treeVariantFor } from './treeTextures';
+import type { TreeShape } from './treeArt';
+import { figureRects } from './figureArt';
+import type { FigureLook, FigureRect, FigureView } from './figureArt';
+import { NPC_LOOKS, PLAYER_LOOK } from './figureLooks';
+import type { NpcSpriteKey } from './figureLooks';
+
+export type { NpcSpriteKey };
 
 export type TreeKind = 'tree' | 'oak_tree';
 export type ObjectKind = 'bank_chest' | 'bank_booth';
-/** NPC figure art keys (the `spriteKey` on NpcDefs). */
-export type NpcSpriteKey = 'banker';
 
 /** Footprint in tiles. Render only declares it; `map` owns the collision grid and must block these tiles. */
 export const OBJECT_FOOTPRINTS: Record<ObjectKind, { w: number; h: number; blocking: boolean }> = {
@@ -15,6 +22,7 @@ export const OBJECT_FOOTPRINTS: Record<ObjectKind, { w: number; h: number; block
 
 export interface EntityView {
   readonly container: Phaser.GameObjects.Container;
+  /** Place the feet at a WORLD pixel (use `isoProjection.tileToWorld`); sets depth from it. */
   setWorldPosition(x: number, y: number): void;
   destroy(): void;
 }
@@ -23,6 +31,8 @@ export interface PlayerView extends EntityView {
   /** Flip horizontally to face left (true) or right (false). */
   setFacing(left: boolean): void;
   setName(name: string): void;
+  /** Redraw the body as seen from behind (true) or the front. Optional hook for the animator; default front. */
+  setBackView?(back: boolean): void;
   /** The body figure (flips with facing, bobbed by the animator). Never contains the nameplate. */
   readonly body: Phaser.GameObjects.Graphics;
 }
@@ -33,6 +43,8 @@ export interface TreeView extends EntityView {
   readonly kind: TreeKind;
   /** Leaf and trunk colours (0xRRGGBB) so effects can match this tree. */
   readonly colors: { leaf: number; trunk: number };
+  /** The standing tree's image (rotates around the feet; `treeSway` prefers it). Its texture key is the tree's look. */
+  readonly art: Phaser.GameObjects.Image;
   setDepleted(depleted: boolean): void;
 }
 
@@ -40,6 +52,14 @@ const TREE_STYLE: Record<TreeKind, { leaf: number; trunk: number; radius: number
   tree: { leaf: 0x2f7d32, trunk: 0x6b4a2b, radius: 13 },
   oak_tree: { leaf: 0x3f6b24, trunk: 0x5a3b1f, radius: 15 },
 };
+
+/**
+ * Art is drawn at 1x pixel-art size and scaled up in the world so figures read against the 64x32
+ * iso tile. Hit bounds and label offsets use the same factor.
+ */
+export const ART_SCALE = 1.5;
+/** Px below the feet the click box reaches (the shadow / lower diamond). */
+const HIT_BELOW_FEET = 8;
 
 /** Canopy circle centre, px above the feet (tile bottom edge). Used by the drawing and the hit bounds. */
 const TREE_CANOPY_CENTRE_Y = 26;
@@ -57,33 +77,35 @@ const FIGURE_HALF_W = 6;
 
 export type HitKind = TreeKind | ObjectKind | 'npc';
 
+function scaled(up: number, radius: number): { up: number; radius: number } {
+  return { up: up * ART_SCALE, radius: radius * ART_SCALE };
+}
+
 /**
  * Drawn extent of each view, derived from the same constants the views draw with.
  * `up` = px the drawing reaches above its feet (tile bottom edge); `radius` = half width in px.
  */
 export const VIEW_HIT_BOUNDS: Record<HitKind, { up: number; radius: number }> = {
-  tree: { up: TREE_CANOPY_CENTRE_Y + TREE_STYLE.tree.radius, radius: TREE_STYLE.tree.radius },
-  oak_tree: {
-    up: TREE_CANOPY_CENTRE_Y + TREE_STYLE.oak_tree.radius,
-    radius: TREE_STYLE.oak_tree.radius,
-  },
-  bank_chest: { up: CHEST_TOP, radius: CHEST_HALF_W },
-  bank_booth: { up: BOOTH_SIGN_TOP, radius: BOOTH_HALF_W },
-  npc: { up: FIGURE_TOP, radius: FIGURE_HALF_W },
+  tree: scaled(TREE_CANOPY_CENTRE_Y + TREE_STYLE.tree.radius, TREE_STYLE.tree.radius),
+  oak_tree: scaled(TREE_CANOPY_CENTRE_Y + TREE_STYLE.oak_tree.radius, TREE_STYLE.oak_tree.radius),
+  bank_chest: scaled(CHEST_TOP, CHEST_HALF_W),
+  bank_booth: scaled(BOOTH_SIGN_TOP, BOOTH_HALF_W),
+  npc: scaled(FIGURE_TOP, FIGURE_HALF_W),
 };
 
 /**
- * Click rectangle (world px) for a view whose tile centre is `tileCentre`: the drawn extent, never
- * smaller than the tile itself.
+ * Click rectangle (world px) for a view standing at `tileCentre` (the world pixel of its tile's
+ * middle, i.e. its feet): the drawn extent from canopy/top down to just below the feet, at least
+ * half a tile wide. Covers trunk and canopy of a tree; the rest of the diamond is a tile pick.
  */
 export function hitBoundsFor(
   kind: HitKind,
   tileCentre: { x: number; y: number },
 ): { x: number; y: number; w: number; h: number } {
   const b = VIEW_HIT_BOUNDS[kind];
-  const w = Math.max(b.radius * 2, TILE_SIZE);
-  const h = Math.max(b.up, TILE_SIZE);
-  return { x: tileCentre.x - w / 2, y: tileCentre.y + TILE_SIZE / 2 - h, w, h };
+  const w = Math.max(b.radius * 2, ISO.tileWidth / 2);
+  const h = b.up + HIT_BELOW_FEET;
+  return { x: tileCentre.x - w / 2, y: tileCentre.y - b.up, w, h };
 }
 
 /**
@@ -97,51 +119,46 @@ export function facingScaleX(left: boolean): 1 | -1 {
   return left ? -1 : 1;
 }
 
-/** Container origin is the entity's feet (tile centre); the figure is drawn above it. */
+/** Container origin is the entity's feet (the diamond centre); the figure is drawn above it. */
 function makeContainer(scene: Phaser.Scene): Phaser.GameObjects.Container {
-  return scene.add.container(0, 0);
+  const c = scene.add.container(0, 0);
+  cullToCamera(scene, c);
+  return c;
 }
 
 function place(c: Phaser.GameObjects.Container, x: number, y: number): void {
-  c.setPosition(x, y + TILE_SIZE / 2);
-  c.setDepth(depthFor(y / TILE_SIZE));
+  c.setPosition(x, y);
+  const t = isoProjection.worldToTile(x, y);
+  c.setDepth(isoProjection.depthFor(t.tx, t.ty));
 }
 
-interface FigureStyle {
-  torso: number;
-  legs: number;
-  skin: number;
-  hair: number;
-  /** Optional gold-style trim: collar and belt colour. */
-  trim?: number;
+const rectCache = new WeakMap<FigureLook, Partial<Record<FigureView, FigureRect[]>>>();
+function rectsFor(look: FigureLook, view: FigureView): FigureRect[] {
+  let per = rectCache.get(look);
+  if (!per) rectCache.set(look, (per = {}));
+  return (per[view] ??= figureRects(look, view));
 }
 
-const PLAYER_STYLE: FigureStyle = {
-  torso: 0x3a4a8c,
-  legs: 0x2b2b3a,
-  skin: 0xe8b88a,
-  hair: 0x5a3b1f,
-};
-const NPC_STYLES: Record<NpcSpriteKey, FigureStyle> = {
-  banker: { torso: 0x1f4d36, legs: 0x1a2a22, skin: 0xe0b08a, hair: 0x9a9a9a, trim: 0xe0b84a },
-};
+/** Soft contact shadow (three stacked ellipses) then the cached pixel-art rectangles. */
+function drawFigure(g: Phaser.GameObjects.Graphics, look: FigureLook, view: FigureView): void {
+  g.clear();
+  g.fillStyle(0x000000, 0.1).fillEllipse(0, -2, 24, 9.5);
+  g.fillStyle(0x000000, 0.12).fillEllipse(0, -2, 18, 7);
+  g.fillStyle(0x000000, 0.16).fillEllipse(0, -2, 12, 4.5);
+  let color = -1;
+  for (const r of rectsFor(look, view)) {
+    if (r.color !== color) g.fillStyle((color = r.color), 1);
+    g.fillRect(r.x, r.y, r.w, r.h);
+  }
+}
 
 /** One figure + nameplate builder for the player and every NPC. */
-function createFigureView(scene: Phaser.Scene, st: FigureStyle, name?: string): PlayerView {
+function createFigureView(scene: Phaser.Scene, look: FigureLook, name?: string): PlayerView {
   const container = makeContainer(scene);
   const g = scene.add.graphics();
-  g.fillStyle(0x000000, 0.25).fillEllipse(0, -2, 20, 8);
-  g.fillStyle(st.torso, 1).fillRect(-6, -18, 12, 12); // torso
-  g.fillStyle(st.legs, 1).fillRect(-6, -8, 5, 8).fillRect(1, -8, 5, 8); // legs
-  if (st.trim !== undefined) {
-    g.fillStyle(st.trim, 1).fillRect(-6, -9, 12, 2); // belt
-    g.fillStyle(st.trim, 1).fillRect(-2, -18, 4, 3); // collar
-  }
-  g.fillStyle(st.skin, 1).fillCircle(0, -24, 6); // head
-  g.fillStyle(st.hair, 1).fillRect(-6, -FIGURE_TOP, 12, 4); // hair
-  g.fillStyle(0x111111, 1).fillRect(1, -25, 2, 2); // eye (shows facing)
+  drawFigure(g, look, 'front');
   const label = scene.add
-    .text(0, -40, name ?? '', {
+    .text(0, -40 * ART_SCALE, name ?? '', {
       fontFamily: 'Arial, Helvetica, sans-serif',
       fontSize: '13px',
       fontStyle: 'bold',
@@ -153,12 +170,14 @@ function createFigureView(scene: Phaser.Scene, st: FigureStyle, name?: string): 
     .setShadow(0, 1, '#000000', 2, true, true)
     .setOrigin(0.5, 1)
     .setVisible(!!name);
+  g.setScale(ART_SCALE);
   container.add([g, label]);
   return {
     container,
     body: g,
     setWorldPosition: (x, y) => place(container, x, y),
-    setFacing: (left) => g.setScale(facingScaleX(left), 1), // body only, never the label
+    setFacing: (left) => g.setScale(facingScaleX(left) * ART_SCALE, ART_SCALE), // body only, never the label
+    setBackView: (back) => drawFigure(g, look, back ? 'back' : 'front'),
     setName: (n) => {
       label.setText(n).setVisible(n.length > 0);
     },
@@ -167,7 +186,7 @@ function createFigureView(scene: Phaser.Scene, st: FigureStyle, name?: string): 
 }
 
 export function createPlayerView(scene: Phaser.Scene, name?: string): PlayerView {
-  return createFigureView(scene, PLAYER_STYLE, name);
+  return createFigureView(scene, PLAYER_LOOK, name);
 }
 
 /** NPC figure from data (`spriteKey`), distinct outfit per key. Same body/label rules as the player. */
@@ -176,25 +195,48 @@ export function createNpcView(
   spriteKey: NpcSpriteKey,
   name?: string,
 ): NpcView {
-  return createFigureView(scene, NPC_STYLES[spriteKey], name);
+  return createFigureView(scene, NPC_LOOKS[spriteKey], name);
+}
+
+/** Tree art geometry in final px (the world scale is baked into the textures), from the hit-bound constants. */
+function treeShape(kind: TreeKind): TreeShape {
+  const st = TREE_STYLE[kind];
+  return {
+    canopyUp: TREE_CANOPY_CENTRE_Y * ART_SCALE,
+    canopyRadius: st.radius * ART_SCALE,
+    trunkHalf: st.radius > 14 ? 4.5 : 3.5,
+    leaf: st.leaf,
+    trunk: st.trunk,
+  };
 }
 
 export function createTreeView(scene: Phaser.Scene, kind: TreeKind): TreeView {
   const s = TREE_STYLE[kind];
+  const shape = treeShape(kind);
   const container = makeContainer(scene);
-  const full = scene.add.graphics();
-  full.fillStyle(s.trunk, 1).fillRect(-4, -16, 8, 16);
-  full.fillStyle(s.leaf, 1).fillCircle(0, -TREE_CANOPY_CENTRE_Y, s.radius);
-  full.fillStyle(0xffffff, 0.12).fillCircle(-4, -30, s.radius / 2.5);
-  const stump = scene.add.graphics().setVisible(false);
-  stump.fillStyle(s.trunk, 1).fillRect(-5, -7, 10, 7);
-  stump.fillStyle(0xc9a26b, 1).fillEllipse(0, -7, 10, 4);
+  // Art is baked at final size (texture shown at scale 1); the look is picked per tile in place().
+  const img = (stump: boolean): Phaser.GameObjects.Image =>
+    scene.add
+      .image(0, 0, getTreeTexture(scene, shape, kind, 0, stump))
+      .setOrigin(0.5, TREE_ORIGIN_Y);
+  const full = img(false);
+  const stump = img(true).setVisible(false);
   container.add([full, stump]);
+  let variant = 0;
   return {
     container,
     kind,
+    art: full,
     colors: { leaf: s.leaf, trunk: s.trunk },
-    setWorldPosition: (x, y) => place(container, x, y),
+    setWorldPosition: (x, y) => {
+      place(container, x, y);
+      const t = isoProjection.worldToTile(x, y);
+      const v = treeVariantFor(Math.round(t.tx), Math.round(t.ty));
+      if (v === variant) return;
+      variant = v;
+      full.setTexture(getTreeTexture(scene, shape, kind, v, false));
+      stump.setTexture(getTreeTexture(scene, shape, kind, v, true));
+    },
     setDepleted: (d) => {
       full.setVisible(!d);
       stump.setVisible(d);
@@ -227,6 +269,7 @@ export function createObjectView(scene: Phaser.Scene, kind: ObjectKind): EntityV
     g.fillStyle(0x8a6a1a, 1).fillRect(-10, -BOOTH_SIGN_TOP + 6, 20, 1); // sign shade
     g.fillStyle(0x3a2412, 1).fillRect(-1, -BOOTH_SIGN_TOP + 2, 2, 3); // sign mark
   }
+  g.setScale(ART_SCALE);
   container.add(g);
   return {
     container,

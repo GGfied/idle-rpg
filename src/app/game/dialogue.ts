@@ -12,9 +12,14 @@ import type { GameState } from '@app/game/types';
 const ctxFor = (game: GameState) => ({ meets: (r: Requirement) => meets(game, r) });
 
 /** Begin a conversation with the NPC at `spawnId`. An unknown dialogue id changes nothing. */
-export function startTalk(game: GameState, spawnId: string, dialogueId: string): GameState {
+export function startTalk(
+  game: GameState,
+  spawnId: string,
+  dialogueId: string,
+  vars?: Readonly<Record<string, string>>,
+): GameState {
   if (!getDialogue(dialogueId)) return game;
-  const dialogue: DialogueState = startDialogue(dialogueId, ctxFor(game));
+  const dialogue: DialogueState = startDialogue(dialogueId, ctxFor(game), vars);
   return { ...game, talk: { spawnId, dialogue } };
 }
 

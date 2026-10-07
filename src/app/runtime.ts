@@ -1,6 +1,7 @@
 /** Boots the game: save load, store, the 600 ms tick loop, autosave and lifecycle. No UI, no Phaser. */
-import { createRng, createTicker, startTicker } from '@core/engine';
-import type { Ticker } from '@core/engine';
+import { createRng, startTicker, TICK_MS } from '@core/engine';
+import { createRetimeTicker } from '@app/game/retimeTicker';
+import type { RetimeTicker } from '@app/game/retimeTicker';
 import {
   createAutosave,
   createLocalStorageAdapter,
@@ -24,7 +25,7 @@ import type { AppStore } from '@app/store';
 
 export interface Runtime {
   store: AppStore;
-  ticker: Ticker;
+  ticker: RetimeTicker;
   audio: AudioSystem;
   /** Subscribe to the events every game tick produced (for sound, animation, vfx). */
   onEvents(cb: (events: AppEvent[]) => void): () => void;
@@ -166,7 +167,8 @@ export function createRuntime(
 
   const listeners = new Set<(events: AppEvent[]) => void>();
   const rng = createRng(Date.now() >>> 0);
-  const ticker = createTicker({
+  const ticker = createRetimeTicker({
+    tickMs: TICK_MS,
     onTick: (tick) => {
       const next = step(store.getState().game, { tick, rng });
       store.getState().setGame(next.state);

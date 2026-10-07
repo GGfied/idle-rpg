@@ -1,7 +1,7 @@
 import type { GameEvent } from '@core/contracts';
 
 /** Sprite keys NPC defs may use (graphics provides the art; keep in step with render's NpcSpriteKey). */
-export type NpcSpriteKey = 'banker';
+export type NpcSpriteKey = 'banker' | 'banker_f';
 
 export type Facing = 'north' | 'south' | 'east' | 'west';
 

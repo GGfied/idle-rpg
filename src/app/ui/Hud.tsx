@@ -2,6 +2,7 @@ import type { TabId } from '@app/store';
 import { useApp, useRuntime } from '@app/ui/context';
 import { AreaBanner } from '@app/ui/components/AreaBanner';
 import { ContextMenu } from '@app/ui/components/ContextMenu';
+import { UseHint } from '@app/ui/components/UseHint';
 import { DialoguePanel } from '@app/ui/panels/DialoguePanel';
 import { BankPanel } from '@app/ui/panels/BankPanel';
 import { LevelUpPopup, SkillTracker } from '@app/ui/panels/Notices';
@@ -70,6 +71,7 @@ export function Hud() {
         </>
       )}
       <AreaBanner />
+      <UseHint />
       <DialoguePanel />
       <LevelUpPopup />
       <aside className="hud" data-open={open} data-settings={settings} data-hidden={hud.hidden}>

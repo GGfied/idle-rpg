@@ -4,6 +4,8 @@ export interface MovementState {
   position: Tile;
   /** Remaining steps; excludes the current position, next step first. */
   path: Tile[];
+  /** Final goal of a capped long walk; the tick re-paths toward it at each waypoint. Not saved. */
+  destination?: Tile;
   running: boolean;
   /** Run energy in hundredths of a percent: 0..10000 = 0.00..100.00%. */
   runEnergy: number;

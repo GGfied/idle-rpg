@@ -20,11 +20,18 @@ import { applyIntent } from '@app/game/intents';
 import { canTalk } from '@app/game/reach';
 import type { GameState } from '@app/game/types';
 
-/** Movement: advance along the path. */
+/** Chat line when run energy hits 0 and running switches itself off. */
+export const OUT_OF_RUN_ENERGY = "You're out of run energy.";
+
+/** Movement: advance along the path; say so in chat when run energy runs out. */
 export function createMovementSystem(content: Content): System<GameState, AppEvent> {
   return (state, ctx) => {
     const r = tickMovement(state.movement, ctx, content.grid);
-    return { state: { ...state, movement: r.state }, events: r.events };
+    let next: GameState = { ...state, movement: r.state };
+    if (r.events.some((e) => e.type === 'runDisabled')) {
+      next = addImportantChat(next, OUT_OF_RUN_ENERGY);
+    }
+    return { state: next, events: r.events };
   };
 }
 
@@ -68,8 +75,6 @@ function applyGatherEvent(
       next = addImportantChat(next, ...r.events.flatMap((p) => levelUpLine(p)));
       return next;
     }
-    case 'gatherStarted':
-      return addChat(state, WOODCUTTING_MESSAGES.started);
     case 'gatherStopped': {
       if (e.reason === 'depleted' || e.reason === 'cancelled') return state;
       if (e.reason === 'levelTooLow') {
@@ -192,7 +197,13 @@ export function createNpcSystem(content: Content): System<GameState, AppEvent> {
     state = { ...state, pendingNpc: null };
     const intent =
       npc && canTalk(pos, npc, content.isCounter) ? intentFor(npc.npcId, p.optionId) : undefined;
-    if (npc && intent?.type === 'talk') state = startTalk(state, npc.spawnId, intent.dialogueId);
+    if (npc && intent?.type === 'talk')
+      state = startTalk(
+        state,
+        npc.spawnId,
+        intent.dialogueId,
+        content.npcDialogueVars?.get(npc.spawnId),
+      );
     else if (intent) state = applyIntent(state, intent);
     return { state, events: [] };
   };

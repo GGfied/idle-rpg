@@ -1,41 +1,20 @@
 import { useEffect, useRef } from 'react';
 import { getLevel } from '@core/progression';
 import { MAX_RUN_ENERGY, MIN_RUN_ENERGY } from '@features/movement';
-import { OBJECT_SPAWNS, TREE_SPAWNS, WORLD, terrainAt } from '@features/world';
+import { WORLD_DEF } from '@features/world';
 import { isDepleted } from '@core/skills';
 import { cappedPixelRatio } from '@platform/viewport';
-import { buildMinimapImage, drawMinimap, minimapPxToTile } from '@render/index';
-import type { MinimapImage, MinimapMarker, MinimapView } from '@render/index';
+import { drawMinimap, minimapPxToTile } from '@render/index';
+import type { MinimapMarker, MinimapView } from '@render/index';
 import { advanceTrail, renderPosition, startTrail } from '@app/scenes/renderTrail';
 import type { Trail } from '@app/scenes/renderTrail';
+import { createMinimapTerrain } from '@app/scenes/minimapTerrain';
 import { CONTENT } from '@app/registry';
 import { useApp, useRuntime } from '@app/ui/context';
+import { LOW_ENERGY_MESSAGE, runTapOutcome } from '@app/ui/runToggle';
 
 /** Canvas px per tile, in CSS px, at the circle's native size. */
 const TILE_CSS_PX = 4;
-
-let cachedImage: { image: MinimapImage; canvas: HTMLCanvasElement } | null = null;
-
-/** The terrain image is built once per region and kept on an offscreen canvas. */
-function terrainImage(): { image: MinimapImage; canvas: HTMLCanvasElement } {
-  if (cachedImage) return cachedImage;
-  const image = buildMinimapImage(
-    { width: WORLD.width, height: WORLD.height, kindAt: terrainAt },
-    { pxPerTile: TILE_CSS_PX },
-  );
-  const canvas = document.createElement('canvas');
-  canvas.width = image.width;
-  canvas.height = image.height;
-  canvas
-    .getContext('2d')
-    ?.putImageData(
-      new ImageData(new Uint8ClampedArray(image.data), image.width, image.height),
-      0,
-      0,
-    );
-  cachedImage = { image, canvas };
-  return cachedImage;
-}
 
 /** Round minimap (tap to walk), redrawn every frame, with an "N" label. */
 export function Minimap() {
@@ -47,7 +26,7 @@ export function Minimap() {
     const canvas = ref.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
-    const { image, canvas: terrain } = terrainImage();
+    const terrainFor = createMinimapTerrain(TILE_CSS_PX);
     const start = store.getState().game.movement.position;
     let trail: Trail = startTrail(start, ticker.tick);
     let raf = 0;
@@ -62,17 +41,24 @@ export function Minimap() {
       const g = store.getState().game;
       trail = advanceTrail(trail, g.movement.position, ticker.tick);
       const me = renderPosition(trail, ticker.alpha());
+      const zoom = (css / 160) * dpr;
+      const { image, canvas: terrain } = terrainFor(
+        me,
+        Math.ceil(px / 2 / (TILE_CSS_PX * zoom)) + 1,
+      );
       const view: MinimapView = {
         centre: me,
         radiusPx: px / 2,
         pxPerTile: TILE_CSS_PX,
-        zoom: (css / 160) * dpr,
-        bounds: { width: WORLD.width, height: WORLD.height },
+        zoom,
+        pixelRatio: cappedPixelRatio(),
+        bounds: { width: WORLD_DEF.widthTiles, height: WORLD_DEF.heightTiles },
       };
       viewRef.current = view;
       const markers: MinimapMarker[] = [];
-      for (const o of OBJECT_SPAWNS) markers.push({ kind: 'bank', tile: { x: o.x, y: o.y } });
-      for (const t of TREE_SPAWNS) {
+      for (const o of CONTENT.objects.values())
+        markers.push({ kind: 'bank', tile: { x: o.x, y: o.y } });
+      for (const t of CONTENT.trees.values()) {
         const node = g.gathering.nodes[t.nodeId];
         markers.push({
           kind: node !== undefined && isDepleted(node) ? 'stump' : 'tree',
@@ -81,11 +67,11 @@ export function Minimap() {
       }
       for (const n of CONTENT.npcs.values())
         markers.push({ kind: 'npc', tile: { x: n.x, y: n.y } });
-      const dest = g.movement.path[g.movement.path.length - 1];
+      const dest = g.movement.destination ?? g.movement.path[g.movement.path.length - 1];
       if (dest) markers.push({ kind: 'destination', tile: dest });
       markers.push({ kind: 'player', tile: me });
       ctx.clearRect(0, 0, px, px);
-      drawMinimap(ctx, terrain, image, view, markers);
+      drawMinimap(ctx, terrain, image, view, markers, WORLD_DEF.labels);
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
@@ -118,6 +104,7 @@ export function Minimap() {
         type="button"
         className="minimap-n"
         aria-label="Compass: centre the camera on me"
+        onPointerDown={(e) => e.stopPropagation()}
         onClick={() => store.getState().recentreCamera()}
       >
         N
@@ -146,7 +133,8 @@ function Orb({ label, value, max, color, text, onClick, disabled, pressed }: Orb
       style={{ '--orb-color': color, '--orb-pct': `${pct}%` } as React.CSSProperties}
       aria-label={`${label} ${text ?? Math.floor(value)}`}
       aria-pressed={pressed}
-      disabled={disabled || !onClick}
+      disabled={!onClick}
+      aria-disabled={disabled || undefined}
       onClick={onClick}
     >
       <span className="orb-value">{text ?? Math.floor(value)}</span>
@@ -162,6 +150,7 @@ export function Orbs() {
   const energy = useApp((s) => s.game.movement.runEnergy);
   const running = useApp((s) => s.game.movement.running);
   const toggleRun = useApp((s) => s.toggleRun);
+  const say = useApp((s) => s.say);
   const { audio } = useRuntime();
   return (
     <div className="orbs">
@@ -177,6 +166,10 @@ export function Orbs() {
         disabled={!running && energy < MIN_RUN_ENERGY}
         onClick={() => {
           audio.play('uiClick');
+          if (runTapOutcome(running, energy, MIN_RUN_ENERGY) === 'rejectedLowEnergy') {
+            say(LOW_ENERGY_MESSAGE);
+            return;
+          }
           toggleRun();
         }}
       />

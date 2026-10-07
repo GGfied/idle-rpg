@@ -1,5 +1,6 @@
 import { addItem, createBank, createInventory } from '@core/inventory';
 import type { InventoryState } from '@core/inventory';
+import { emptyGroundItems } from '@core/items';
 import { createProgressionState, getLevel } from '@core/progression';
 import { createGatheringState } from '@core/skills';
 import { createPlayerHp } from '@features/combat';
@@ -32,6 +33,9 @@ export function newGame(content: Content): GameState {
     pendingInteraction: null,
     pendingFacility: null,
     pendingNpc: null,
+    ground: emptyGroundItems(),
+    pendingGround: null,
+    tick: 0,
     talk: null,
     bankOpen: false,
     chat: [],

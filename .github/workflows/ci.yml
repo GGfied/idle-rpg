@@ -25,3 +25,34 @@ jobs:
       - run: npm run lint
       - run: npm run test
       - run: npm run build
+
+  # Release tag: runs only after `check` is green, on pushes to main. Idempotent: an existing
+  # v<version> tag is never moved or overwritten. Bump package.json `version` to cut a release.
+  tag:
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create annotated tag v<version> if missing
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::package.json version '$version' is not X.Y.Z"
+            exit 1
+          fi
+          tag="v${version}"
+          if [ -n "$(git ls-remote --tags origin "refs/tags/${tag}")" ]; then
+            echo "Tag ${tag} already exists on the remote; nothing to do."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${tag}" -m "Release ${tag}" "${GITHUB_SHA}"
+          git push origin "refs/tags/${tag}"
+          echo "Created ${tag} on ${GITHUB_SHA}."

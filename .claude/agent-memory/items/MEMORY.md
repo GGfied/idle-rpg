@@ -1,3 +1,4 @@
 - 2026-10-08: In a `cd X && cat > ...` chain, a missing dir silently skips the whole chain. `mkdir -p` first, then verify files exist.
 - 2026-10-08: MVP ItemDef is minimal (id,name,examine,value,stackable,icon?); no tool/equipment fields (equipment keeps its own table by item id). Ground items out of MVP.
 - 2026-10-08: core/utils has isValidId, findDuplicates, Result/ok/err; reuse them. `tsc --noEmit` shows other agents' errors; grep for `items`.
+- 2026-10-08: Ground items (ground.ts, tick-based despawn, no save) finished after a usage-limit kill; on restart, inspect partial files and just run tsc/vitest/eslint before rewriting.

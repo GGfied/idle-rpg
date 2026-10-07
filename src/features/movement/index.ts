@@ -7,12 +7,14 @@ export {
   findPathToAdjacent,
   findPathToNearest,
   isAdjacentTo,
+  planPath,
   setDestination,
   serializeMovement,
   setPath,
   tickMovement,
   toggleRun,
 } from './logic';
+export type { SearchResult } from './logic';
 export {
   MAX_RUN_ENERGY,
   MAX_SEARCH_NODES,

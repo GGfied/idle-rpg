@@ -6,7 +6,7 @@ import type { NpcSpriteKey } from './types';
 // Ids other modules provide (mirror of story's dialogue ids and the HUD's panel ids).
 const KNOWN_DIALOGUE_IDS = ['banker_greeting'];
 const KNOWN_PANEL_IDS = ['bankPanel'];
-const SPRITE_KEYS: NpcSpriteKey[] = ['banker'];
+const SPRITE_KEYS: NpcSpriteKey[] = ['banker', 'banker_f'];
 
 describe('npc definitions', () => {
   it('has unique snake_case ids', () => {
@@ -45,10 +45,16 @@ describe('npc definitions', () => {
     for (const d of NPC_DEFS) expect(keys).toContain(d.spriteKey);
   });
 
-  it('banker matches the contract', () => {
-    const banker = NPC_DEFS.find((d) => d.id === 'banker');
-    expect(banker?.spriteKey).toBe('banker');
+  it.each(['banker', 'banker_f'])('%s matches the contract', (id) => {
+    const banker = NPC_DEFS.find((d) => d.id === id);
+    expect(banker?.spriteKey).toBe(id);
     expect(banker?.behaviour.kind).toBe('idle');
     expect(banker?.options.map((o) => o.label)).toEqual(['Talk-to', 'Bank']);
+  });
+
+  it('banker_f has the same options as banker', () => {
+    const get = (id: string) => NPC_DEFS.find((d) => d.id === id);
+    expect(get('banker_f')?.options).toEqual(get('banker')?.options);
+    expect(get('banker_f')?.examine).not.toBe(get('banker')?.examine);
   });
 });

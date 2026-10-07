@@ -1,3 +1,5 @@
+- 2026-10-08: "Ignored first tap" (B2) was NOT input: reducer emitted TAP every time. Log the reducer + store actions + camera scroll over time before blaming platform. Cause was a test settle-loop comparing two samples ms apart in the same rAF frame while the follow camera was still easing (~1.3 s after a teleport), so the tap point was stale. Settle checks must sleep between samples.
+- 2026-10-08: The scratchpad dir is shared with other agents: prefix my files (mob_*) and never reuse generic names like ab.txt/out2.txt. Run repro loops in the FOREGROUND (timeout<=420000); backgrounding + polling got killed.
 - 2026-10-08: NEVER hard-code library enum numbers from memory: I wrote Phaser `mode: 3` as RESIZE; it is FIT (RESIZE=5) -> letterbox + 1.25x click offset. Verify in node_modules source and pin with a test (here a `?raw` import of Phaser's SCALE_MODE_CONST.js, since root 'phaser' needs a browser and node types are absent).
 - 2026-10-08: Phaser is type-only in platform, so enums are literals; Phaser 3.90 Scale has no DPR option.
 - 2026-10-08: vitest (esbuild) does not type-check; a TS arity bug passed tests. Always run `npx tsc --noEmit` too.

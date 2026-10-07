@@ -1,4 +1,4 @@
-/* global fetch */
+/* global fetch, console, AbortSignal */
 // Minimal Chrome DevTools Protocol client. No dependencies: Node's global WebSocket when present
 // (Node 22+, or 20 with --experimental-websocket), otherwise a tiny raw-socket WebSocket client.
 import { spawn } from 'node:child_process';
@@ -13,6 +13,128 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { Buffer } from 'node:buffer';
 
 export { sleep };
+
+// ---- guaranteed cleanup -------------------------------------------------------------------
+// Every child (Chrome, vite) is started in its own process group and killed as a group, so no
+// headless Chrome helper or vite server outlives a run, even after Ctrl-C or a crash.
+const tracked = new Set();
+let hooked = false;
+function killGroup(proc) {
+  if (!proc || proc.pid === undefined) return;
+  try {
+    process.kill(-proc.pid, 'SIGKILL');
+  } catch {
+    try {
+      proc.kill('SIGKILL');
+    } catch {
+      /* already gone */
+    }
+  }
+}
+export function killTracked() {
+  for (const p of tracked) killGroup(p);
+  tracked.clear();
+}
+
+// ---- watchdogs: a script can never hang ---------------------------------------------------
+// Armed on first import. Global deadline (E2E_MAX_MS, default 6 min) -> exit 3. Idle deadline
+// (E2E_IDLE_MS, default 120 s without any CDP traffic or activity() call) -> "E2E STUCK" exit 4.
+let lastAction = 'startup';
+let lastActionAt = Date.now();
+/** Record progress (called on every CDP message; scripts may call it from check()). */
+export function activity(what) {
+  lastAction = what;
+  lastActionAt = Date.now();
+}
+const MAX_MS = Number(process.env.E2E_MAX_MS ?? 6 * 60e3);
+const IDLE_MS = Number(process.env.E2E_IDLE_MS ?? 120e3);
+setTimeout(() => {
+  console.error(`E2E TIMEOUT: global deadline ${MAX_MS} ms (last action: ${lastAction})`);
+  killTracked();
+  process.exit(3);
+}, MAX_MS).unref();
+setInterval(
+  () => {
+    if (Date.now() - lastActionAt < IDLE_MS) return;
+    console.error(`E2E STUCK: no activity for ${IDLE_MS} ms (last action: ${lastAction})`);
+    killTracked();
+    process.exit(4);
+  },
+  Math.min(1000, Math.max(50, IDLE_MS / 4)),
+).unref();
+
+/** Default per-call timeout for CDP sends and waits (ms). */
+export const CDP_TIMEOUT_MS = Number(process.env.E2E_CDP_TIMEOUT_MS ?? 20e3);
+
+/** Poll `fn` until truthy; rejects with `label` after timeoutMs. Returns the truthy value. */
+export async function waitFor(
+  fn,
+  { timeoutMs = CDP_TIMEOUT_MS, intervalMs = 100, label = 'condition' } = {},
+) {
+  const end = Date.now() + timeoutMs;
+  for (;;) {
+    activity(`waitFor ${label}`);
+    const v = await fn();
+    if (v) return v;
+    if (Date.now() > end) throw new Error(`waitFor timed out after ${timeoutMs} ms: ${label}`);
+    await sleep(intervalMs);
+  }
+}
+
+/** Run the script body, then kill vite/Chrome and exit (0 ok, 1 on throw or falsy-nonzero code). */
+export async function runMain(fn) {
+  installHooks();
+  let code = 0;
+  try {
+    const r = await fn();
+    if (typeof r === 'number') code = r;
+  } catch (e) {
+    console.error(e);
+    code = 1;
+  }
+  killTracked();
+  process.exit(code);
+}
+function installHooks() {
+  if (hooked) return;
+  hooked = true;
+  process.on('exit', killTracked);
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'])
+    process.on(sig, () => {
+      killTracked();
+      process.exit(130);
+    });
+  for (const ev of ['uncaughtException', 'unhandledRejection'])
+    process.on(ev, (e) => {
+      console.error(ev, e);
+      killTracked();
+      process.exit(1);
+    });
+}
+/** Spawn a child in its own process group and kill the whole group on exit/signals/crashes. */
+export function spawnTracked(cmd, args, opts = {}) {
+  installHooks();
+  const proc = spawn(cmd, args, { ...opts, detached: true });
+  // Detached children with piped stdio would otherwise keep the event loop alive.
+  proc.unref();
+  for (const s of [proc.stdin, proc.stdout, proc.stderr]) s?.unref?.();
+  tracked.add(proc);
+  return proc;
+}
+/** Hard overall deadline for a script: kill every tracked child and exit 2. */
+export function hardTimeout(ms = 8 * 60e3) {
+  installHooks();
+  setTimeout(() => {
+    console.error(`e2e: hard timeout after ${ms} ms`);
+    killTracked();
+    process.exit(2);
+  }, ms).unref();
+}
+/** Kill a tracked child's whole group now (use in `finally`). */
+export function killChild(proc) {
+  killGroup(proc);
+  tracked.delete(proc);
+}
 
 const CHROME_CANDIDATES = [
   process.env.CHROME_PATH,
@@ -129,7 +251,10 @@ export const wsKind = WS === RawWebSocket ? 'raw-socket' : 'global WebSocket';
 
 function openSocket(url) {
   return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('openSocket: timeout')), CDP_TIMEOUT_MS);
+    t.unref();
     const ws = new WS(url);
+    ws.addEventListener('open', () => clearTimeout(t));
     ws.addEventListener('open', () => resolve(ws));
     ws.addEventListener('error', (e) => reject(e instanceof Error ? e : new Error('ws error')));
   });
@@ -137,11 +262,12 @@ function openSocket(url) {
 
 /** Launch headless Chrome with a throwaway profile and attach to its first page. */
 export async function launchChrome({ width = 1280, height = 800 } = {}) {
-  const profile = mkdtempSync(join(tmpdir(), 'idle-rpg-e2e-'));
-  const proc = spawn(
+  const profile = mkdtempSync(join(tmpdir(), `idle-rpg-e2e-${process.pid}-`));
+  const proc = spawnTracked(
     findChrome(),
     [
       '--headless=new',
+      '--mute-audio',
       '--remote-debugging-port=0',
       `--user-data-dir=${profile}`,
       `--window-size=${width},${height}`,
@@ -152,6 +278,7 @@ export async function launchChrome({ width = 1280, height = 800 } = {}) {
     ],
     { stdio: 'ignore' },
   );
+  console.log(`e2e: Chrome pid ${proc.pid} profile ${profile}`);
   // Chrome writes the port it picked into <profile>/DevToolsActivePort.
   let port = null;
   for (let i = 0; i < 100 && port === null; i++) {
@@ -160,12 +287,14 @@ export async function launchChrome({ width = 1280, height = 800 } = {}) {
     if (existsSync(file)) port = Number(readFileSync(file, 'utf8').split('\n')[0]);
   }
   if (port === null) {
-    proc.kill();
+    killChild(proc);
     throw new Error('Chrome did not start');
   }
   let page;
   for (let i = 0; i < 50 && !page; i++) {
-    const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
+    const targets = await (
+      await fetch(`http://127.0.0.1:${port}/json`, { signal: AbortSignal.timeout(CDP_TIMEOUT_MS) })
+    ).json();
     page = targets.find((t) => t.type === 'page');
     if (!page) await sleep(100);
   }
@@ -174,46 +303,74 @@ export async function launchChrome({ width = 1280, height = 800 } = {}) {
   let nextId = 0;
   const pending = new Map();
   const handlers = [];
+  let dead = null;
+  const failAll = (reason) => {
+    dead ??= reason;
+    for (const [id, p] of pending) {
+      pending.delete(id);
+      clearTimeout(p.timer);
+      p.reject(new Error(`${p.method}: ${reason}`));
+    }
+  };
+  proc.on('exit', () => failAll('Chrome exited'));
+  ws.addEventListener('close', () => failAll('Chrome exited (CDP socket closed)'));
+  ws.addEventListener('error', () => failAll('Chrome exited (CDP socket error)'));
   ws.addEventListener('message', (ev) => {
     const msg = JSON.parse(ev.data);
+    activity(`cdp message ${msg.method ?? '#' + msg.id}`);
     if (msg.id !== undefined && pending.has(msg.id)) {
       const p = pending.get(msg.id);
       pending.delete(msg.id);
+      clearTimeout(p.timer);
       if (msg.error) p.reject(new Error(`${p.method}: ${msg.error.message}`));
       else p.resolve(msg.result);
     } else for (const h of handlers) h(msg);
   });
 
   const cdp = {
-    send(method, params = {}) {
+    send(method, params = {}, { timeoutMs = CDP_TIMEOUT_MS } = {}) {
       return new Promise((resolve, reject) => {
+        if (dead) return reject(new Error(`${method}: ${dead}`));
         const id = ++nextId;
-        pending.set(id, { resolve, reject, method });
-        ws.send(JSON.stringify({ id, method, params }));
+        activity(`cdp send ${method}`);
+        const timer = setTimeout(() => {
+          pending.delete(id);
+          reject(new Error(`${method}: no response after ${timeoutMs} ms`));
+        }, timeoutMs);
+        timer.unref();
+        pending.set(id, { resolve, reject, method, timer });
+        try {
+          ws.send(JSON.stringify({ id, method, params }));
+        } catch (e) {
+          pending.delete(id);
+          clearTimeout(timer);
+          reject(e);
+        }
       });
     },
     on(fn) {
       handlers.push(fn);
     },
     /** Evaluate a JS expression in the page (awaits promises) and return its JSON value. */
-    async eval(expression) {
-      const r = await cdp.send('Runtime.evaluate', {
-        expression,
-        returnByValue: true,
-        awaitPromise: true,
-      });
+    async eval(expression, opts) {
+      const r = await cdp.send(
+        'Runtime.evaluate',
+        { expression, returnByValue: true, awaitPromise: true },
+        opts,
+      );
       if (r.exceptionDetails) {
         throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
       }
       return r.result.value;
     },
     async close() {
+      dead ??= 'closed';
       try {
         ws.close();
       } catch {
         /* already closed */
       }
-      proc.kill('SIGKILL');
+      killChild(proc);
       await sleep(200);
       rmSync(profile, { recursive: true, force: true });
     },

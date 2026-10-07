@@ -49,13 +49,14 @@ function renderLayer(
   noise: AudioBuffer,
   layer: SoundLayer,
   pitch: number,
+  level = 1,
 ): void {
   const start = ctx.currentTime + (layer.delay ?? 0);
   const end = start + layer.duration;
   const gain = ctx.createGain();
   // Fast attack, exponential-ish decay: no clicks.
   gain.gain.setValueAtTime(0.0001, start);
-  gain.gain.linearRampToValueAtTime(layer.gain, start + 0.004);
+  gain.gain.linearRampToValueAtTime(layer.gain * level, start + 0.004);
   gain.gain.exponentialRampToValueAtTime(0.0001, end);
   gain.connect(out);
 
@@ -121,7 +122,11 @@ export function createAudio(options: AudioOptions = {}): AudioSystem {
       if (ctx.state === 'suspended') void ctx.resume();
       if (!throttle.allow(id)) return;
       const pitch = 1 + (random() * 2 - 1) * (def.pitchVariance ?? 0);
-      for (const layer of def.layers) renderLayer(ctx, bus, noise, layer, pitch);
+      const pool = def.variants ? [def.layers, ...def.variants] : [def.layers];
+      const layers =
+        pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))] ?? def.layers;
+      const level = 1 - random() * (def.gainVariance ?? 0);
+      for (const layer of layers) renderLayer(ctx, bus, noise, layer, pitch, level);
     } catch {
       // Audio must never break the game.
     }

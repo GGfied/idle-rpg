@@ -7,9 +7,10 @@ import {
   TERRAIN_LEGEND,
   TREE_SPAWNS,
   WORLD,
+  WORLD_NPC_SPAWNS,
   namedLocations,
 } from './data';
-import { createCollisionGrid, terrainAt } from './logic';
+import { createCollisionGrid, createWorldCollisionGrid, terrainAt, WORLD_DEF } from './logic';
 
 const open = (x: number, y: number) => {
   const k = terrainAt(x, y);
@@ -82,7 +83,7 @@ describe('world data', () => {
   });
 
   it('named locations are walkable', () => {
-    const grid = createCollisionGrid();
+    const grid = createWorldCollisionGrid();
     for (const [id, loc] of Object.entries(namedLocations)) {
       expect(loc.id).toBe(id);
       expect(grid.isWalkable(loc.tile.x, loc.tile.y)).toBe(true);
@@ -130,5 +131,41 @@ describe('world data', () => {
         expect(neighbors(o).some((n) => seen.has(pointKey(n)))).toBe(true);
       }
     });
+  });
+});
+
+describe('banker dialogue vars', () => {
+  it('Fernhaven bankers carry the place var', () => {
+    for (const id of ['banker_3', 'banker_4']) {
+      const s = WORLD_NPC_SPAWNS.find((n) => n.spawnId === id);
+      expect(s?.dialogueVars).toEqual({ place: 'Fernhaven' });
+    }
+  });
+});
+
+describe('lake causeway', () => {
+  it('is bridge terrain, walkable, and the only bridge in the world', () => {
+    const grid = createWorldCollisionGrid();
+    for (let x = 35; x <= 39; x++) {
+      expect(terrainAt(x, 15)).toBe('bridge');
+      expect(grid.isWalkable(x, 15)).toBe(true);
+    }
+    let bridges = 0;
+    for (let y = 0; y < WORLD_DEF.heightTiles; y++)
+      for (let x = 0; x < WORLD_DEF.widthTiles; x++)
+        if (WORLD_DEF.terrainAt(x, y) === 'bridge') bridges++;
+    expect(bridges).toBe(5);
+  });
+});
+
+describe('banker genders', () => {
+  it('exactly one banker per bank is female, on the east booth, and keeps its place var', () => {
+    const f = WORLD_NPC_SPAWNS.filter((n) => n.npcId === 'banker_f');
+    expect(f.map((n) => [n.spawnId, n.x, n.y])).toEqual([
+      ['banker_2', 14, 8],
+      ['banker_4', 95, 61],
+    ]);
+    expect(f[1]?.dialogueVars).toEqual({ place: 'Fernhaven' });
+    expect(WORLD_NPC_SPAWNS.filter((n) => n.npcId === 'banker')).toHaveLength(2);
   });
 });

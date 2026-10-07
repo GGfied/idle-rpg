@@ -18,6 +18,9 @@ export const createGatheringState = (): GatheringState => ({ session: null, node
 function blocker(def: GatherDef, env: GatherEnv): GatherStopReason | null {
   if (env.level(def.skill) < def.requiredLevel) return 'levelTooLow';
   if (def.toolKind !== undefined && env.tool(def.toolKind) === null) return 'noTool';
+  // Refuse up front when no possible yield fits (e.g. a full bag), instead of after the first roll.
+  const fits = def.yields.some((y) => y.weight > 0 && env.canFit(y.value.itemId, y.value.quantity));
+  if (!fits) return 'inventoryFull';
   return null;
 }
 

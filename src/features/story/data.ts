@@ -6,11 +6,12 @@ export const DIALOGUES: DialogueDef[] = [
     npcId: 'banker',
     npcName: 'Banker',
     start: 'hello',
+    vars: { place: 'Willowbrook' },
     nodes: {
       hello: {
         type: 'say',
         speaker: 'npc',
-        text: 'Good day! Welcome to Willowbrook Bank. How can I help?',
+        text: 'Good day! Welcome to {place} Bank. How can I help?',
         next: 'menu',
       },
       menu: {

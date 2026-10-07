@@ -1,3 +1,4 @@
+import type { GroundItemsState } from '@core/items';
 import type { BankState, InventoryState } from '@core/inventory';
 import type { ProgressionState } from '@core/progression';
 import type { GatheringState } from '@core/skills';
@@ -42,6 +43,12 @@ export interface GameState {
   pendingNpc: { spawnId: string; optionId: string } | null;
   /** The open conversation (not saved). `spawnId` is who is talking, for the reach check. */
   talk: { spawnId: string; dialogue: DialogueState } | null;
+  /** Items lying on the ground (not saved: a reload clears them, they also despawn on a tick timer). */
+  ground: GroundItemsState;
+  /** The ground item the player is walking to take (not saved). */
+  pendingGround: { id: string } | null;
+  /** Latest game tick number, so intents can stamp drops (not saved). */
+  tick: number;
   /** Whether the bank panel is open (not saved). */
   bankOpen: boolean;
   chat: ChatLine[];

@@ -129,8 +129,9 @@ afterEach(() => vi.useRealTimers());
 
 describe('EVENT_SOUNDS mapping', () => {
   const cases: [Record<string, unknown> & { type: string }, SoundId[]][] = [
-    [{ type: 'gatherStarted' }, ['chop']],
-    [{ type: 'itemGathered' }, ['chop', 'logGained']],
+    [{ type: 'swingImpact' }, ['axeHit']],
+    [{ type: 'gatherStarted' }, []],
+    [{ type: 'itemGathered' }, ['logGained']],
     [{ type: 'nodeDepleted' }, ['treeFall']],
     [{ type: 'levelUp' }, ['levelUp']],
     [{ type: 'gatherStopped', reason: 'inventoryFull' }, ['inventoryFull']],
@@ -154,7 +155,7 @@ describe('EVENT_SOUNDS mapping', () => {
 describe('createAudio', () => {
   it('is a silent no-op before unlock', () => {
     const { audio, f } = setup();
-    audio.play('chop');
+    audio.play('axeHit');
     audio.handleEvent({ type: 'levelUp' });
     expect(f.starts).toHaveLength(0);
   });
@@ -168,24 +169,24 @@ describe('createAudio', () => {
   });
 
   it('handleEvent plays every sound of a mapped event, nothing for depleted', () => {
-    const { audio, f } = setup();
+    const { audio, f } = setup({ random: () => 0 });
     audio.unlock();
     audio.handleEvent({ type: 'gatherStopped', reason: 'depleted' });
     expect(f.starts).toHaveLength(0);
     audio.handleEvent({ type: 'itemGathered' });
-    const layers = SOUND_DEFS.chop.layers.length + SOUND_DEFS.logGained.layers.length;
+    const layers = SOUND_DEFS.logGained.layers.length;
     expect(f.starts).toHaveLength(layers);
   });
 
   it('throttles identical sounds inside the minimum gap', () => {
     const { audio, f, advance } = setup();
     audio.unlock();
-    audio.play('chop');
+    audio.play('axeHit');
     const first = f.starts.length;
-    audio.play('chop');
+    audio.play('axeHit');
     expect(f.starts).toHaveLength(first);
-    advance(61);
-    audio.play('chop');
+    advance(151);
+    audio.play('axeHit');
     expect(f.starts).toHaveLength(first * 2);
   });
 
@@ -221,21 +222,21 @@ describe('createAudio', () => {
     });
     expect(() => {
       audio.unlock();
-      audio.play('chop');
+      audio.play('axeHit');
       audio.handleEvent({ type: 'levelUp' });
     }).not.toThrow();
   });
 
   it('loops play on an interval until stopped', () => {
     vi.useFakeTimers();
-    const { audio, f, advance } = setup();
+    const { audio, f, advance } = setup({ random: () => 0 });
     audio.unlock();
-    audio.startLoop('chop', 100);
-    const per = SOUND_DEFS.chop.layers.length;
+    audio.startLoop('axeHit', 100);
+    const per = SOUND_DEFS.axeHit.layers.length;
     advance(100);
     vi.advanceTimersByTime(100);
     expect(f.starts).toHaveLength(per);
-    audio.stopLoop('chop');
+    audio.stopLoop('axeHit');
     advance(100);
     vi.advanceTimersByTime(300);
     expect(f.starts).toHaveLength(per);
@@ -266,7 +267,7 @@ describe('channels and volume maths', () => {
     audio.play('uiClick');
     expect(f.layerTargets.every((x) => x === f.uiBus)).toBe(true);
     f.layerTargets.length = 0;
-    audio.play('chop');
+    audio.play('axeHit');
     expect(f.layerTargets.length).toBeGreaterThan(0);
     expect(f.layerTargets.every((x) => x === f.sfxBus)).toBe(true);
   });
@@ -292,7 +293,7 @@ describe('channels and volume maths', () => {
     audio.play('uiClick');
     expect(f.starts).toHaveLength(0);
     advance(100);
-    audio.play('chop');
+    audio.play('axeHit');
     expect(f.starts.length).toBeGreaterThan(0);
   });
 
@@ -300,7 +301,7 @@ describe('channels and volume maths', () => {
     const { audio, f } = setup({ initialVolumes: { master: 1, sfx: 1, ui: 1 } });
     audio.unlock();
     audio.setMuted(true);
-    audio.play('chop');
+    audio.play('axeHit');
     audio.play('uiClick');
     expect(f.starts).toHaveLength(0);
     expect(f.masterGain.value).toBe(0);
@@ -341,17 +342,71 @@ describe('channels and volume maths', () => {
 
   it('worst-case overlapping layer gain x ceiling never exceeds 1 at the destination', () => {
     for (const [id, def] of Object.entries(SOUND_DEFS)) {
-      const events = def.layers.map((l) => ({ s: l.delay ?? 0, e: (l.delay ?? 0) + l.duration }));
-      let peak = 0;
-      for (const { s } of events) {
-        const sum = def.layers.reduce(
-          (a, l, i) => (events[i]!.s <= s && s < events[i]!.e ? a + l.gain : a),
-          0,
-        );
-        peak = Math.max(peak, sum);
+      for (const layers of [def.layers, ...(def.variants ?? [])]) {
+        const events = layers.map((l) => ({ s: l.delay ?? 0, e: (l.delay ?? 0) + l.duration }));
+        let peak = 0;
+        for (const { s } of events) {
+          const sum = layers.reduce(
+            (a, l, i) => (events[i]!.s <= s && s < events[i]!.e ? a + l.gain : a),
+            0,
+          );
+          peak = Math.max(peak, sum);
+        }
+        expect(peak * MASTER_CEILING * 1 * 1, id).toBeLessThanOrEqual(1);
       }
-      expect(peak * MASTER_CEILING * 1 * 1, id).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+describe('axe impact and log sounds', () => {
+  const variantCount = 1 + (SOUND_DEFS.axeHit.variants?.length ?? 0);
+
+  it('has at least 3 alternates and a log sound distinct from levelUp', () => {
+    expect(variantCount).toBeGreaterThanOrEqual(3);
+    expect(SOUND_DEFS.logGained.layers).not.toEqual(SOUND_DEFS.levelUp.layers);
+    expect(SOUND_DEFS.logGained.layers.every((l) => l.wave !== 'square')).toBe(true);
+  });
+
+  it('picks a different variant across the random range', () => {
+    const shapes = new Set<string>();
+    for (let i = 0; i < variantCount; i++) {
+      const { audio, f } = setup({ random: () => (i + 0.5) / variantCount });
+      audio.unlock();
+      audio.handleEvent({ type: 'swingImpact' });
+      shapes.add(f.peaks.join(','));
+      expect(f.starts.length).toBeGreaterThan(0);
+    }
+    expect(shapes.size).toBeGreaterThan(1);
+  });
+
+  it('jitters gain downward only and varies pitch', () => {
+    const lo = setup({ random: () => 0.999 });
+    lo.audio.unlock();
+    lo.audio.play('axeHit');
+    const hi = setup({ random: () => 0 });
+    hi.audio.unlock();
+    hi.audio.play('axeHit');
+    const peak = (f: typeof lo.f) => Math.max(...f.peaks);
+    expect(peak(lo.f)).toBeLessThan(peak(hi.f));
+    expect(peak(hi.f)).toBeLessThanOrEqual(0.75);
+  });
+
+  it('does not machine-gun: ten swing impacts in one tick play once', () => {
+    const { audio, f } = setup({ random: () => 0 });
+    audio.unlock();
+    for (let i = 0; i < 10; i++) audio.handleEvent({ type: 'swingImpact' });
+    expect(f.starts).toHaveLength(SOUND_DEFS.axeHit.layers.length);
+  });
+
+  it('plays nothing while muted or with the sfx channel at 0', () => {
+    const m = setup({ initialMuted: true });
+    m.audio.unlock();
+    m.audio.handleEvent({ type: 'swingImpact' });
+    expect(m.f.starts).toHaveLength(0);
+    const z = setup({ initialVolumes: { sfx: 0 } });
+    z.audio.unlock();
+    z.audio.handleEvent({ type: 'swingImpact' });
+    expect(z.f.starts).toHaveLength(0);
   });
 });
 

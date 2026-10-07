@@ -1,5 +1,6 @@
 # npc agent memory (newest first)
 
+- 2026-10-08: Never perl -0 a multi-line data.ts block with a lazy regex (it clobbered the file, rewrote it); edit with Edit tool or rewrite whole file. Variant NPCs share a const (BANKER_OPTIONS) and a test asserts equal options.
 - 2026-10-08: In test files import test builders as `@test-utils/index` (alias is `@test-utils/*`; bare `@test-utils` fails tsc/vitest).
 - 2026-10-08: Always `mkdir -p` the module dir and chain with `&&`/`|| exit 1` before heredocs; a failed `cd` made a heredoc land in the repo root (cleaned up).
 - 2026-10-08: macOS BSD sed has no `0,/re/` or multiline; use `perl -0pi -e` for "prove it fails in a copy" mutations (copy to src/features/npc_copy_tmp, delete after).
