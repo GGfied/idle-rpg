@@ -16,6 +16,24 @@ export function itemIconUrl(id: string): string | undefined {
   return BY_ID.get(id);
 }
 
+/** Where an item's picture comes from, shared by EVERY view (inventory, bank, shop via ItemSlot, drag ghost, ground). */
+export interface ItemIconSource {
+  /** Stable texture key for engines that need one (Phaser); derived only from the item id. */
+  key: string;
+  url: string;
+}
+
+/** The one icon source for an item id, or undefined when it has no art. Built on itemIconUrl: never a second drawing. */
+export function itemIconSource(id: string): ItemIconSource | undefined {
+  const url = BY_ID.get(id);
+  return url === undefined ? undefined : { key: `item_icon_${id}`, url };
+}
+
+/** Every item id that has icon art (for tests and previews). */
+export function itemIconIds(): string[] {
+  return [...BY_ID.keys()].sort();
+}
+
 const UI_URLS = import.meta.glob('/src/assets/sprites/ui/*.svg', {
   eager: true,
   query: '?url',

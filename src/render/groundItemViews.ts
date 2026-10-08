@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
 import type { MotionMode } from './animation/types';
-import { itemIconUrl } from './itemIcons';
+import { itemIconIds, itemIconSource, type ItemIconSource } from './itemIcons';
 import { cullToCamera, uncullFromCamera } from './viewCull';
 import type { Projection } from './projection';
 import {
@@ -24,8 +24,8 @@ export interface GroundItemViews {
 export interface GroundItemViewOptions {
   /** Animations setting; the drop settle tween plays only on 'on'. Default 'on'. */
   motion?: () => MotionMode;
-  /** Icon URL lookup (default: the shared item icons). */
-  iconUrl?: (itemId: string) => string | undefined;
+  /** Icon source lookup (default: the shared item icons, the same ones the inventory and bank draw). */
+  iconSource?: (itemId: string) => ItemIconSource | undefined;
 }
 
 /** Ground items sit under a figure standing on the same tile (building doors use the same -0.5 trick). */
@@ -50,10 +50,6 @@ interface View {
   cy: number;
   depth: number;
   tween?: Phaser.Tweens.Tween;
-}
-
-function iconKey(itemId: string): string {
-  return `ground_icon_${itemId}`;
 }
 
 function makeCanvas(
@@ -103,7 +99,7 @@ export function createGroundItemViews(
   options: GroundItemViewOptions = {},
 ): GroundItemViews {
   const motion = options.motion ?? ((): MotionMode => 'on');
-  const urlOf = options.iconUrl ?? itemIconUrl;
+  const sourceOf = options.iconSource ?? itemIconSource;
   ensureShared(scene);
 
   const live = new Map<string, View>();
@@ -113,10 +109,11 @@ export function createGroundItemViews(
   let destroyed = false;
 
   function textureFor(itemId: string): string {
-    const key = iconKey(itemId);
+    const src = sourceOf(itemId);
+    if (!src) return SACK_KEY;
+    const { key, url } = src;
     if (scene.textures.exists(key)) return key;
-    const url = urlOf(itemId);
-    if (url && !loading.has(itemId) && typeof Image !== 'undefined') {
+    if (!loading.has(itemId) && typeof Image !== 'undefined') {
       loading.add(itemId);
       const img = new Image();
       img.onload = () => {
@@ -133,6 +130,9 @@ export function createGroundItemViews(
     }
     return SACK_KEY;
   }
+
+  // Decode every icon once now so the real picture is ready before the first drop (no sack flash).
+  for (const id of itemIconIds()) textureFor(id);
 
   function create(): View {
     const shadow = scene.add.image(0, 1, SHADOW_KEY).setDisplaySize(ICON_PX * 1.5, ICON_PX * 0.75);

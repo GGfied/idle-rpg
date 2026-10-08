@@ -65,9 +65,21 @@ describe('map labels', () => {
   it('has one bank facility label per bank booth group, inside its building', () => {
     const banks = labels.filter((l) => l.kind === 'facility' && l.icon === 'bank');
     const booths = WORLD_DEF.spawns.filter((s) => s.ref === 'bank_booth');
-    const groups = new Set(booths.map((b) => buildingAt(b.x, b.y)?.id));
-    expect(groups.has(undefined)).toBe(false);
-    expect(banks.map((l) => buildingAt(l.x, l.y)?.id).sort()).toEqual([...groups].sort());
+    // Free-standing booths (no building) get no facility label; only the Greatmere shore booth is one.
+    const open = booths.filter((b) => !buildingAt(b.x, b.y));
+    expect(open.map((b) => [b.x, b.y])).toEqual([[72, 52]]);
+    const groups = new Set(booths.flatMap((b) => buildingAt(b.x, b.y)?.id ?? []));
+    expect(
+      banks
+        .map((l) => buildingAt(l.x, l.y)?.id)
+        .filter(Boolean)
+        .sort(),
+    ).toEqual([...groups].sort());
+    // Each free-standing booth has its own bank label on its tile.
+    for (const b of open) {
+      expect(banks.some((l) => l.x === b.x && l.y === b.y)).toBe(true);
+    }
+    expect(banks).toHaveLength(groups.size + open.length);
   });
 
   it('region labels are unique and non-empty', () => {

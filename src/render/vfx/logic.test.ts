@@ -13,7 +13,11 @@ import {
   resolveEffect,
   stackOffset,
   stackSlot,
+  tintFor,
+  towards,
+  lighten,
 } from './logic';
+import { ROCK_LOOKS } from '@render/index';
 
 const ctx = {
   playerWorld: { x: 10, y: 20 },
@@ -128,6 +132,7 @@ describe('gatherStopped blocked effects', () => {
     expect(effects('levelTooLow')).toEqual(['blockedCross', 'blockedText']);
     expect(effects('noTool')).toEqual(['blockedCross', 'blockedText']);
     expect(effects('inventoryFull')).toEqual(['blockedText']);
+    expect(effects('noBait')).toEqual(['blockedText']);
     expect(effects('depleted')).toEqual([]);
     expect(effects('cancelled')).toEqual([]);
     expect(effects('bogus')).toEqual([]);
@@ -144,6 +149,7 @@ describe('gatherStopped blocked effects', () => {
     expect(blockedLabel(stop('noTool'))).toBe('No axe');
     expect(blockedLabel(stop('noTool', { tool: 'pickaxe' }))).toBe('No pickaxe');
     expect(blockedLabel(stop('inventoryFull'))).toBe('Inventory full');
+    expect(blockedLabel(stop('noBait'))).toBe('No bait');
     expect(blockedLabel(stop('depleted'))).toBeUndefined();
     expect(blockedLabel(stop('toString'))).toBeUndefined();
   });
@@ -179,7 +185,7 @@ describe('modes', () => {
     planEvent({ type, ...extra }, ctx, EVENT_VFX, { mode, xpDrops }).map((p) => p.effect);
   it('on plays everything for an event', () => {
     expect(plan('levelUp', 'on')).toEqual(['levelUpRing', 'levelUpSparkle']);
-    expect(plan('itemGathered', 'on')).toEqual(['woodChips']);
+    expect(plan('itemGathered', 'on', true, { skill: 'woodcutting' })).toEqual(['logPuff']);
   });
   it('off plays nothing', () => {
     for (const t of ['levelUp', 'itemGathered', 'xpGained', 'nodeDepleted']) {
@@ -229,9 +235,9 @@ describe('iso placement and depth', () => {
     for (const [tx, ty] of tiles) {
       const feet = isoProjection.tileToWorld(tx, ty);
       const c = { playerWorld: { x: 0, y: 0 }, nodeWorld: () => feet };
-      const p = planEvent({ type: 'itemGathered', nodeId: 'n' }, c)[0];
+      const p = planEvent({ type: 'itemGathered', skill: 'woodcutting', nodeId: 'n' }, c)[0];
       expect(p?.x).toBeCloseTo(feet.x);
-      expect(p?.y).toBeCloseTo(feet.y - (EFFECTS.woodChips?.lift ?? 0));
+      expect(p?.y).toBeCloseTo(feet.y - (EFFECTS.logPuff?.lift ?? 0));
       expect(p?.depth).toBeCloseTo(isoProjection.depthFor(tx, ty) + 0.5);
     }
   });
@@ -299,5 +305,138 @@ describe('iso placement and depth', () => {
     expect(planEvent({ type: 'levelUp' }, ctx, undefined, { mode: 'off', xpDrops: true })).toEqual(
       [],
     );
+  });
+});
+
+const names = (e: Parameters<typeof planEvent>[0], c = ctx) => planEvent(e, c).map((p) => p.effect);
+const spotCtx = {
+  ...ctx,
+  nodeWorld: (id: string) => (id === 'n1' || id === 's1' ? { x: 100, y: 200 } : undefined),
+  tileWorld: (id: string, i: number) => (id === 's1' ? { x: 10 * i, y: 5 * i } : undefined),
+};
+
+describe('skill-filtered cues', () => {
+  it('mining never plays wood or tree effects, and vice versa', () => {
+    const mining = [
+      ...names({ type: 'swingImpact', skill: 'mining', nodeId: 'n1' }),
+      ...names({ type: 'itemGathered', skill: 'mining', nodeId: 'n1', itemId: 'tin_ore' }),
+      ...names({ type: 'nodeDepleted', skill: 'mining', nodeId: 'n1' }),
+    ];
+    expect(mining).toEqual(['rockDust', 'stoneChips', 'oreSparkle', 'rockBurst', 'rockPebbles']);
+    const wood = [
+      ...names({ type: 'swingImpact', skill: 'woodcutting', nodeId: 'n1' }),
+      ...names({ type: 'itemGathered', skill: 'woodcutting', nodeId: 'n1' }),
+      ...names({ type: 'nodeDepleted', nodeId: 'n1' }),
+    ];
+    expect(wood).toEqual([
+      'woodChips',
+      'barkFlakes',
+      'leafDrift',
+      'logPuff',
+      'treeFallDust',
+      'leafBurst',
+    ]);
+    expect(wood.join()).not.toMatch(/rock|stone|ore/);
+  });
+  it('an untagged swing counts as woodcutting', () => {
+    expect(names({ type: 'swingImpact', nodeId: 'n1' })).toContain('woodChips');
+  });
+  it('fishing plays water effects only', () => {
+    expect(names({ type: 'fishingStarted', spotId: 's1' }, spotCtx)).toEqual([
+      'castSplash',
+      'castRing',
+    ]);
+    expect(names({ type: 'itemGathered', skill: 'fishing', nodeId: 's1' }, spotCtx)).toEqual([
+      'catchSplash',
+      'catchRing',
+    ]);
+  });
+});
+
+describe('fishing spotMoved ripples', () => {
+  it('plays rings at the from and to tiles', () => {
+    const p = planEvent({ type: 'spotMoved', spotId: 's1', from: 1, to: 3 }, spotCtx);
+    expect(p.map((x) => [x.effect, x.x])).toEqual([
+      ['spotRipple', 10],
+      ['spotRippleOuter', 10],
+      ['spotRipple', 30],
+      ['spotRippleOuter', 30],
+    ]);
+  });
+  it('skips unresolved tiles instead of falling back to the player', () => {
+    expect(planEvent({ type: 'spotMoved', spotId: 'zz', from: 1, to: 2 }, spotCtx)).toEqual([]);
+    expect(planEvent({ type: 'spotMoved', spotId: 's1', from: 'a', to: 2 }, spotCtx).length).toBe(
+      2,
+    );
+  });
+});
+
+describe('ore tint and anchors', () => {
+  it('tints the sparkle from the rock art ore colour', () => {
+    const p = planEvent(
+      { type: 'itemGathered', skill: 'mining', nodeId: 'n1', itemId: 'iron_ore' },
+      ctx,
+    );
+    expect(p[0]?.tint).toBe(ROCK_LOOKS.iron_rock.ore);
+    expect(tintFor('unknown')).toBeUndefined();
+    expect(tintFor('toString')).toBeUndefined();
+  });
+  it('tints coal and runs rock dust for coal_rock impacts', () => {
+    const g = planEvent(
+      { type: 'itemGathered', skill: 'mining', nodeId: 'n1', itemId: 'coal' },
+      ctx,
+    );
+    expect(g[0]?.tint).toBe(ROCK_LOOKS.coal_rock.ore);
+    expect(g[0]?.tint).toBeDefined();
+  });
+  it('lighten blends toward white', () => {
+    expect(lighten(0x000000, 1)).toBe(0xffffff);
+    expect(lighten(0x102030, 0)).toBe(0x102030);
+  });
+  it('towards moves toward the player but never past it', () => {
+    expect(towards({ x: 0, y: 0 }, { x: 10, y: 0 }, 4)).toEqual({ x: 4, y: 0 });
+    expect(towards({ x: 0, y: 0 }, { x: 2, y: 0 }, 4)).toEqual({ x: 2, y: 0 });
+    expect(towards({ x: 1, y: 1 }, { x: 1, y: 1 }, 4)).toEqual({ x: 1, y: 1 });
+  });
+  it('axe chips sit toward the player side of the trunk', () => {
+    const p = planEvent(
+      { type: 'swingImpact', nodeId: 'n1' },
+      { ...spotCtx, playerWorld: { x: 0, y: 200 } },
+    );
+    expect(p[0]?.x).toBeLessThan(100);
+    expect(p[2]?.x).toBe(100); // leaves fall from the canopy centre
+  });
+});
+
+describe('modes with the new effects', () => {
+  it('reduced mode keeps rings, drops decorative bursts; off plays nothing', () => {
+    const ev = { type: 'spotMoved', spotId: 's1', from: 1, to: 2 };
+    expect(planEvent(ev, spotCtx, EVENT_VFX, { mode: 'reduced', xpDrops: true }).length).toBe(4);
+    expect(
+      planEvent({ type: 'swingImpact', skill: 'mining', nodeId: 'n1' }, ctx, EVENT_VFX, {
+        mode: 'reduced',
+        xpDrops: true,
+      }),
+    ).toEqual([]);
+    expect(planEvent(ev, spotCtx, EVENT_VFX, { mode: 'off', xpDrops: true })).toEqual([]);
+  });
+  it('xpGained drops for mining and fishing like woodcutting', () => {
+    for (const skill of ['woodcutting', 'mining', 'fishing'])
+      expect(names({ type: 'xpGained', skill, amount: 5 })).toEqual(['xpDrop']);
+  });
+});
+
+describe('pool reuse under the new bursts', () => {
+  it('a burst larger than the cap recycles instead of growing', () => {
+    let made = 0;
+    const pool = createPool({
+      cap: 4,
+      create: () => ({ n: made++ }),
+      reset: () => {},
+      dispose: () => {},
+    });
+    for (let i = 0; i < 12; i++) pool.acquire();
+    expect(pool.totalCount()).toBe(4);
+    expect(pool.activeCount()).toBe(4);
   });
 });

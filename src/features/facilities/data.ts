@@ -15,4 +15,13 @@ export const FACILITIES: FacilityDef[] = [
     reach: 'adjacent4',
     options: [{ id: 'use', label: 'Use', intent: { type: 'openPanel', panel: 'bankPanel' } }],
   },
+  {
+    kind: 'deposit_chest',
+    name: 'Deposit chest',
+    examine: 'A slotted chest that accepts deposits. Nothing comes back out.',
+    reach: 'adjacent4',
+    options: [
+      { id: 'deposit', label: 'Deposit', intent: { type: 'openPanel', panel: 'depositPanel' } },
+    ],
+  },
 ];

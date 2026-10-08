@@ -8,6 +8,7 @@ import {
   createThrottle,
   diamondPoints,
   effectDepth,
+  lighten,
   planEvent,
   resolveEffect,
   resolveXpColor,
@@ -112,14 +113,19 @@ export function createVfx(
 
   const throttle = createThrottle();
 
-  function burst(def: BurstEffect, x: number, y: number, depth: number): void {
+  function burst(def: BurstEffect, x: number, y: number, depth: number, tint?: number): void {
     const ease = ballistic(def.rise, def.fall);
     for (let i = 0; i < def.count; i++) {
       const p = particles.acquire();
       const size = Phaser.Math.FloatBetween(def.size[0], def.size[1]);
       p.setPosition(x + Phaser.Math.FloatBetween(-def.jitter, def.jitter), y)
         .setRadius(size / 2)
-        .setFillStyle(Phaser.Utils.Array.GetRandom(def.colors as number[]) as number, 1)
+        .setFillStyle(
+          tint === undefined
+            ? (Phaser.Utils.Array.GetRandom(def.colors as number[]) as number)
+            : lighten(tint, i % 2 ? 0.45 : 0),
+          1,
+        )
         .setDepth(depth)
         .setAlpha(1)
         .setScale(1)
@@ -278,11 +284,16 @@ export function createVfx(
 
   return {
     handleEvent(event, ctx) {
-      for (const { effect, x, y, depth, throttle: th } of planEvent(event, ctx, EVENT_VFX, opts)) {
+      for (const { effect, x, y, depth, tint, throttle: th } of planEvent(
+        event,
+        ctx,
+        EVENT_VFX,
+        opts,
+      )) {
         const def = resolveEffect(effect, opts.mode);
         if (!def) continue;
         if (th && !throttle.allow(th.key, scene.time.now, th.ms)) continue;
-        if (def.kind === 'burst') burst(def, x, y, depth);
+        if (def.kind === 'burst') burst(def, x, y, depth, tint);
         else if (def.kind === 'ring') ring(def, x, y, depth);
         else if (def.kind === 'xpDrop') xpDrop(def, x, y, depth, event);
         else if (def.kind === 'cross') crossEffect(def, x, y, depth);

@@ -40,6 +40,7 @@ function useTyped(text: string, animate: boolean): [number, () => void] {
 export function DialoguePanel() {
   const state = useApp((s) => s.dialogue);
   const look = useApp((s) => s.speakerLook);
+  const playerLook = useApp((s) => s.prefs.playerLook);
   const advance = useApp((s) => s.advanceDialogue);
   const close = useApp((s) => s.closeDialogue);
   const mode = useApp((s) => s.prefs.visuals.animations);
@@ -62,7 +63,10 @@ export function DialoguePanel() {
   }, [view, advance, close]);
 
   const speaker = view?.speaker ?? '';
-  const portrait = useMemo(() => speakerPortrait(speaker, 24, undefined, look), [speaker, look]);
+  const portrait = useMemo(
+    () => speakerPortrait(speaker, 24, undefined, look, playerLook),
+    [speaker, look, playerLook],
+  );
   const text = view?.text ?? '';
   const [shown, finish] = useTyped(text, mode === 'on');
   if (!view) return null;

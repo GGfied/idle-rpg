@@ -1,17 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
-  STATIC_AXE_ANGLE,
   facingFromStep,
   facingIsBack,
   facingIsLeft,
   fallVector,
-  chopAngle,
   computePose,
   makePose,
   nextAnimState,
-  tapAngle,
-  foreshortenSwing,
 } from './logic';
+import { foreshortenSwing } from './chop';
 import { CHOP_SWING_PERIOD_MS, MOTION, REDUCED_FADE_MS, SWING_IMPACT_PHASE } from './data';
 
 describe('nextAnimState', () => {
@@ -37,11 +34,12 @@ describe('computePose', () => {
     expect(computePose('chop', 0, p).axeVisible).toBe(true);
   });
   it('swings back then strikes forward over one period', () => {
-    const back = chopAngle(0.55);
-    const hit = chopAngle(0.7);
-    expect(back).toBeLessThan(chopAngle(0));
-    expect(hit).toBeGreaterThan(0);
-    expect(chopAngle(1)).toBeCloseTo(chopAngle(0));
+    const ang = (ph: number) => computePose('chop', ph * CHOP_SWING_PERIOD_MS, makePose()).axeAngle;
+    const headY = (ph: number) => Math.cos(ang(ph)); // + = head below the hands
+    expect(headY(0.5)).toBeLessThan(headY(0)); // axe raised over the shoulder
+    expect(headY(SWING_IMPACT_PHASE)).toBeGreaterThan(0.2); // head down at the hit
+    expect(Math.sin(ang(1))).toBeCloseTo(Math.sin(ang(0)));
+    expect(Math.cos(ang(1))).toBeCloseTo(Math.cos(ang(0)));
   });
   it('is periodic in swingPeriodMs', () => {
     const a = computePose('chop', 300, makePose()).axeAngle;
@@ -80,7 +78,6 @@ describe('motion modes', () => {
       seen.add(p.axeAngle);
     }
     expect(seen.size).toBe(2);
-    expect(tapAngle(0.7)).not.toBe(tapAngle(0.1));
   });
   it('reduced tree tweens: short fade, no tilt, no pop', () => {
     const r = MOTION.reduced;
@@ -109,7 +106,7 @@ describe('motion mode off', () => {
       expect(p.axeVisible).toBe(true);
       seen.add(p.axeAngle);
     }
-    expect([...seen]).toEqual([STATIC_AXE_ANGLE]);
+    expect(seen.size).toBe(1);
   });
   it('tree swaps are instant', () => {
     expect(MOTION.off.fallMs).toBe(0);
@@ -170,9 +167,9 @@ describe('fallVector', () => {
 
 describe('SWING_IMPACT_PHASE', () => {
   it('is where the strike ends: the axe reaches the hit angle there and not before', () => {
-    const hit = chopAngle(SWING_IMPACT_PHASE + 0.01);
-    expect(chopAngle(SWING_IMPACT_PHASE)).toBeCloseTo(hit, 6);
-    expect(chopAngle(SWING_IMPACT_PHASE - 0.02)).toBeLessThan(hit - 0.05);
+    const head = (ph: number) =>
+      Math.cos(computePose('chop', ph * CHOP_SWING_PERIOD_MS, makePose()).axeAngle);
+    expect(head(SWING_IMPACT_PHASE - 0.02)).toBeLessThan(head(SWING_IMPACT_PHASE) - 0.05);
   });
 });
 

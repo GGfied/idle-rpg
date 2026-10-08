@@ -3,7 +3,7 @@ import { findDuplicates, neighbors, pointKey } from '@core/utils';
 import { CHUNK_SIZE, NPC_SPAWNS, OBJECT_SPAWNS, PLAYER_SPAWN, namedLocations } from './data';
 import { VILLAGE_ROWS } from './areas/village';
 import { WORLD_DEF, areaAt, createWorldCollisionGrid, terrainAt } from './logic';
-import { AREA_ZONES } from './data';
+import { AREA_ZONES, WORLD_OBJECT_SPAWNS } from './data';
 
 /** The village exactly as shipped before the big world (rows from git history, 2026-10-08). */
 const ORIGINAL_ROWS = [
@@ -166,7 +166,7 @@ describe('big world content', () => {
   it('spawn refs are real owning-module ids', () => {
     for (const s of trees) expect(['tree', 'oak_tree']).toContain(s.ref);
     for (const s of WORLD_DEF.spawns.filter((x) => x.type === 'object')) {
-      expect(['bank_booth', 'bank_chest']).toContain(s.ref);
+      expect(['bank_booth', 'bank_chest', 'deposit_chest']).toContain(s.ref);
     }
     for (const s of WORLD_DEF.spawns.filter((x) => x.type === 'npc'))
       expect(['banker', 'banker_f']).toContain(s.ref);
@@ -228,4 +228,46 @@ describe('big world content', () => {
     expect(areaAt(102, 69).id).toBe('fernhaven');
     expect(areaAt(94, 62).id).toBe('fernhaven_bank');
   });
+});
+
+describe('shore booth and wood deposit chest', () => {
+  const placed = [
+    { id: 'bank_booth_5', kind: 'bank_booth', x: 72, y: 52 },
+    { id: 'deposit_chest_1', kind: 'deposit_chest', x: 48, y: 14 },
+  ] as const;
+  const grid = createWorldCollisionGrid();
+  const { x: sx, y: sy } = PLAYER_SPAWN;
+  const reach = new Set<string>([`${sx},${sy}`]);
+  const queue: [number, number][] = [[sx, sy]];
+  for (let i = 0; i < queue.length; i++) {
+    const [x, y] = queue[i]!;
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const k = `${x + dx},${y + dy}`;
+      if (!reach.has(k) && grid.isWalkable(x + dx, y + dy)) {
+        reach.add(k);
+        queue.push([x + dx, y + dy]);
+      }
+    }
+  }
+
+  for (const p of placed) {
+    it(`${p.id} exists, blocks, and has a reachable 4-neighbour`, () => {
+      const o = WORLD_OBJECT_SPAWNS.find((s) => s.objectId === p.id);
+      expect(o).toMatchObject({ kind: p.kind, x: p.x, y: p.y });
+      expect(['bank_booth', 'deposit_chest']).toContain(o!.kind);
+      expect(grid.isWalkable(p.x, p.y)).toBe(false);
+      const near = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ].filter(([dx, dy]) => reach.has(`${p.x + dx!},${p.y + dy!}`));
+      expect(near.length).toBeGreaterThan(0);
+    });
+  }
 });

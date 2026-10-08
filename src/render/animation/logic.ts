@@ -1,28 +1,39 @@
-import { isoProjection } from '@render/index';
-import type { Facing8 } from '@render/index';
+import { PLAYER_LOOK, figureArmPivots, figureLegPivots, isoProjection } from '@render/index';
+import type { Facing8, FigureLook } from '@render/index';
+import { chopPose } from './chop';
 import {
   ANIM_STATES,
+  AXE_GRIP_Y,
   CHOP_SWING_PERIOD_MS,
   FACING_POSE,
+  FACING_SWING,
   BREATH_PERIOD_MS,
   BREATH_PX,
+  DIAGONAL_LATERAL_CAP,
+  SWING_LEN_MAX,
+  SWING_LEN_MIN,
   FALL_SLIDE_PX,
   GAITS,
   GUST_PERIOD_MS,
   GUST_WAVELENGTH_PX,
   MOTION,
   SWAY_SPEED_SPREAD,
-  SWING_IMPACT_PHASE,
+  SWING_DEPTH_GAIN,
+  SWING_KEYS,
+  SWING_TIMELINES,
 } from './data';
+import type { SwingState } from './data';
 import type {
   AnimInput,
   AnimState,
   GaitDef,
   GaitKey,
   MotionMode,
-  MotionParams,
+  ChopView,
   Pose,
+  RigGeom,
   SwayParams,
+  SwingAxis,
 } from './types';
 
 const STATE_ORDER = Object.keys(ANIM_STATES) as AnimState[];
@@ -57,52 +68,104 @@ export function makePose(): Pose {
     kneeBack: 0,
     axeAngle: 0,
     axeVisible: false,
+    twist: 0,
+    gripX: 0,
+    gripY: 0,
   };
 }
 
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
+/** Rig measurements for a look (art px). The female body passes its own look; nothing here is male-specific. */
+export function rigGeom(look: FigureLook): RigGeom {
+  const arm = figureArmPivots(look);
+  const leg = figureLegPivots(look);
+  return {
+    shoulderX: arm.shoulderX,
+    elbowY: arm.elbowY,
+    handY: AXE_GRIP_Y,
+    hipY: leg.hipY,
+    kneeY: leg.kneeY,
+  };
 }
-function easeInOut(t: number): number {
-  return t * t * (3 - 2 * t);
+let defaultGeomCache: RigGeom | null = null;
+/** Geometry of the default player look, built on first use (not at import, so partial render mocks still load). */
+export function defaultGeom(): RigGeom {
+  defaultGeomCache ??= rigGeom(PLAYER_LOOK);
+  return defaultGeomCache;
 }
-function easeIn(t: number): number {
-  return t * t;
+/** Chop seen face-on: nothing foreshortened. */
+export const FRONT_VIEW: ChopView = { reach: 1 };
+
+/** Where a walk/run limb swing runs on screen for a facing, in the flipped rig (x >= 0, y + = toward the camera). */
+export function swingAxis(facing: Facing8, out: SwingAxis): SwingAxis {
+  const f = FACING_SWING[facing];
+  out.x = Math.abs(f.x);
+  out.y = f.y;
+  return out;
 }
 
-/** Axe angle in radians over a swing phase 0..1: slow back-swing, fast strike, recover. */
-export function chopAngle(phase: number): number {
-  const p = ((phase % 1) + 1) % 1;
-  const REST = -25 * DEG;
-  const BACK = -115 * DEG;
-  const HIT = 55 * DEG;
-  if (p < 0.55) return lerp(REST, BACK, easeInOut(p / 0.55)); // wind up
-  if (p < SWING_IMPACT_PHASE)
-    return lerp(BACK, HIT, easeIn((p - 0.55) / (SWING_IMPACT_PHASE - 0.55))); // strike
-  if (p < 0.78) return HIT; // hold on impact
-  return lerp(HIT, REST, easeInOut((p - 0.78) / 0.22)); // recover
+/** Projected (screen) components of a limb swung `angle` forward: sideways dx and downward dy, before clamping. */
+function swingVec(angle: number, axis: SwingAxis): { dx: number; dy: number } {
+  const s = Math.sin(angle);
+  swingScratch.dx = axis.x * s;
+  swingScratch.dy = SWING_DEPTH_GAIN * axis.y * s + Math.cos(angle);
+  return swingScratch;
 }
-
-/** Reduced-mode tool tap: two frames only, rest and a small tap while the swing would land. */
-export function tapAngle(phase: number): number {
-  const p = ((phase % 1) + 1) % 1;
-  return p >= SWING_IMPACT_PHASE && p < 0.78 ? 10 * DEG : -25 * DEG;
-}
-
-/** Off mode: the axe is held in the rest pose, so chopping is still readable without movement. */
-export const STATIC_AXE_ANGLE = -25 * DEG;
+const swingScratch = { dx: 0, dy: 0 };
 
 /**
- * Foreshorten a swing rotation (Phaser, 0 = hanging down) so its sideways reach is `reach` times the real
- * one while the vertical part is kept. reach 1 returns `angle` unchanged.
+ * Length factor of a limb swung `angle` forward, seen along `axis`: toward the camera it is drawn longer, away from
+ * it shorter (foreshortening), 1 when the swing is sideways on screen. Clamped to SWING_LEN_MIN..MAX.
  */
-export function foreshortenSwing(angle: number, reach: number): number {
-  return Math.atan2(reach * Math.sin(angle), Math.cos(angle));
+export function swingLength(angle: number, axis: SwingAxis): number {
+  const v = swingVec(angle, axis);
+  // A limb pointing up the screen (dy < 0) is as short as it can get, not mirrored back to a long one.
+  return Math.min(SWING_LEN_MAX, Math.max(SWING_LEN_MIN, Math.hypot(v.dx, Math.max(0, v.dy))));
 }
 
-function chooseAxeAngle(style: MotionParams['chopStyle'], phase: number): number {
-  if (style === 'static') return STATIC_AXE_ANGLE;
-  return style === 'tap' ? tapAngle(phase) : chopAngle(phase);
+/**
+ * A limb swung `angle` radians forward (0 = hanging down) turns, seen along `axis`, into this Phaser rotation.
+ * The sideways reach of its end is exactly the projected one (axis.x * sin(angle) of its length, so a facing with
+ * no sideways share keeps the limb on the centre line); the vertical part comes from the foreshortened length.
+ */
+export function projectSwing(angle: number, axis: SwingAxis): number {
+  const dx = swingVec(angle, axis).dx;
+  const len = swingLength(angle, axis);
+  return -Math.asin(Math.max(-1, Math.min(1, dx / len)));
+}
+
+/** swingLength with its excursion from 1 (the foreshortening) multiplied by `gain`; gain 1 is plain swingLength. */
+export function gainedLength(angle: number, axis: SwingAxis, gain: number): number {
+  return 1 + (swingLength(angle, axis) - 1) * gain;
+}
+
+/**
+ * How much of a gait's depth shaping applies for `axis`: 1 facing straight to/from the camera (s/n), 0 on the diagonals
+ * (their sideways cap) and side-on. The diagonals stay unboosted so a limb never swings sideways past its limit there.
+ */
+export function depthFade(axis: SwingAxis): number {
+  return Math.max(0, 1 - axis.x / DIAGONAL_LATERAL_CAP);
+}
+
+/** Arm foreshortening multiplier for a gait seen along `axis`: `armDepth` facing straight to/from the camera, 1 elsewhere. */
+export function armDepthGain(gait: GaitKey, axis: SwingAxis): number {
+  return 1 + (GAITS[gait].armDepth - 1) * depthFade(axis);
+}
+
+/** Leg foreshortening multiplier (see armDepthGain). */
+export function legDepthGain(gait: GaitKey, axis: SwingAxis): number {
+  return 1 + (GAITS[gait].legDepth - 1) * depthFade(axis);
+}
+
+/** Share of the knee bend (1 = all) that shows in the leg's projected length for `axis`. */
+export function kneeDepthShare(gait: GaitKey, axis: SwingAxis): number {
+  return 1 + (GAITS[gait].kneeDepth - 1) * depthFade(axis);
+}
+
+/** Writes into `out` the swing axis a gait really swings along: the facing's axis with its depth part stretched by depthSwing. */
+export function gaitAxis(gait: GaitKey, axis: SwingAxis, out: SwingAxis): SwingAxis {
+  out.x = axis.x;
+  out.y = axis.y * (1 + (GAITS[gait].depthSwing - 1) * depthFade(axis));
+  return out;
 }
 
 function resetPose(out: Pose): void {
@@ -118,6 +181,9 @@ function resetPose(out: Pose): void {
   out.kneeBack = 0;
   out.axeAngle = 0;
   out.axeVisible = false;
+  out.twist = 0;
+  out.gripX = 0;
+  out.gripY = 0;
 }
 
 const TWO_PI_ = Math.PI * 2;
@@ -136,8 +202,8 @@ function armSwing(armPhase: number, g: GaitDef, scale: number): { upper: number;
 }
 
 function gaitPose(elapsedMs: number, out: Pose, scale: number, g: GaitDef): void {
-  // Front leg phase; the back leg is half a cycle later. The arm on a side is the OPPOSITE leg's
-  // phase (+pi) and trails it by armLag.
+  // Front leg phase; the back leg is half a cycle later. The arm on a side runs on the OPPOSITE leg's
+  // phase (the very same clock, + pi) and trails it by armLag (0: forward extremes on the same frame).
   const a = (elapsedMs / g.cycleMs) * TWO_PI_;
   const lagA = g.armLag * TWO_PI_;
   out.thighFront = Math.sin(a) * g.thighDeg * DEG * scale;
@@ -155,6 +221,25 @@ function gaitPose(elapsedMs: number, out: Pose, scale: number, g: GaitDef): void
   out.lean = g.leanDeg * DEG * scale;
 }
 
+/**
+ * Key phase (0..1) of a swing state. A plain swing loops every `periodMs`. A state with a timeline (the rod) plays its
+ * cast once, then loops the wait; a catch pulse (`pulseMs` >= 0 since it started, < catchMs) plays the catch segment once.
+ */
+export function swingPhase(
+  state: AnimState,
+  elapsedMs: number,
+  periodMs: number,
+  pulseMs: number,
+): number {
+  const tl = SWING_TIMELINES[state];
+  if (!tl) return elapsedMs / periodMs;
+  if (pulseMs >= 0 && pulseMs < tl.catchMs)
+    return tl.waitEnd + (pulseMs / tl.catchMs) * (1 - tl.waitEnd);
+  if (elapsedMs < tl.castMs) return (elapsedMs / tl.castMs) * tl.castEnd;
+  const loop = ((elapsedMs - tl.castMs) / tl.waitMs) % 1;
+  return tl.castEnd + loop * (tl.waitEnd - tl.castEnd);
+}
+
 /** Fill `out` for `state` after `elapsedMs` in it. No allocation. `gait` only matters in 'walk'. */
 export function computePose(
   state: AnimState,
@@ -164,18 +249,24 @@ export function computePose(
   swingPeriodMs = CHOP_SWING_PERIOD_MS,
   mode: MotionMode = 'on',
   gait: GaitKey = 'walk',
+  geom: RigGeom = defaultGeom(),
+  view: ChopView = FRONT_VIEW,
+  pulseMs = -1,
 ): Pose {
   const params = MOTION[mode];
   motionScale = Math.min(motionScale, params.walkScale);
   resetPose(out);
   if (state === 'walk') {
     gaitPose(elapsedMs, out, motionScale, GAITS[gait]);
-  } else if (state === 'chop') {
-    out.axeVisible = true;
-    const phase = elapsedMs / swingPeriodMs;
-    out.axeAngle = chooseAxeAngle(params.chopStyle, phase);
-    out.armUpperBack = -0.15; // slightly back; forward-positive, straight elbow
-    out.armAngleBack = -0.15;
+  } else if (state in SWING_KEYS) {
+    chopPose(
+      params.chopStyle,
+      swingPhase(state, elapsedMs, swingPeriodMs, pulseMs),
+      out,
+      geom,
+      params.chopStyle === 'static' ? 1 : view.reach,
+      state as SwingState,
+    );
   } else {
     out.bodyBobY =
       -BREATH_PX * (0.5 + 0.5 * Math.sin((elapsedMs / BREATH_PERIOD_MS) * TWO_PI_)) * motionScale;

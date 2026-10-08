@@ -16,7 +16,15 @@ export function defaultPreferences(prefersReducedMotion: boolean): Preferences {
   const mode = prefersReducedMotion ? 'reduced' : 'on';
   return {
     sound: { muted: false, volumes: { master: 0.7, sfx: 1, ui: 1, music: 0.6, ambience: 0.8 } },
-    hud: { minimap: true, orbs: true, skillTracker: true, chatbox: true, hidden: false },
+    hud: {
+      minimap: true,
+      orbs: true,
+      skillTracker: true,
+      chatbox: true,
+      hidden: false,
+      sheetFold: 'auto',
+      chatFold: 'auto',
+    },
     notifications: {
       levelUpPopup: true,
       xpDrops: true,
@@ -25,6 +33,7 @@ export function defaultPreferences(prefersReducedMotion: boolean): Preferences {
       areaNames: true,
     },
     visuals: { vfx: mode, animations: mode },
+    playerLook: 'player',
   };
 }
 

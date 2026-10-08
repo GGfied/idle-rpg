@@ -9,10 +9,11 @@ import { tickPrayer } from '@features/skills/prayer';
 import type { ProgressionEvent } from '@core/progression';
 import { gatherStoppedEvent, startGather, tickGathering } from '@core/skills';
 import type { GatherEnv, GatherEvent, GatheringState } from '@core/skills';
-import { WOODCUTTING_MESSAGES, levelTooLowMessage } from '@features/skills/woodcutting';
+import { NOTHING_TO_CHOP, gatheredLine, nothingLeft, stoppedLine } from '@app/game/gatherMessages';
 import { interactionFor } from '@features/facilities';
 import { intentFor } from '@features/npc';
 import { isAdjacentTo, tickMovement } from '@features/movement';
+import { gatherNode } from '@app/game/gatherNode';
 import type { AppEvent, Content } from '@app/registry';
 import { addChat, addImportantChat } from '@app/game/chat';
 import { closeTalk, startTalk } from '@app/game/dialogue';
@@ -50,8 +51,7 @@ export function gatherEnv(state: GameState, content: Content): GatherEnv {
   };
 }
 
-/** Chat line for clicking a tree that is already a stump. */
-export const NOTHING_TO_CHOP = "There's nothing left to chop.";
+export { NOTHING_TO_CHOP };
 
 const skillName = (id: string): string => SKILLS.find((s) => s.id === id)?.name ?? id;
 
@@ -66,25 +66,30 @@ function applyGatherEvent(
     case 'itemGathered': {
       const r = addItem(state.inventory, content.items, e.itemId, e.quantity);
       const next = r.ok ? { ...state, inventory: r.value } : state;
-      return addChat(next, WOODCUTTING_MESSAGES.gathered[e.itemId] ?? '');
+      return addChat(next, gatheredLine(e.itemId));
     }
-    case 'xpGranted': {
-      const r = applyXpGranted(state.progression, e.skill, e.amount);
-      out.push(...r.events);
-      let next: GameState = { ...state, progression: r.state };
-      next = addImportantChat(next, ...r.events.flatMap((p) => levelUpLine(p)));
-      return next;
-    }
+    case 'xpGranted':
+      return grantXp(state, e.skill, e.amount, out);
     case 'gatherStopped': {
       if (e.reason === 'depleted' || e.reason === 'cancelled') return state;
-      if (e.reason === 'levelTooLow') {
-        return addImportantChat(state, levelTooLowMessage(e.defId ?? '') ?? '');
-      }
-      return addImportantChat(state, WOODCUTTING_MESSAGES.stopped[e.reason]);
+      return addImportantChat(state, stoppedLine(e.defId, e.reason));
     }
     default:
       return state;
   }
+}
+
+/** Add xp to a skill; level-ups become events and chat lines. Shared by every skill's event applier. */
+export function grantXp(
+  state: GameState,
+  skill: string,
+  amount: number,
+  out: AppEvent[],
+): GameState {
+  const r = applyXpGranted(state.progression, skill, amount);
+  out.push(...r.events);
+  const next: GameState = { ...state, progression: r.state };
+  return addImportantChat(next, ...r.events.flatMap((p) => levelUpLine(p)));
 }
 
 function levelUpLine(p: ProgressionEvent): string[] {
@@ -108,7 +113,7 @@ export function createGatherSystem(content: Content): System<GameState, AppEvent
 
     const pending = state.pendingInteraction;
     if (pending) {
-      const tree = content.trees.get(pending.nodeId);
+      const tree = gatherNode(content, pending.nodeId);
       const arrived = state.movement.path.length === 0;
       if (!tree || (arrived && !isAdjacentTo(state.movement.position, tree))) {
         state = { ...state, pendingInteraction: null }; // unreachable now (path was blocked)
@@ -119,7 +124,7 @@ export function createGatherSystem(content: Content): System<GameState, AppEvent
           gathered.push(...r.value.events);
         } else if (r.error === 'depleted') {
           // Clicking a stump: say so. (The normal fall after a log stays silent, see applyGatherEvent.)
-          state = addImportantChat(state, NOTHING_TO_CHOP);
+          state = addImportantChat(state, nothingLeft(tree.defId));
         } else {
           gathered.push(
             gatherStoppedEvent(
@@ -139,16 +144,24 @@ export function createGatherSystem(content: Content): System<GameState, AppEvent
     gathered.push(...tick.events);
 
     for (const e of gathered) {
-      events.push(e);
+      events.push(withNodeSkill(e, content));
       state = applyGatherEvent(state, e, content, events);
     }
     return { state, events };
   };
 }
 
+/** Node events carry the skill of the node's def, so audio can tell a rock crumbling from a tree falling. */
+export function withNodeSkill(e: GatherEvent, content: Content): AppEvent {
+  if (e.type !== 'nodeDepleted' && e.type !== 'nodeRespawned') return e;
+  const defId = gatherNode(content, e.nodeId)?.defId;
+  const skill = defId ? content.gatherDefs.get(defId)?.skill : undefined;
+  return skill ? ({ ...e, skill } as unknown as AppEvent) : e;
+}
+
 /** Counts time played (one tick = TICK_MS). */
 export const playTimeSystem: System<GameState, AppEvent> = (state) => ({
-  state: { ...state, meta: { playTimeMs: state.meta.playTimeMs + TICK_MS } },
+  state: { ...state, meta: { ...state.meta, playTimeMs: state.meta.playTimeMs + TICK_MS } },
   events: [],
 });
 
@@ -203,6 +216,7 @@ export function createNpcSystem(content: Content): System<GameState, AppEvent> {
         npc.spawnId,
         intent.dialogueId,
         content.npcDialogueVars?.get(npc.spawnId),
+        content.items,
       );
     else if (intent) state = applyIntent(state, intent);
     return { state, events: [] };

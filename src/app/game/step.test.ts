@@ -259,9 +259,12 @@ describe('bank', () => {
     expect(texts(s)).toContain('That item is not in your bank.');
     s = bankDeposit(s, CONTENT, 5, 1);
     expect(texts(s)).toContain('There is nothing in that slot.');
-    s = bankDepositAll(s, CONTENT); // tools stay: the axe is the only item left
-    expect(s.inventory.slots.filter((x) => x !== null)).toEqual([
-      { itemId: 'bronze_axe', quantity: 1 },
+    s = bankDepositAll(s, CONTENT); // tools stay: the starter tools are all that is left
+    expect(s.inventory.slots.filter((x) => x !== null).map((x) => x.itemId)).toEqual([
+      'bronze_axe',
+      'bronze_pickaxe',
+      'small_fishing_net',
+      'fishing_rod',
     ]);
     expect(texts(s)).toContain('You deposit your inventory.');
   });

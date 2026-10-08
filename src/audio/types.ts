@@ -7,7 +7,13 @@ export type SoundId =
   | 'error'
   | 'uiClick'
   | 'itemDrop'
-  | 'walkClick';
+  | 'walkClick'
+  | 'pickHit'
+  | 'oreGained'
+  | 'rockCrumble'
+  | 'fishCast'
+  | 'fishCaught'
+  | 'spotBurble';
 
 /** One synthesized layer: an oscillator sweep or a (filtered) noise burst. */
 export interface SoundLayer {
@@ -142,6 +148,10 @@ export interface EventSoundEntry {
   type: string;
   /** If set, the event's `reason` field must equal this. */
   reason?: string;
+  /** If set, the event's `skill` field must equal this. Skill entries beat plain ones. */
+  skill?: string;
+  /** With `skill`: also match events that carry no skill yet (keeps woodcutting working until enriched). */
+  orUnskilled?: boolean;
   sounds: readonly SoundId[];
 }
 

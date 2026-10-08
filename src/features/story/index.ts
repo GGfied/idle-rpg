@@ -1,5 +1,5 @@
 export { DIALOGUES } from './data';
-export { advance, currentView, getDialogue, requirementText, startDialogue } from './logic';
+export { advance, currentView, getDialogue, startDialogue } from './logic';
 export type {
   AdvanceResult,
   ChoiceOption,

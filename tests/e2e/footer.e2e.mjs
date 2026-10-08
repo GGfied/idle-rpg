@@ -29,7 +29,15 @@ async function check(id, fn) {
 async function startVite() {
   const proc = spawn(
     resolve(ROOT, 'node_modules/.bin/vite'),
-    ['--port', String(PORT), '--strictPort', '--host', '127.0.0.1'],
+    [
+      '--config',
+      resolve(ROOT, 'tests/e2e/vite.frozen.config.mjs'),
+      '--port',
+      String(PORT),
+      '--strictPort',
+      '--host',
+      '127.0.0.1',
+    ],
     { cwd: ROOT, stdio: 'ignore', detached: true },
   );
   for (let i = 0; i < 150; i++) {

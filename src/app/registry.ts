@@ -41,16 +41,22 @@ import {
   WOODCUTTING_NODES,
   WOODCUTTING_TOOLS,
 } from '@features/skills/woodcutting';
+import { MINING_ITEMS, MINING_NODES, MINING_TOOLS } from '@features/skills/mining';
+import { FISHING_ITEMS, FISHING_TOOLS } from '@features/skills/fishing';
+import type { FishingEvent } from '@features/skills/fishing';
 import { spawnNpcs } from '@features/npc';
 import type { NpcInstance } from '@features/npc';
 import {
   PLAYER_SPAWN,
   WORLD_NPC_SPAWNS,
   WORLD_OBJECT_SPAWNS,
+  FISHING_SPOTS,
+  WORLD_ROCKS,
   WORLD_TREES,
   createWorldCollisionGrid,
 } from '@features/world';
-import type { ObjectSpawn, TreeSpawn } from '@features/world';
+import type { FishingSpotSpawn, ObjectSpawn, RockSpawn, TreeSpawn } from '@features/world';
+import { createFishingSystem } from '@app/game/fishing';
 import { createGroundSystem } from '@app/game/ground';
 import {
   createFacilitySystem,
@@ -65,7 +71,13 @@ import type { GameState, MetaState } from '@app/game/types';
 
 /** Every event a system can emit. Add a feature's event union here. */
 export type AppEvent =
-  GatherEvent | MovementEvent | ProgressionEvent | CombatEvent | PrayerEvent | GroundItemEvent;
+  | GatherEvent
+  | FishingEvent
+  | MovementEvent
+  | ProgressionEvent
+  | CombatEvent
+  | PrayerEvent
+  | GroundItemEvent;
 
 export interface Content {
   items: ItemRegistry;
@@ -73,6 +85,10 @@ export interface Content {
   gatherDefs: ReadonlyMap<string, GatherDef>;
   grid: CollisionGrid;
   trees: ReadonlyMap<string, TreeSpawn>;
+  /** Mineable rocks by node id (same gather machinery as trees). */
+  rocks: ReadonlyMap<string, RockSpawn>;
+  /** Fishing spots by id; each hops between its candidate water tiles. */
+  fishingSpots: ReadonlyMap<string, FishingSpotSpawn>;
   objects: ReadonlyMap<string, ObjectSpawn>;
   /** Placed NPCs by spawn id (idle: they never move, so this is content, not state). */
   npcs: ReadonlyMap<string, NpcInstance>;
@@ -89,11 +105,13 @@ interface SpawnVars {
 }
 
 export const CONTENT: Content = {
-  items: createItemRegistry(WOODCUTTING_ITEMS),
-  tools: createToolRegistry(WOODCUTTING_TOOLS),
-  gatherDefs: new Map(WOODCUTTING_NODES.map((d) => [d.id, d])),
+  items: createItemRegistry(WOODCUTTING_ITEMS, MINING_ITEMS, FISHING_ITEMS),
+  tools: createToolRegistry(WOODCUTTING_TOOLS, MINING_TOOLS, FISHING_TOOLS),
+  gatherDefs: new Map([...WOODCUTTING_NODES, ...MINING_NODES].map((d) => [d.id, d])),
   grid: createWorldCollisionGrid(WORLD_NPC_SPAWNS),
   trees: new Map(WORLD_TREES.map((t) => [t.nodeId, t])),
+  rocks: new Map(WORLD_ROCKS.map((r) => [r.nodeId, r])),
+  fishingSpots: new Map(FISHING_SPOTS.map((f) => [f.spotId, f])),
   objects: new Map(WORLD_OBJECT_SPAWNS.map((o) => [o.objectId, o])),
   npcs: new Map(spawnNpcs(WORLD_NPC_SPAWNS).map((n) => [n.spawnId, n])),
   npcDialogueVars: new Map(
@@ -105,16 +123,23 @@ export const CONTENT: Content = {
   spawn: PLAYER_SPAWN,
 };
 
-/** Examine text per gather def id (placeholder until the owners ship examine text for nodes). */
+/** Examine text per node def id (gather defs and fishing spot kinds) (placeholder until the owners ship examine text for nodes). */
 export const NODE_EXAMINE: Readonly<Record<string, string>> = {
   tree: 'A common tree.',
   oak_tree: 'A sturdy oak tree.',
+  copper_rock: 'A rock containing copper ore.',
+  tin_rock: 'A rock containing tin ore.',
+  iron_rock: 'A rock containing iron ore.',
+  coal_rock: 'A rock streaked with black coal.',
+  net_spot: 'Small fish are swimming here.',
+  bait_spot: 'Fish are darting about in the deeper water here.',
 };
 
 /** Tick systems, run in this order every 600 ms. */
 export const SYSTEMS: readonly System<GameState, AppEvent>[] = [
   createMovementSystem(CONTENT),
   createGatherSystem(CONTENT),
+  createFishingSystem(CONTENT),
   createFacilitySystem(CONTENT),
   createNpcSystem(CONTENT),
   playTimeSystem,
@@ -123,10 +148,11 @@ export const SYSTEMS: readonly System<GameState, AppEvent>[] = [
   createGroundSystem(CONTENT),
 ];
 
-/** `meta` save slice: { playTimeMs } finite and >= 0. */
+/** `meta` save slice: { playTimeMs } finite and >= 0, optional `grants` (string ids; absent in older saves). */
 export const metaSlice: SaveSlice<MetaState> = {
   key: 'meta',
-  serialize: (m) => ({ playTimeMs: m.playTimeMs }),
+  serialize: (m) =>
+    m.grants ? { playTimeMs: m.playTimeMs, grants: m.grants } : { playTimeMs: m.playTimeMs },
   deserialize(data) {
     if (typeof data !== 'object' || data === null || Array.isArray(data)) {
       return err('meta: bad shape');
@@ -137,7 +163,11 @@ export const metaSlice: SaveSlice<MetaState> = {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
       return err('meta: playTimeMs must be a finite number >= 0');
     }
-    return ok({ playTimeMs: value });
+    const raw = (data as Record<string, unknown>).grants;
+    const grants = Array.isArray(raw)
+      ? raw.filter((x): x is string => typeof x === 'string').slice(0, 50)
+      : undefined;
+    return ok(grants ? { playTimeMs: value, grants } : { playTimeMs: value });
   },
 };
 

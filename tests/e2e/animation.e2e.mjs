@@ -55,12 +55,14 @@ const PAGE = `(() => {
     const seen = new Map();
     clearInterval(A.timer);
     A.timer = setInterval(() => {
-      const r = rig(pv), up = limb(r, 'armFrontUpper'), fore = up.list.find((o) => o.name === 'armFrontFore'), axeG = fore.list[fore.list.length - 1];
+      const r = rig(pv), up = limb(r, 'armFrontUpper'), fore = up.list.find((o) => o.name === 'armFrontFore'), axeG = fore.list.find((o) => o.name === 'axe');
+      // Back view: the arms are hidden and the axe is drawn in a layer below the body (container index 0).
+      const layer = pv.container.list[0], backAxe = layer && layer.type === 'Container' && layer.list.length === 5 ? layer.list.find((o) => o.name === 'axe') : null;
       if (!pv.__bw) { pv.__bw = true; A.back = false; const o = pv.setBackView; pv.setBackView = (b) => { A.back = b; return o ? o.call(pv, b) : undefined; }; }
       const s = H().store.getState();
       A.rows.push({ t: performance.now() - A.t0, px: pv.container.x, py: pv.container.y,
         bsx: pv.body.scaleX, bsy: pv.body.scaleY, rsx: r.scaleX, rsy: r.scaleY, back: A.back,
-        tile: s.game.movement.position.x + ',' + s.game.movement.position.y, rot: up.rotation, tx: A.target ? A.target.x : null, ty: A.target ? A.target.y : null, axe: axeG.visible, session: s.game.gathering.session !== null });
+        tile: s.game.movement.position.x + ',' + s.game.movement.position.y, rot: up.rotation, tx: A.target ? A.target.x : null, ty: A.target ? A.target.y : null, axe: axeG.visible || (backAxe !== null && backAxe.visible), session: s.game.gathering.session !== null });
       for (const o of scene.children.list) {
         if (A.base.has(o) || !isGhost(o)) continue;
         let g = seen.get(o);
@@ -403,6 +405,20 @@ async function main() {
         const d = await ev('window.__A.data()');
         expect(d.rows.length > 0, 'no rows');
         return 'covered by scale checks';
+      });
+      await check('net-graphic-named', async () => {
+        const r = await ev(`(() => {
+          const pv = window.__idleRpg.scene().playerView, layer = pv.container.list[0];
+          const rg = pv.container.list.find((o) => o.type === 'Container' && o.list.length === 4);
+          const fore = rg.list.find((o) => o.name === 'armFrontUpper').list.find((o) => o.name === 'armFrontFore');
+          const names = (c) => c.list.filter((o) => o.type === 'Graphics' && o.name).map((o) => o.name).sort().join(',');
+          return { hand: names(fore), back: names(layer) };
+        })()`);
+        expect(
+          r.hand === 'axe,net,pick,rod,rodLine' && r.back === 'axe,net,pick,rod,rodLine',
+          JSON.stringify(r),
+        );
+        return `tools in hand + back layer: ${r.hand}`;
       });
       await check('no-console-errors', async () => {
         expect(errors.length === errBase, `errors: ${errors.slice(errBase).join(' | ')}`);

@@ -3,8 +3,10 @@ import type { FigureLook } from './figureArt';
 /** NPC figure art keys (the `spriteKey` on NpcDefs). */
 export type NpcSpriteKey = 'banker' | 'banker_f' | 'villager' | 'villager_f';
 
-/** The player. `rigArms`: the animation rig draws both arm segments (rigUpperArms), so the body has no arms. */
-export const PLAYER_LOOK: FigureLook = {
+/** Selectable player looks (Settings). Same rigged outfit, different hair and skin: data only. */
+export type PlayerLookId = 'player' | 'player_f';
+
+const PLAYER_BASE: FigureLook = {
   skin: 0xe8b88a,
   hair: 0x5a3b1f,
   hairStyle: 'short',
@@ -15,10 +17,27 @@ export const PLAYER_LOOK: FigureLook = {
   boots: 0x23232f,
   belt: 0x4a3120,
   metal: 0xc9a24a,
+  // The animation rig draws both arm segments and both legs, so the body has none of them.
   rigArms: true,
   rigUpperArms: true,
   rigLegs: true,
 };
+
+/** Player looks by id. The outfit (top/trim/pants/boots) must stay equal: the rig sleeve/boots match it. */
+export const PLAYER_LOOKS: Record<PlayerLookId, FigureLook> = {
+  player: PLAYER_BASE,
+  player_f: { ...PLAYER_BASE, skin: 0xf0c4a2, hair: 0x7a3a22, hairStyle: 'long' },
+};
+
+/** The default (male) player look. */
+export const PLAYER_LOOK: FigureLook = PLAYER_LOOKS.player;
+
+/** Narrow a saved/unknown string to a player look id (default 'player'). */
+export function asPlayerLookId(id: unknown): PlayerLookId {
+  return typeof id === 'string' && Object.hasOwn(PLAYER_LOOKS, id)
+    ? (id as PlayerLookId)
+    : 'player';
+}
 
 /** One look per NPC `spriteKey`: outfit, hair and skin are data, never branches. */
 export const NPC_LOOKS: Record<NpcSpriteKey, FigureLook> = {

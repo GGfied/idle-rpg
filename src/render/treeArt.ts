@@ -11,6 +11,9 @@
  * (`VIEW_HIT_BOUNDS`) is derived from, so art never exceeds what a tap covers.
  */
 
+import { alphaAt, hash, mulberry, newCanvas, paintRim, put, ramp, rgb } from './pixelArt';
+import type { Canvas, Rgb } from './pixelArt';
+
 export type TreeArtKind = 'tree' | 'oak_tree';
 
 /** Texture size in px and the feet anchor (where the trunk meets the ground). */
@@ -34,35 +37,10 @@ export interface TreeShape {
   trunk: number;
 }
 
-type Rgb = readonly [number, number, number];
-
-const rgb = (c: number): Rgb => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
-
-function hash(seed: number, x: number, y: number): number {
-  let h =
-    Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(seed | 0, 1442695041);
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  h ^= h >>> 16;
-  return (h >>> 0) / 4294967296;
-}
-
 /** Deterministic variant 0..TREE_VARIANTS-1 for a tile (so a tree always looks the same). */
 export function treeVariantFor(tx: number, ty: number): number {
   return Math.floor(hash(0x7ee, tx, ty) * TREE_VARIANTS);
 }
-
-function mulberry(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-const clamp = (v: number, lo = 0, hi = 255): number => Math.max(lo, Math.min(hi, v));
 
 interface Blob {
   cx: number;
@@ -70,43 +48,6 @@ interface Blob {
   r: number;
   /** Vertical squash 0.8-1 (ry = r * squash); never wider than r so lobes stay in the hit circle. */
   squash: number;
-}
-
-interface Canvas {
-  data: Uint8ClampedArray;
-}
-
-function put(c: Canvas, x: number, y: number, col: Rgb, a = 255): void {
-  if (x < 0 || y < 0 || x >= TREE_TEX_W || y >= TREE_TEX_H) return;
-  const i = (y * TREE_TEX_W + x) * 4;
-  c.data[i] = clamp(col[0]);
-  c.data[i + 1] = clamp(col[1]);
-  c.data[i + 2] = clamp(col[2]);
-  c.data[i + 3] = a;
-}
-
-function alphaAt(c: Canvas, x: number, y: number): number {
-  if (x < 0 || y < 0 || x >= TREE_TEX_W || y >= TREE_TEX_H) return 0;
-  return c.data[(y * TREE_TEX_W + x) * 4 + 3] ?? 0;
-}
-
-/** Map light amount t (0 dark .. 1 bright) onto a colour: cool dark shadow, base, warm highlight. */
-function ramp(base: Rgb, t: number): Rgb {
-  const q = Math.round(clamp(t, 0, 1) * 5) / 5; // 6 pixel-art bands
-  if (q < 0.5) {
-    const k = q / 0.5; // 0 = deepest shadow
-    return [
-      base[0] * (0.32 + 0.68 * k) + 6 * (1 - k),
-      base[1] * (0.36 + 0.64 * k) + 8 * (1 - k),
-      base[2] * (0.4 + 0.6 * k) + 22 * (1 - k),
-    ];
-  }
-  const k = (q - 0.5) / 0.5; // 1 = brightest
-  return [
-    base[0] * (1 + 0.38 * k) + 18 * k,
-    base[1] * (1 + 0.26 * k) + 14 * k,
-    base[2] * (1 + 0.05 * k) - 6 * k,
-  ];
 }
 
 // light from the top-left, toward the viewer
@@ -175,7 +116,7 @@ function paintCanopy(c: Canvas, shape: TreeShape, seed: number, rnd: () => numbe
         if (d2 > 1) {
           // gap shadow: the lobe behind it darkens where this one overlaps it from above/left
           if (d2 < 1.45 && dy > -0.3 && alphaAt(c, x, y) > 0) {
-            const i = (y * TREE_TEX_W + x) * 4;
+            const i = (y * c.w + x) * 4;
             for (let k = 0; k < 3; k++) c.data[i + k] = (c.data[i + k] ?? 0) * 0.8;
           }
           continue;
@@ -194,27 +135,6 @@ function paintCanopy(c: Canvas, shape: TreeShape, seed: number, rnd: () => numbe
         put(c, x, y, ramp(base, t));
       }
   }
-}
-
-/** Darken silhouette pixels (stronger on the lower/right, lit-away side); runs over the finished tree or stump. */
-function paintRim(c: Canvas): void {
-  const snap = Uint8ClampedArray.from(c.data);
-  const had = (x: number, y: number): boolean =>
-    x >= 0 &&
-    y >= 0 &&
-    x < TREE_TEX_W &&
-    y < TREE_TEX_H &&
-    (snap[(y * TREE_TEX_W + x) * 4 + 3] ?? 0) > 200;
-  for (let y = 0; y < TREE_TEX_H; y++)
-    for (let x = 0; x < TREE_TEX_W; x++) {
-      if (!had(x, y)) continue;
-      const lowRight = !had(x, y + 1) || !had(x + 1, y);
-      const upLeft = !had(x - 1, y) || !had(x, y - 1);
-      if (!lowRight && !upLeft) continue;
-      const k = lowRight ? 0.62 : 0.86;
-      const i = (y * TREE_TEX_W + x) * 4;
-      for (let j = 0; j < 3; j++) c.data[i + j] = (c.data[i + j] ?? 0) * k;
-    }
 }
 
 /** Width at row `y` of a trunk with a root flare; `up` = px above the feet. */
@@ -300,7 +220,7 @@ export function paintTreePixels(
   variant: number,
   stump: boolean,
 ): Uint8ClampedArray {
-  const c: Canvas = { data: new Uint8ClampedArray(TREE_TEX_W * TREE_TEX_H * 4) };
+  const c = newCanvas(TREE_TEX_W, TREE_TEX_H);
   const seed = (kind === 'tree' ? 101 : 202) * 1009 + variant * 7919;
   const rnd = mulberry(seed);
   paintShadow(c, stump ? 11 : Math.round(shape.canopyRadius * 0.78), stump ? 4 : 6);

@@ -6,6 +6,7 @@ import type { DialogueState } from '@features/story';
 import type { PlayerHpState } from '@features/combat';
 import type { MovementState } from '@features/movement';
 import type { PrayerPointsState } from '@features/skills/prayer';
+import type { FishingState } from '@features/skills/fishing';
 
 export interface ChatLine {
   /** Increasing id, so React keys stay stable while old lines scroll off. */
@@ -17,6 +18,8 @@ export interface ChatLine {
 
 export interface MetaState {
   playTimeMs: number;
+  /** One-time grants already applied (ids); absent in older saves. */
+  grants?: string[];
 }
 
 /** A facility option the player has chosen and is walking to. */
@@ -35,6 +38,10 @@ export interface GameState {
   progression: ProgressionState;
   movement: MovementState;
   gathering: GatheringState;
+  /** Fishing session + spot positions (not saved: spots are re-seeded on load). */
+  fishing: FishingState;
+  /** The fishing spot the player is walking to (not saved). */
+  pendingFishing: { spotId: string } | null;
   /** The tree the player is walking to so they can chop it. */
   pendingInteraction: { nodeId: string } | null;
   /** The facility (bank booth, ...) the player is walking to; its option's intent runs on arrival. */
@@ -51,6 +58,8 @@ export interface GameState {
   tick: number;
   /** Whether the bank panel is open (not saved). */
   bankOpen: boolean;
+  /** Which bank UI is open: the full bank, or a deposit chest that only accepts deposits (not saved). */
+  bankMode: 'full' | 'depositOnly';
   chat: ChatLine[];
   meta: MetaState;
 }

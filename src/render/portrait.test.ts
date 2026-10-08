@@ -30,7 +30,9 @@ function decode(url: string): { w: number; h: number; alpha: number[] } {
 
 describe('portraitUrl', () => {
   it('knows player + every NPC look', () => {
-    expect([...PORTRAIT_LOOK_IDS].sort()).toEqual(['player', ...Object.keys(NPC_LOOKS)].sort());
+    expect([...PORTRAIT_LOOK_IDS].sort()).toEqual(
+      ['player', 'player_f', ...Object.keys(NPC_LOOKS)].sort(),
+    );
   });
 
   it.each(PORTRAIT_LOOK_IDS)('%s: valid 2x PNG, has pixels, cached', (id) => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { findDuplicates } from '@core/utils';
 import { AREA_ZONES, DEFAULT_AREA, PLAYER_SPAWN, namedLocations } from './data';
-import { WORLD_DEF, areaAt } from './logic';
+import { MAP_LABELS, WORLD_DEF, areaAt } from './logic';
 
 describe('areas', () => {
   it('maps every tile to exactly one valid area', () => {
@@ -43,5 +43,29 @@ describe('areas', () => {
     expect(areaAt(34, 15).kind).toBe('lake');
     expect(areaAt(10, 27).kind).toBe('shore');
     expect(areaAt(0, 0).kind).toBe('default');
+  });
+
+  it('Greatmere East covers x63-79 y26-51 without touching its neighbours', () => {
+    for (const [x, y] of [
+      [63, 26],
+      [79, 51],
+      [70, 40],
+    ] as const) {
+      expect(areaAt(x, y)).toEqual({
+        id: 'greatmere_east',
+        kind: 'forest',
+        name: 'Greatmere East',
+      });
+    }
+    expect(areaAt(62, 40).id).toBe('greatmere');
+    expect(areaAt(70, 25).id).toBe('oak_ridge');
+    expect(areaAt(70, 52).id).toBe('greatmere_shore');
+    expect(areaAt(80, 40).id).toBe('wilds');
+  });
+
+  it('Greatmere East gets a minimap region label inside its bounds', () => {
+    const labels = MAP_LABELS.filter((l) => l.text === 'Greatmere East');
+    expect(labels.length).toBeGreaterThan(0);
+    for (const l of labels) expect(areaAt(l.x, l.y).id).toBe('greatmere_east');
   });
 });

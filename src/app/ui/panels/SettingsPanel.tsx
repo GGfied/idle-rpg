@@ -8,6 +8,7 @@ import { useHud, useNotifications, useSetPref, useVisuals } from '@app/ui/prefs'
 import { StepControl } from '@app/ui/components/StepControl';
 import { useApp, useRuntime } from '@app/ui/context';
 import { SettingsFooter } from '@app/ui/panels/SettingsFooter';
+import { CharacterRow } from '@app/ui/panels/CharacterRow';
 
 type Channel = VolumeChannel;
 
@@ -107,6 +108,13 @@ function SoundRow() {
   );
 }
 
+/** Character look pref (male / female); applies live in the world. */
+function CharacterPref() {
+  const look = useApp((s) => s.prefs.playerLook);
+  const setPref = useSetPref();
+  return <CharacterRow look={look} onSelect={(l) => setPref({ playerLook: l })} />;
+}
+
 /** Screen + Notifications + Visuals: bound to `prefs`/`setPref`. */
 function PrefSections() {
   const hud = useHud();
@@ -141,6 +149,7 @@ function PrefSections() {
       <h3 className="settings-section">Notifications</h3>
       {NOTIFY_ROWS.map(([k, l]) => toggle('notifications', k, notes[k], l))}
       <h3 className="settings-section">Visuals</h3>
+      <CharacterPref />
       {VISUAL_ROWS.map(([k, l]) => {
         const value: Mode = visuals[k];
         const table = PREF_DESCRIPTIONS[`visuals.${k}`] as Record<string, string>;

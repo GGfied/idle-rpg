@@ -106,6 +106,106 @@ export const SOUND_DEFS: Record<SoundId, SoundDef> = {
     pitchVariance: 0.05,
     layers: [{ kind: 'tone', wave: 'sine', from: 1200, to: 1000, duration: 0.025, gain: 0.2 }],
   },
+  // Pickaxe on stone: a bright metallic "tink" over a dull rock knock; variants shift the ring.
+  pickHit: {
+    channel: 'sfx',
+    minGapMs: 150,
+    pitchVariance: 0.1,
+    gainVariance: 0.15,
+    layers: [
+      { kind: 'tone', wave: 'triangle', from: 1900, to: 1300, duration: 0.06, gain: 0.3 },
+      { kind: 'noise', from: 3200, duration: 0.03, gain: 0.45, filter: 'bandpass' },
+      { kind: 'tone', wave: 'sine', from: 130, to: 80, duration: 0.07, gain: 0.4 },
+    ],
+    variants: [
+      [
+        { kind: 'tone', wave: 'triangle', from: 2300, to: 1500, duration: 0.07, gain: 0.3 },
+        { kind: 'noise', from: 4000, duration: 0.025, gain: 0.45, filter: 'bandpass' },
+        { kind: 'tone', wave: 'sine', from: 160, to: 90, duration: 0.06, gain: 0.45 },
+      ],
+      [
+        { kind: 'tone', wave: 'square', from: 1500, to: 1000, duration: 0.04, gain: 0.15 },
+        { kind: 'noise', from: 2400, duration: 0.04, gain: 0.5, filter: 'bandpass' },
+        { kind: 'tone', wave: 'sine', from: 110, to: 70, duration: 0.08, gain: 0.5 },
+      ],
+    ],
+  },
+  // Ore gained: a stony rattle, then a small bright two-note ring (sine, a touch higher than logs).
+  oreGained: {
+    channel: 'sfx',
+    minGapMs: 120,
+    pitchVariance: 0.04,
+    layers: [
+      { kind: 'noise', from: 2800, duration: 0.04, gain: 0.4, filter: 'bandpass' },
+      { kind: 'noise', from: 2200, duration: 0.03, gain: 0.3, filter: 'bandpass', delay: 0.05 },
+      { kind: 'tone', wave: 'sine', from: 1175, duration: 0.12, gain: 0.25, delay: 0.09 },
+      { kind: 'tone', wave: 'sine', from: 1568, duration: 0.2, gain: 0.2, delay: 0.16 },
+    ],
+  },
+  // Rock depleted: low rumble plus a spray of falling pebbles.
+  rockCrumble: {
+    channel: 'sfx',
+    minGapMs: 200,
+    layers: [
+      { kind: 'noise', from: 500, duration: 0.35, gain: 0.5, filter: 'lowpass' },
+      { kind: 'tone', wave: 'sine', from: 90, to: 40, duration: 0.3, gain: 0.5 },
+      { kind: 'noise', from: 2500, duration: 0.03, gain: 0.2, filter: 'bandpass', delay: 0.18 },
+      { kind: 'noise', from: 1800, duration: 0.03, gain: 0.15, filter: 'bandpass', delay: 0.26 },
+      { kind: 'noise', from: 3000, duration: 0.03, gain: 0.1, filter: 'bandpass', delay: 0.33 },
+    ],
+  },
+  // Cast: a line whoosh, then a plop where the bait lands.
+  fishCast: {
+    channel: 'sfx',
+    minGapMs: 300,
+    pitchVariance: 0.05,
+    layers: [
+      { kind: 'noise', from: 1100, duration: 0.2, gain: 0.4, filter: 'bandpass' },
+      { kind: 'noise', from: 2600, duration: 0.07, gain: 0.3, filter: 'highpass', delay: 0.22 },
+      { kind: 'tone', wave: 'sine', from: 520, to: 220, duration: 0.09, gain: 0.5, delay: 0.22 },
+    ],
+  },
+  // Catch: a splash, a bubbly rise, and a couple of wet flops.
+  fishCaught: {
+    channel: 'sfx',
+    minGapMs: 150,
+    pitchVariance: 0.05,
+    layers: [
+      { kind: 'noise', from: 1800, duration: 0.16, gain: 0.4, filter: 'bandpass' },
+      { kind: 'noise', from: 4000, duration: 0.08, gain: 0.2, filter: 'highpass' },
+      { kind: 'tone', wave: 'sine', from: 300, to: 700, duration: 0.08, gain: 0.35, delay: 0.04 },
+      {
+        kind: 'tone',
+        wave: 'triangle',
+        from: 200,
+        to: 110,
+        duration: 0.07,
+        gain: 0.45,
+        delay: 0.2,
+      },
+      {
+        kind: 'tone',
+        wave: 'triangle',
+        from: 190,
+        to: 100,
+        duration: 0.07,
+        gain: 0.35,
+        delay: 0.3,
+      },
+    ],
+  },
+  // The fishing spot shifts: a soft burble of rising bubbles.
+  spotBurble: {
+    channel: 'sfx',
+    minGapMs: 400,
+    pitchVariance: 0.1,
+    layers: [
+      { kind: 'tone', wave: 'sine', from: 400, to: 800, duration: 0.07, gain: 0.2 },
+      { kind: 'tone', wave: 'sine', from: 500, to: 1000, duration: 0.06, gain: 0.18, delay: 0.09 },
+      { kind: 'tone', wave: 'sine', from: 350, to: 700, duration: 0.08, gain: 0.15, delay: 0.19 },
+      { kind: 'noise', from: 900, duration: 0.25, gain: 0.12, filter: 'bandpass' },
+    ],
+  },
 };
 
 /**
@@ -115,9 +215,17 @@ export const SOUND_DEFS: Record<SoundId, SoundDef> = {
  */
 export const EVENT_SOUNDS: readonly EventSoundEntry[] = [
   // swingImpact is emitted by the scene on the axe-strike frame of every swing (hit or miss).
-  { type: 'swingImpact', sounds: ['axeHit'] },
-  { type: 'itemGathered', sounds: ['logGained'] },
-  { type: 'nodeDepleted', sounds: ['treeFall'] },
+  // Gathering events carry a `skill` (the app adds it to swingImpact and nodeDepleted); woodcutting
+  // entries also accept an event with no skill so chopping keeps its sounds until that is wired.
+  { type: 'swingImpact', skill: 'woodcutting', orUnskilled: true, sounds: ['axeHit'] },
+  { type: 'itemGathered', skill: 'woodcutting', orUnskilled: true, sounds: ['logGained'] },
+  { type: 'nodeDepleted', skill: 'woodcutting', orUnskilled: true, sounds: ['treeFall'] },
+  { type: 'swingImpact', skill: 'mining', sounds: ['pickHit'] },
+  { type: 'itemGathered', skill: 'mining', sounds: ['oreGained'] },
+  { type: 'nodeDepleted', skill: 'mining', sounds: ['rockCrumble'] },
+  { type: 'fishingAttempt', sounds: ['fishCast'] },
+  { type: 'itemGathered', skill: 'fishing', sounds: ['fishCaught'] },
+  { type: 'spotMoved', sounds: ['spotBurble'] },
   { type: 'levelUp', sounds: ['levelUp'] },
   { type: 'gatherStopped', reason: 'inventoryFull', sounds: ['inventoryFull'] },
   { type: 'gatherStopped', reason: 'levelTooLow', sounds: ['error'] },

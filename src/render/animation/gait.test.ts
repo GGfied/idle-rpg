@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { computePose, makePose } from './logic';
+import {
+  armDepthGain,
+  gainedLength,
+  gaitAxis,
+  kneeDepthShare,
+  legDepthGain,
+  computePose,
+  defaultGeom,
+  makePose,
+  projectSwing,
+  swingAxis,
+} from './logic';
 import { GAITS } from './data';
-import type { GaitKey, Pose } from './types';
+import type { GaitKey, Pose, SwingAxis } from './types';
 
 const P = 2400;
 const DEG = Math.PI / 180;
@@ -34,32 +45,13 @@ describe.each(['walk', 'run'] as const)('%s gait', (gait) => {
     cycle(gait, (p) => (dotCross += p.armUpperFront * p.thighBack));
     expect(dotCross).toBeGreaterThan(0);
   });
-  it('forearm lags the upper arm by forearmLag of a cycle', () => {
+  it('forearm runs on the same clock as the upper arm (same zero crossings, opens only while forward)', () => {
     const g = GAITS[gait];
-    const p = makePose();
-    const at = (ph: number) => {
-      computePose('walk', (((ph % 1) + 1) % 1) * g.cycleMs, p, 1, P, 'on', gait);
-      return p.armUpperFront;
-    };
-    // fore(t) tracks upper(t - lag): correlate against the lagged and the unlagged upper arm.
-    let lagged = 0;
-    let unlagged = 0;
-    const foreAt = (ph: number) => {
-      computePose('walk', ph * g.cycleMs, p, 1, P, 'on', gait);
-      return p.armAngle;
-    };
-    for (let i = 0; i < 360; i++) {
-      const ph = i / 360;
-      const f = foreAt(ph);
-      lagged += f * at(ph - g.forearmLag);
-      unlagged += f * at(ph);
-    }
-    expect(g.forearmLag).toBeGreaterThan(0);
-    expect(lagged).toBeGreaterThan(unlagged);
-    // and the forearm swing is never behind the elbow flex: relative bend only opens while forward
-    cycle(gait, (q) =>
-      expect(q.armAngle - q.armUpperFront).toBeGreaterThanOrEqual(-g.armDeg * DEG),
-    );
+    expect(g.forearmLag).toBe(0);
+    cycle(gait, (q) => {
+      expect(Math.sign(q.armAngle)).toBe(Math.sign(q.armUpperFront));
+      expect(q.armAngle - q.armUpperFront).toBeGreaterThanOrEqual(-1e-9);
+    });
   });
   it('upper arm swings opposite to the same-side thigh and less than it', () => {
     // At every instant the front arm and front thigh have opposite sign except the short lag window.
@@ -79,15 +71,39 @@ describe.each(['walk', 'run'] as const)('%s gait', (gait) => {
     const thigh = peak(gait, (p) => p.thighFront);
     expect(peak(gait, (p) => p.armUpperFront)).toBeLessThan(thigh);
   });
-  it('arm trails the opposite leg by armLag of a cycle', () => {
+  it('each arm is in sync with the OPPOSITE leg: same peak frame, same zero crossings (phase difference 0)', () => {
+    const N = 720;
+    const front: number[] = [];
+    const back: number[] = [];
+    const thighF: number[] = [];
+    const thighB: number[] = [];
     const g = GAITS[gait];
     const p = makePose();
-    // front arm = sin(a + pi - lag): zero crossing (rising) when a = lag*2pi - pi + 2pi
-    const t = ((g.armLag * 2 * Math.PI + Math.PI) / (2 * Math.PI)) * g.cycleMs;
-    computePose('walk', t % g.cycleMs, p, 1, P, 'on', gait);
-    expect(p.armUpperFront).toBeCloseTo(0, 5);
-    expect(g.armLag).toBeGreaterThanOrEqual(0.05);
-    expect(g.armLag).toBeLessThanOrEqual(0.1);
+    for (let i = 0; i < N; i++) {
+      computePose('walk', (i / N) * g.cycleMs, p, 1, P, 'on', gait);
+      front.push(p.armUpperFront);
+      back.push(p.armUpperBack);
+      thighF.push(p.thighFront);
+      thighB.push(p.thighBack);
+    }
+    const argmax = (a: number[]) => a.indexOf(Math.max(...a));
+    const rising = (a: number[]) => a.findIndex((v, i) => v >= 0 && a[(i + N - 1) % N]! < 0);
+    expect(Math.abs(argmax(front) - argmax(thighB))).toBeLessThanOrEqual(1);
+    expect(Math.abs(argmax(back) - argmax(thighF))).toBeLessThanOrEqual(1);
+    expect(Math.abs(rising(front) - rising(thighB))).toBeLessThanOrEqual(1);
+    expect(Math.abs(rising(back) - rising(thighF))).toBeLessThanOrEqual(1);
+    // Never a quarter cycle apart: arm and opposite leg are proportional sample by sample.
+    for (let i = 0; i < N; i++) expect(front[i]! * thighB[i]!).toBeGreaterThanOrEqual(-1e-12);
+  });
+  it('the sync holds under tick interpolation (late/jittered frame times keep the relation)', () => {
+    const g = GAITS[gait];
+    const p = makePose();
+    for (const t of [0, 599, 600, 1200, 1801, 5000.5, 123456]) {
+      computePose('walk', t, p, 1, P, 'on', gait);
+      expect(Math.sign(p.armUpperFront)).toBe(Math.sign(p.thighBack));
+      expect(Math.sign(p.armUpperBack)).toBe(Math.sign(p.thighFront));
+      expect(g.armLag).toBe(0);
+    }
   });
   it('knee bends only on the swing leg, straight at heel strike and in stance', () => {
     cycle(gait, (p) => {
@@ -148,13 +164,9 @@ describe('run vs walk and other states', () => {
       expect(Math.abs(p.bodyBobY)).toBeLessThan(0.5);
     }
   });
-  it('chop holds the back arm straight (no elbow flex)', () => {
-    const p = computePose('chop', 500, makePose());
-    expect(p.armAngleBack).toBe(p.armUpperBack);
-  });
-  it('chop keeps legs planted', () => {
-    const p = computePose('chop', 500, makePose());
-    expect([p.thighFront, p.thighBack, p.kneeFront, p.kneeBack, p.lean]).toEqual([0, 0, 0, 0, 0]);
+  it('chop starts planted: legs straight at the ready pose', () => {
+    const p = computePose('chop', 0, makePose());
+    expect([p.thighFront, p.thighBack, p.kneeFront, p.kneeBack]).toEqual([0, 0, 0, 0]);
   });
   it('reduced and off mode: everything still, including breathing', () => {
     for (const mode of ['reduced', 'off'] as const) {
@@ -166,5 +178,117 @@ describe('run vs walk and other states', () => {
       ).toBe(true);
       expect(Math.abs(computePose('idle', 700, makePose(), 1, P, mode).bodyBobY)).toBe(0);
     }
+  });
+});
+
+/** Screen-y of a limb tip chain (art px, + = down) for the given absolute forward angles, as the animator draws it. */
+function tipY(angles: number[], lens: number[], ax: SwingAxis, gain: number): number {
+  let y = 0;
+  angles.forEach((a, i) => {
+    y += lens[i]! * gainedLength(a, ax, gain) * Math.cos(projectSwing(a, ax));
+  });
+  return y;
+}
+function corr(a: number[], b: number[]): number {
+  const m = (x: number[]) => x.reduce((s, v) => s + v, 0) / x.length;
+  const [ma, mb] = [m(a), m(b)];
+  let n = 0;
+  let da = 0;
+  let db = 0;
+  a.forEach((v, i) => {
+    n += (v - ma) * (b[i]! - mb);
+    da += (v - ma) ** 2;
+    db += (b[i]! - mb) ** 2;
+  });
+  return n / Math.sqrt(da * db);
+}
+
+describe('arm swing toward / away from the camera (n, s)', () => {
+  const geom = defaultGeom();
+  const armLens = [geom.elbowY, geom.handY - geom.elbowY];
+  const legLens = [geom.kneeY - geom.hipY, geom.kneeY - geom.hipY];
+  function sample(gait: GaitKey, facing: 'n' | 's') {
+    const face: SwingAxis = { x: 0, y: 0 };
+    swingAxis(facing, face);
+    const ax = gaitAxis(gait, face, { x: 0, y: 0 });
+    const gain = armDepthGain(gait, face);
+    const legGain = legDepthGain(gait, face);
+    const knee = kneeDepthShare(gait, face);
+    const p = makePose();
+    const hand: number[] = [];
+    const foot: number[] = [];
+    // What qa's gaitB measures: the forearm and shin vectors (elbow/knee to the point 6 px down), screen length.
+    const foreVec: number[] = [];
+    const shinVec: number[] = [];
+    const sign = facing === 'n' ? -1 : 1;
+    for (let i = 0; i < 360; i++) {
+      computePose('walk', (i / 360) * GAITS[gait].cycleMs, p, 1, P, 'on', gait);
+      hand.push(tipY([p.armUpperFront, p.armAngle], armLens, ax, gain));
+      foot.push(tipY([p.thighBack, p.thighBack - p.kneeBack * knee], legLens, ax, legGain));
+      foreVec.push(sign * 6 * gainedLength(p.armAngle, ax, gain));
+      shinVec.push(sign * 6 * gainedLength(p.thighBack - p.kneeBack * knee, ax, legGain));
+    }
+    return { hand, foot, foreVec, shinVec };
+  }
+  const range = (a: number[]) => Math.max(...a) - Math.min(...a);
+
+  it.each(['n', 's'] as const)(
+    'run %s: arm follows the opposite leg (>= 0.8) and visibly swings',
+    (f) => {
+      const { hand, foot } = sample('run', f);
+      expect(corr(hand, foot)).toBeGreaterThan(0.8);
+      expect(range(hand)).toBeGreaterThan(4);
+    },
+  );
+  it.each(['n', 's'] as const)(
+    'run %s: the forearm vector follows the opposite shin vector (>= 0.8) and swings >= 2.7 art px',
+    (f) => {
+      const { foreVec, shinVec } = sample('run', f);
+      expect(corr(foreVec, shinVec)).toBeGreaterThanOrEqual(0.8);
+      expect(range(foreVec) * 6).toBeGreaterThanOrEqual(2.7);
+    },
+  );
+  it('run leg swings > 2.4 art px at n (it was 1.6 before the depth shaping)', () => {
+    const { shinVec } = sample('run', 'n');
+    expect(range(shinVec) * 6).toBeGreaterThan(2.4);
+  });
+  it('walk is unchanged: no depth shaping, side-on or not', () => {
+    for (const k of ['armDepth', 'depthSwing', 'kneeDepth', 'legDepth'] as const)
+      expect(GAITS.walk[k]).toBe(1);
+    for (const f of ['n', 's', 'e', 'ne'] as const) {
+      const ax = swingAxis(f, { x: 0, y: 0 });
+      expect(armDepthGain('walk', ax)).toBe(1);
+      expect(legDepthGain('walk', ax)).toBe(1);
+      expect(kneeDepthShare('walk', ax)).toBe(1);
+      expect(gaitAxis('walk', ax, { x: 0, y: 0 })).toEqual(ax);
+    }
+  });
+  it('run diagonals get no depth shaping (their sideways travel must stay within the cap)', () => {
+    for (const f of ['ne', 'nw', 'se', 'sw', 'e', 'w'] as const) {
+      const ax = swingAxis(f, { x: 0, y: 0 });
+      expect(armDepthGain('run', ax)).toBe(1);
+      expect(legDepthGain('run', ax)).toBe(1);
+      expect(kneeDepthShare('run', ax)).toBe(1);
+      expect(gaitAxis('run', ax, { x: 0, y: 0 })).toEqual(ax);
+    }
+  });
+  it('run boost is off side-on and on the diagonals, full facing the camera', () => {
+    const ax: SwingAxis = { x: 0, y: 0 };
+    expect(armDepthGain('run', swingAxis('e', ax))).toBe(1);
+    expect(armDepthGain('run', swingAxis('n', ax))).toBeCloseTo(GAITS.run.armDepth);
+    expect(armDepthGain('run', swingAxis('s', ax))).toBeCloseTo(GAITS.run.armDepth);
+    expect(armDepthGain('run', swingAxis('ne', ax))).toBe(1);
+  });
+  it('the boost enlarges the on-screen arm swing at n versus no boost', () => {
+    const boosted = sample('run', 'n');
+    const ax: SwingAxis = { x: 0, y: 0 };
+    swingAxis('n', ax);
+    const p = makePose();
+    const plain: number[] = [];
+    for (let i = 0; i < 360; i++) {
+      computePose('walk', (i / 360) * GAITS.run.cycleMs, p, 1, P, 'on', 'run');
+      plain.push(tipY([p.armUpperFront, p.armAngle], armLens, ax, 1));
+    }
+    expect(range(boosted.hand)).toBeGreaterThan(range(plain) * 1.3);
   });
 });

@@ -1,14 +1,19 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getLevel } from '@core/progression';
 import { MAX_RUN_ENERGY, MIN_RUN_ENERGY } from '@features/movement';
 import { WORLD_DEF } from '@features/world';
 import { isDepleted } from '@core/skills';
 import { cappedPixelRatio } from '@platform/viewport';
-import { drawMinimap, minimapPxToTile } from '@render/index';
-import type { MinimapMarker, MinimapView } from '@render/index';
+import { drawMinimap, minimapPxToTile, tileDeltaToMinimapAngle } from '@render/index';
+import type { MinimapMarker, MinimapMarkerKind, MinimapView } from '@render/index';
 import { advanceTrail, renderPosition, startTrail } from '@app/scenes/renderTrail';
+import { WorldMapOverlay } from '@app/ui/panels/WorldMapOverlay';
+import type { Tile } from '@core/contracts';
 import type { Trail } from '@app/scenes/renderTrail';
 import { createMinimapTerrain } from '@app/scenes/minimapTerrain';
+import { spotTile } from '@app/game/fishingSpots';
+import type { GameState } from '@app/game/types';
+import type { RockDefId } from '@features/world';
 import { CONTENT } from '@app/registry';
 import { useApp, useRuntime } from '@app/ui/context';
 import { LOW_ENERGY_MESSAGE, runTapOutcome } from '@app/ui/runToggle';
@@ -16,11 +21,122 @@ import { LOW_ENERGY_MESSAGE, runTapOutcome } from '@app/ui/runToggle';
 /** Canvas px per tile, in CSS px, at the circle's native size. */
 const TILE_CSS_PX = 4;
 
+const ROCK_KIND = {
+  copper_rock: 'rock_copper',
+  tin_rock: 'rock_tin',
+  iron_rock: 'rock_iron',
+  coal_rock: 'rock_coal',
+} as const satisfies Record<RockDefId, MinimapMarkerKind>;
+
+const TREE_KIND: Readonly<Record<string, MinimapMarkerKind>> = {
+  tree: 'tree_normal',
+  oak_tree: 'tree_oak',
+};
+
+type ResourceContent = Pick<typeof CONTENT, 'trees' | 'rocks' | 'fishingSpots'>;
+type ResourceGame = Pick<GameState, 'gathering' | 'fishing'>;
+
+/** Tree, rock and fishing-spot markers: depleted state from the gather nodes, spots at their current tile. */
+export function resourceMarkers(content: ResourceContent, g: ResourceGame): MinimapMarker[] {
+  const out: MinimapMarker[] = [];
+  const depleted = (nodeId: string): boolean => {
+    const node = g.gathering.nodes[nodeId];
+    return node !== undefined && isDepleted(node);
+  };
+  for (const t of content.trees.values())
+    out.push({
+      kind: depleted(t.nodeId) ? 'stump' : (TREE_KIND[t.defId] ?? 'tree_normal'),
+      tile: { x: t.x, y: t.y },
+    });
+  for (const r of content.rocks.values())
+    out.push({
+      kind: ROCK_KIND[r.defId],
+      tile: { x: r.x, y: r.y },
+      depleted: depleted(r.nodeId),
+    });
+  for (const f of content.fishingSpots.values())
+    out.push({
+      kind: f.defId === 'net_spot' ? 'spot_net' : 'spot_bait',
+      tile: spotTile(f, g.fishing),
+    });
+  return out;
+}
+
+type MarkerContent = ResourceContent & Pick<typeof CONTENT, 'objects' | 'npcs'>;
+type MarkerGame = ResourceGame & Pick<GameState, 'movement'>;
+
+let lastFacing: number | undefined;
+
+/**
+ * The player's heading (radians, canvas space) from the last step of the trail. Kept when the player
+ * stops, shared by the minimap and the world map so the arrow never resets.
+ */
+export function trailFacing(trail: { from: Tile; to: Tile }): number | undefined {
+  lastFacing =
+    tileDeltaToMinimapAngle(trail.to.x - trail.from.x, trail.to.y - trail.from.y) ?? lastFacing;
+  return lastFacing;
+}
+
+/**
+ * Every marker the minimap and the world map show: banks, resources, NPCs, the walk destination and
+ * the player (last, on top). One list for both views; `me` is the player's rendered tile.
+ */
+export function minimapMarkers(
+  content: MarkerContent,
+  g: MarkerGame,
+  me: { x: number; y: number },
+  facing?: number,
+): MinimapMarker[] {
+  const markers: MinimapMarker[] = [];
+  for (const o of content.objects.values())
+    markers.push({ kind: 'bank', tile: { x: o.x, y: o.y } });
+  markers.push(...resourceMarkers(content, g));
+  for (const n of content.npcs.values()) markers.push({ kind: 'npc', tile: { x: n.x, y: n.y } });
+  const dest = g.movement.destination ?? g.movement.path[g.movement.path.length - 1];
+  if (dest) markers.push({ kind: 'destination', tile: dest });
+  markers.push({ kind: 'player', tile: me, facing });
+  return markers;
+}
+
+/** Minimap canvas tap -> walk. Returns whether a walk was requested. */
+export function tapToWalk(
+  e: { clientX: number; clientY: number },
+  rect: { left: number; top: number; width: number; height: number },
+  canvas: { width: number; height: number },
+  view: MinimapView,
+  walkTo: (t: { x: number; y: number }) => void,
+): boolean {
+  const tile = minimapPxToTile(
+    ((e.clientX - rect.left) * canvas.width) / rect.width,
+    ((e.clientY - rect.top) * canvas.height) / rect.height,
+    view,
+  );
+  if (!tile) return false;
+  walkTo(tile);
+  return true;
+}
+
+/** The icon beside the minimap that opens the world map (the minimap tap keeps walking). */
+export function MapExpandButton({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      className="minimap-expand"
+      aria-label="Open world map"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={onOpen}
+    >
+      {'\u2922'}
+    </button>
+  );
+}
+
 /** Round minimap (tap to walk), redrawn every frame, with an "N" label. */
 export function Minimap() {
   const { store, ticker } = useRuntime();
   const ref = useRef<HTMLCanvasElement>(null);
   const viewRef = useRef<MinimapView | null>(null);
+  const [mapOpen, setMapOpen] = useState(false);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -55,21 +171,7 @@ export function Minimap() {
         bounds: { width: WORLD_DEF.widthTiles, height: WORLD_DEF.heightTiles },
       };
       viewRef.current = view;
-      const markers: MinimapMarker[] = [];
-      for (const o of CONTENT.objects.values())
-        markers.push({ kind: 'bank', tile: { x: o.x, y: o.y } });
-      for (const t of CONTENT.trees.values()) {
-        const node = g.gathering.nodes[t.nodeId];
-        markers.push({
-          kind: node !== undefined && isDepleted(node) ? 'stump' : 'tree',
-          tile: { x: t.x, y: t.y },
-        });
-      }
-      for (const n of CONTENT.npcs.values())
-        markers.push({ kind: 'npc', tile: { x: n.x, y: n.y } });
-      const dest = g.movement.destination ?? g.movement.path[g.movement.path.length - 1];
-      if (dest) markers.push({ kind: 'destination', tile: dest });
-      markers.push({ kind: 'player', tile: me });
+      const markers = minimapMarkers(CONTENT, g, me, trailFacing(trail));
       ctx.clearRect(0, 0, px, px);
       drawMinimap(ctx, terrain, image, view, markers, WORLD_DEF.labels);
       raf = requestAnimationFrame(frame);
@@ -82,13 +184,7 @@ export function Minimap() {
     const canvas = ref.current;
     const view = viewRef.current;
     if (!canvas || !view) return;
-    const rect = canvas.getBoundingClientRect();
-    const tile = minimapPxToTile(
-      ((e.clientX - rect.left) * canvas.width) / rect.width,
-      ((e.clientY - rect.top) * canvas.height) / rect.height,
-      view,
-    );
-    if (tile) store.getState().walkTo(tile);
+    tapToWalk(e, canvas.getBoundingClientRect(), canvas, view, store.getState().walkTo);
   };
 
   return (
@@ -109,6 +205,8 @@ export function Minimap() {
       >
         N
       </button>
+      <MapExpandButton onOpen={() => setMapOpen(true)} />
+      {mapOpen ? <WorldMapOverlay onClose={() => setMapOpen(false)} /> : null}
     </div>
   );
 }

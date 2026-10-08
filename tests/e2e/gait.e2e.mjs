@@ -143,7 +143,9 @@ await withGame(
       let walkRows;
       let wData;
       await check('g0', 'walk 10 tiles at 600 ms ticks (data for g1-g3)', async () => {
-        walkRows = await walk(1, 0, 10);
+        // Side-on (tile +1,-1 faces e): the stride and knee bend only show as an arc there; on the diagonals and facing
+        // s/n they are foreshortened on purpose (see g8).
+        walkRows = await walk(1, -1, 10);
         wData = movingWindow(walkRows);
         expect(wData.length > 90, `only ${wData.length} moving frames`);
         return `${walkRows.length} frames, ${wData.length} moving`;
@@ -211,7 +213,7 @@ await withGame(
         return `knee max ${f(mx * DEG)} deg, swing bent ${swingBent}/${swing}, stance straight ${stanceStraight}/${stance}, contact knee <= ${f(max(contact) * DEG)} deg, bob peaks/cycle ${JSON.stringify(c.perCycle)}`;
       });
       await check('g4', 'run on: shorter cycle + bigger amplitude', async () => {
-        const runRows = await walk(1, 0, 10, { run: true });
+        const runRows = await walk(1, -1, 10, { run: true });
         const rd = movingWindow(runRows);
         const wc = cycles(wData);
         const rc = cycles(rd);
@@ -235,7 +237,7 @@ await withGame(
       });
       await check('g6', 'Animations Off: walking is still', async () => {
         await setAnim('off');
-        const rows = movingWindow(await walk(1, 0, 6));
+        const rows = movingWindow(await walk(1, -1, 6));
         const keys = ['tf', 'tb', 'sf', 'sb', 'uf', 'ub', 'ff', 'fb', 'bob'];
         const worst = Math.max(...keys.map((k) => p2p(rows.map((r) => r[k])))) * DEG;
         await setAnim('on');
@@ -245,6 +247,55 @@ await withGame(
         );
         return `${rows.length} moving frames, max limb p2p ${f(worst, 3)} deg`;
       });
+      // Swing axis (user 2026-10-08): limbs swing along the FACING, never across it. Drive the real animator per facing.
+      await check(
+        'g8',
+        'limbs swing along the facing: arc side-on, none sideways facing s/n, arm in sync with opposite leg',
+        async () => {
+          const out = await g.eval(`(() => {
+          const sc = window.__idleRpg.scene(), a = sc.animator, pv = sc.playerView;
+          const orig = { s: a.setState, u: a.update };
+          const rig = pv.container.list.find((o) => o.type === 'Container' && o.list.length === 4);
+          const nm = (r, n) => r.list.find((o) => o.name === n);
+          const res = {};
+          try {
+            for (const facing of ['e', 's', 'n', 'se']) {
+              orig.s.call(a, 'walk', { facing, running: false });
+              const rows = [];
+              for (let t = 0; t < 520; t += 10) {
+                orig.u.call(a, 1e6 + t);
+                rows.push({ af: nm(rig, 'armFrontUpper').rotation, tb: rig.list[0].rotation, tf: rig.list[1].rotation });
+              }
+              const p2p = (k) => Math.max(...rows.map((r) => r[k])) - Math.min(...rows.map((r) => r[k]));
+              const mean = (k) => rows.reduce((x, r) => x + r[k], 0) / rows.length;
+              const ma = mean('af'), mt = mean('tb');
+              let num = 0, da = 0, dt = 0;
+              for (const r of rows) { num += (r.af - ma) * (r.tb - mt); da += (r.af - ma) ** 2; dt += (r.tb - mt) ** 2; }
+              res[facing] = { arm: p2p('af'), leg: p2p('tf'), corr: dt > 1e-12 && da > 1e-12 ? num / Math.sqrt(da * dt) : null };
+            }
+          } finally {
+            orig.s.call(a, 'idle', { facing: 'se' });
+          }
+          return res;
+        })()`);
+          const d = (r) => f(r * DEG);
+          expect(
+            out.e.arm * DEG > 15 && out.e.leg * DEG > 30,
+            `side-on arc too small: ${JSON.stringify(out.e)}`,
+          );
+          for (const k of ['s', 'n'])
+            expect(
+              out[k].arm * DEG < 3 && out[k].leg * DEG < 3,
+              `facing ${k} swings sideways: arm ${d(out[k].arm)} deg, leg ${d(out[k].leg)} deg`,
+            );
+          expect(out.e.corr > 0.95, `front arm not in sync with the back leg (corr ${out.e.corr})`);
+          expect(
+            out.se.corr > 0.9,
+            `se: front arm not in sync with the back leg (corr ${out.se.corr})`,
+          );
+          return `arc e arm ${d(out.e.arm)} / leg ${d(out.e.leg)} deg; s arm ${d(out.s.arm)} / leg ${d(out.s.leg)}; n arm ${d(out.n.arm)} / leg ${d(out.n.leg)}; arm~back-leg corr e ${f(out.e.corr, 3)}, se ${f(out.se.corr, 3)}`;
+        },
+      );
       // Art shots: mid-stride front / side / back, then chopping.
       for (const [name, dx, dy] of [
         ['front', 0, 1],

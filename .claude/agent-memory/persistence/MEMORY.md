@@ -1,4 +1,6 @@
+- 2026-10-08: Review of integrator's optional meta.grants (no bump): additive optional leaf with tolerant app-side deserialize (filter strings, cap 50) = no version bump; absent == default []. Probe via scratch copy test importing metaSlice from app/registry (core tests can't import app).
 # persistence memory
+- 2026-10-08: Added hud.sheetFold/chatFold (enum, no bump): types + defaults + PREF_ENUMS['hud.x'] + existing hud toEqual tests (2 places); new tests via describe.each over both keys. Mutant (delete one PREF_ENUMS line) killed.
 - 2026-10-08: QA: fixtures must be realistic: a fixture that only passes pass-through slices hides invalid data (14 non-stackable logs in one slot). Migration tests now also decode v1/v2 fixtures via REAL deserializeInventory/Bank/Progression with a test registry (logs non-stackable). Any new fixture must pass that test.
 - 2026-10-08: Added notifications.areaNames (additive, no bump): edit type + defaultPreferences + existing defaults toEqual test; new test seeds old prefs via make(false,{[PREFS_KEY]:env(...)}). Boolean leaves need no other change.
 - 2026-10-08: Added sound.volumes.music/ambience (additive, no bump): edit defaults + Preferences type + existing toEqual tests; numeric leaves auto-clamp 0..1. Repo-wide tsc may show unrelated app/ errors from parallel agents; grep for core/persistence.
@@ -13,3 +15,4 @@
 - 2026-10-08: Known gap: adapter.get() returns null on storage exceptions, which reads as "no save" (autosave could then overwrite). Consider a distinct error if it matters.
 - 2026-10-08: Write files by absolute path; vitest fake timers work for default scheduler tests.
 - 2026-10-08: (fixed) get() now Result<string|null>; manager.save refuses unless last load ok or startFresh() ok. Lesson: never let an unreadable/failed read look like "no save"; design the overwrite guard in from the start.
+- 2026-10-08: Added top-level pref playerLook (enum, no bump): types + defaults + PREF_ENUMS['playerLook'] (top-level path = bare key). Setting a value equal to current is a no-op (nothing written), so tests asserting storage must first set a non-default. Mutants (scratch copy) in PREF_ENUMS / defaults both killed.

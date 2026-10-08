@@ -573,3 +573,55 @@ describe('generative music', () => {
     expect(times.length).toBeGreaterThan(8);
   });
 });
+
+describe('mining and fishing sounds (skill filter)', () => {
+  const cases: [Record<string, unknown> & { type: string }, SoundId[]][] = [
+    [{ type: 'swingImpact', skill: 'mining' }, ['pickHit']],
+    [{ type: 'swingImpact', skill: 'woodcutting' }, ['axeHit']],
+    [{ type: 'swingImpact' }, ['axeHit']],
+    [{ type: 'itemGathered', skill: 'mining' }, ['oreGained']],
+    [{ type: 'itemGathered', skill: 'woodcutting' }, ['logGained']],
+    [{ type: 'itemGathered', skill: 'fishing' }, ['fishCaught']],
+    [{ type: 'itemGathered', skill: 'cooking' }, []],
+    [{ type: 'nodeDepleted', skill: 'mining' }, ['rockCrumble']],
+    [{ type: 'nodeDepleted', skill: 'woodcutting' }, ['treeFall']],
+    [{ type: 'nodeDepleted' }, ['treeFall']],
+    [{ type: 'nodeRespawned', skill: 'mining' }, []],
+    [{ type: 'fishingAttempt', spotId: 's', defId: 'd', method: 'net' }, ['fishCast']],
+    [{ type: 'fishingStarted' }, []],
+    [{ type: 'fishingStopped' }, []],
+    [{ type: 'baitConsumed' }, []],
+    [{ type: 'spotMoved' }, ['spotBurble']],
+  ];
+  it.each(cases)('%j -> %j', (event, expected) => {
+    expect(resolveEventSounds(event)).toEqual(expected);
+  });
+
+  it('mining events never play woodcutting sounds and vice versa', () => {
+    for (const type of ['swingImpact', 'itemGathered', 'nodeDepleted']) {
+      expect(resolveEventSounds({ type, skill: 'mining' })).not.toContain('axeHit');
+      expect(resolveEventSounds({ type, skill: 'mining' })).not.toContain('logGained');
+      expect(resolveEventSounds({ type, skill: 'mining' })).not.toContain('treeFall');
+      expect(resolveEventSounds({ type, skill: 'fishing' })).not.toContain('axeHit');
+    }
+  });
+
+  it('a mining swing renders pick layers on the sfx bus once unlocked', () => {
+    const { audio, f } = setup();
+    audio.unlock();
+    audio.handleEvent({ type: 'swingImpact', skill: 'mining' });
+    expect(f.starts.length).toBe(SOUND_DEFS.pickHit.layers.length);
+  });
+
+  it('fishing plays one cast per attempt and none from fishingStarted', () => {
+    const { audio, f } = setup();
+    audio.unlock();
+    const n = SOUND_DEFS.fishCast.layers.length;
+    audio.handleEvent({ type: 'fishingStarted' });
+    expect(f.starts.length).toBe(0);
+    audio.handleEvent({ type: 'fishingAttempt', spotId: 's', defId: 'd', method: 'net' });
+    expect(f.starts.length).toBe(n);
+    audio.handleEvent({ type: 'fishingAttempt', spotId: 's', defId: 'd', method: 'net' });
+    expect(f.starts.length).toBe(n); // same instant: min gap blocks stacking
+  });
+});

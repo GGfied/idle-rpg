@@ -6,17 +6,21 @@
  */
 import { FIG_W, paintFigure } from './figureArt';
 import type { FigureLook } from './figureArt';
-import { NPC_LOOKS, PLAYER_LOOK } from './figureLooks';
+import { NPC_LOOKS, PLAYER_LOOKS } from './figureLooks';
+import type { PlayerLookId } from './figureLooks';
 
 /** Crop window in figure cells: the head (rows 0-16) plus the shoulders and collar. Square. */
 export const PORTRAIT_CROP = { x: 7, y: 0, size: 22 } as const;
 
 /** Look ids: 'player' plus every NPC `spriteKey` (banker, villager, villager_f). */
-export const PORTRAIT_LOOK_IDS: readonly string[] = ['player', ...Object.keys(NPC_LOOKS)];
+export const PORTRAIT_LOOK_IDS: readonly string[] = [
+  ...Object.keys(PLAYER_LOOKS),
+  ...Object.keys(NPC_LOOKS),
+];
 
 /** The look behind an id, or undefined for an unknown id. */
 export function portraitLook(lookId: string): FigureLook | undefined {
-  if (lookId === 'player') return PLAYER_LOOK;
+  if (Object.hasOwn(PLAYER_LOOKS, lookId)) return PLAYER_LOOKS[lookId as PlayerLookId];
   return Object.hasOwn(NPC_LOOKS, lookId) ? NPC_LOOKS[lookId as keyof typeof NPC_LOOKS] : undefined;
 }
 

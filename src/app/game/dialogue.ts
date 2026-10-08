@@ -1,15 +1,18 @@
 /** Starts, advances and closes the conversation held in `GameState.talk`. */
 import type { Requirement } from '@core/contracts';
 import { addItem } from '@core/inventory';
+import type { ItemRegistry } from '@core/items';
 import { advance, getDialogue, startDialogue } from '@features/story';
 import type { DialogueIntent, DialogueState } from '@features/story';
 import type { Content } from '@app/registry';
 import { addChat } from '@app/game/chat';
 import { applyIntent } from '@app/game/intents';
-import { meets } from '@app/game/requirements';
+import { evaluate } from '@app/game/requirements';
 import type { GameState } from '@app/game/types';
 
-const ctxFor = (game: GameState) => ({ meets: (r: Requirement) => meets(game, r) });
+const ctxFor = (game: GameState, items?: ItemRegistry) => ({
+  evaluate: (r: Requirement) => evaluate(game, r, items),
+});
 
 /** Begin a conversation with the NPC at `spawnId`. An unknown dialogue id changes nothing. */
 export function startTalk(
@@ -17,9 +20,10 @@ export function startTalk(
   spawnId: string,
   dialogueId: string,
   vars?: Readonly<Record<string, string>>,
+  items?: ItemRegistry,
 ): GameState {
   if (!getDialogue(dialogueId)) return game;
-  const dialogue: DialogueState = startDialogue(dialogueId, ctxFor(game), vars);
+  const dialogue: DialogueState = startDialogue(dialogueId, ctxFor(game, items), vars);
   return { ...game, talk: { spawnId, dialogue } };
 }
 
@@ -40,7 +44,7 @@ function applyDialogueIntent(game: GameState, content: Content, i: DialogueInten
 export function advanceTalk(game: GameState, content: Content, choiceIndex?: number): GameState {
   if (!game.talk) return game;
   // Re-bind the context so requirements are judged against the game as it is now.
-  const current = { ...game.talk.dialogue, ctx: ctxFor(game) };
+  const current = { ...game.talk.dialogue, ctx: ctxFor(game, content.items) };
   const r = advance(current, choiceIndex);
   let next = game;
   for (const intent of r.intents) next = applyDialogueIntent(next, content, intent);

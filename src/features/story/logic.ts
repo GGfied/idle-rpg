@@ -1,4 +1,3 @@
-import type { Requirement } from '@core/contracts';
 import { DIALOGUES } from './data';
 import type {
   AdvanceResult,
@@ -12,25 +11,6 @@ import type {
 
 export function getDialogue(id: string): DialogueDef | undefined {
   return DIALOGUES.find((d) => d.id === id);
-}
-
-function titleCase(id: string): string {
-  const spaced = id.replace(/_/g, ' ');
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
-/** Short plain-text label for a requirement, shown next to a locked choice. */
-export function requirementText(req: Requirement): string {
-  switch (req.type) {
-    case 'skillLevel':
-      return `Needs ${titleCase(req.skill)} level ${req.level}`;
-    case 'item':
-      return `Needs ${req.count && req.count > 1 ? `${req.count} x ` : ''}${titleCase(req.itemId)}`;
-    case 'quest':
-      return `Needs quest: ${titleCase(req.questId)}`;
-    case 'flag':
-      return `Needs: ${titleCase(req.flag)}`;
-  }
 }
 
 function node(def: DialogueDef, id: string): DialogueNode {
@@ -95,7 +75,7 @@ export function advance(state: DialogueState, choiceIndex?: number): AdvanceResu
     nextId = n.next;
   } else if (n.type === 'choice') {
     const opt = choiceIndex === undefined ? undefined : n.options[choiceIndex];
-    if (!opt || (opt.requirement && !state.ctx.meets(opt.requirement))) return stay;
+    if (!opt || (opt.requirement && !state.ctx.evaluate(opt.requirement).met)) return stay;
     nextId = opt.next;
   } else {
     return stay;
@@ -130,10 +110,10 @@ export function currentView(state: DialogueState): DialogueView | null {
     speakerName: 'You',
     text: '',
     choices: n.options.map((o) => {
-      const locked = !!o.requirement && !state.ctx.meets(o.requirement);
-      return o.requirement && locked
-        ? { text: o.text, locked, requirementText: requirementText(o.requirement) }
-        : { text: o.text, locked };
+      const r = o.requirement ? state.ctx.evaluate(o.requirement) : undefined;
+      return r && !r.met
+        ? { text: o.text, locked: true, requirementText: r.text }
+        : { text: o.text, locked: false };
     }),
   };
 }

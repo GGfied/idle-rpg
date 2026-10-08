@@ -1,5 +1,5 @@
 import { LAYERS, isoProjection } from '@render/index';
-import { BLOCKED_TEXT, EFFECTS, EVENT_VFX, REDUCED_LIFE_SCALE } from './data';
+import { BLOCKED_TEXT, EFFECTS, EVENT_VFX, ITEM_TINT, REDUCED_LIFE_SCALE } from './data';
 import type {
   BlockedLabel,
   EffectDef,
@@ -38,6 +38,8 @@ export interface Placement {
   y: number;
   /** Draw depth from the effect's layer and the tile under its feet point. */
   depth: number;
+  /** Colour override from the cue's `tintField`, when the event's value has one. */
+  tint?: number;
   /** Throttle key and window, when the cue is throttled. */
   throttle?: { key: string; ms: number };
 }
@@ -53,20 +55,27 @@ export function planEvent(
   if (opts.mode === 'off') return [];
   const cues = Object.hasOwn(map, event.type) ? map[event.type] : undefined;
   if (!cues) return [];
-  const nodeId = typeof event.nodeId === 'string' ? event.nodeId : undefined;
+  const nodeId =
+    typeof event.nodeId === 'string'
+      ? event.nodeId
+      : typeof event.spotId === 'string'
+        ? event.spotId
+        : undefined;
   const out: Placement[] = [];
   for (const cue of cues) {
     if (!matches(cue, event)) continue;
     const def = resolveEffect(cue.effect, opts.mode, effects);
     if (!def || (def.kind === 'xpDrop' && !opts.xpDrops)) continue;
-    const node = cue.at === 'node' && nodeId ? ctx.nodeWorld?.(nodeId) : undefined;
-    const p = node ?? ctx.playerWorld;
+    const p = anchorPoint(cue, event, nodeId, ctx);
+    if (!p) continue;
     const placement: Placement = {
       effect: cue.effect,
       x: p.x,
       y: p.y - (def.lift ?? 0),
       depth: effectDepth(def.layer, p.x, p.y),
     };
+    const tint = cue.tintField ? tintFor(event[cue.tintField]) : undefined;
+    if (tint !== undefined) placement.tint = tint;
     if (cue.throttleMs) {
       const key = `${event.type}:${cue.effect}:${JSON.stringify(cue.when ?? {})}`;
       placement.throttle = { key, ms: cue.throttleMs };
@@ -98,8 +107,52 @@ export function diamondPoints(halfW: number, halfH: number): { x: number; y: num
 }
 
 function matches(cue: VfxCue, event: VfxEvent): boolean {
+  if (cue.unless && Object.entries(cue.unless).some(([k, v]) => event[k] === v)) return false;
   if (!cue.when) return true;
   return Object.entries(cue.when).every(([k, v]) => event[k] === v);
+}
+
+/** World point for a cue; 'node' falls back to the player, 'from'/'to' return undefined when unresolved. */
+function anchorPoint(
+  cue: VfxCue,
+  event: VfxEvent,
+  nodeId: string | undefined,
+  ctx: VfxContext,
+): { x: number; y: number } | undefined {
+  if (cue.at === 'player') return ctx.playerWorld;
+  if (cue.at === 'node') {
+    const node = nodeId ? ctx.nodeWorld?.(nodeId) : undefined;
+    return node && cue.towardPlayer
+      ? towards(node, ctx.playerWorld, cue.towardPlayer)
+      : (node ?? ctx.playerWorld);
+  }
+  const index = event[cue.at];
+  return nodeId && typeof index === 'number' ? ctx.tileWorld?.(nodeId, index) : undefined;
+}
+
+/** `from` moved up to `px` toward `to` (never past it). */
+export function towards(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  px: number,
+): { x: number; y: number } {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const d = Math.hypot(dx, dy);
+  if (d === 0) return from;
+  const k = Math.min(px, d) / d;
+  return { x: from.x + dx * k, y: from.y + dy * k };
+}
+
+/** Tint colour for an event field value (an item id), or undefined. */
+export function tintFor(value: unknown, table: Readonly<Record<string, number>> = ITEM_TINT) {
+  return typeof value === 'string' && Object.hasOwn(table, value) ? table[value] : undefined;
+}
+
+/** `color` blended toward white by `amount` (0..1). */
+export function lighten(color: number, amount: number): number {
+  const mix = (c: number): number => Math.round(c + (255 - c) * amount);
+  return (mix((color >> 16) & 255) << 16) | (mix((color >> 8) & 255) << 8) | mix(color & 255);
 }
 
 /** Label for a gatherStopped-style event, or undefined when its reason has none. */

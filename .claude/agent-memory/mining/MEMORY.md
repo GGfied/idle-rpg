@@ -1,0 +1,6 @@
+- 2026-10-08: BSD sed on macOS needs `sed -i ''`; a failed sed left a half-renamed export (tsc caught it). Run tsc after every sed.
+- 2026-10-08: core/skills GatherDef/startGather/tickGathering already cover mining; module is data + messages + getRockDef only. Events are generic (nodeDepleted/nodeRespawned/itemGathered/xpGranted), not rockDepleted.
+- 2026-10-08: export starting items as MINING_STARTING_ITEMS (woodcutting exports bare STARTING_ITEMS; collides at integrator).
+- 2026-10-08: scratch-copy mutants (rsync + node_modules symlink) work in seconds; mutate requiredLevel and ticksSaved.
+- 2026-10-08: changing a tool levelRequired breaks tests that run a tier at a fixed level (ticksSaved table used level 10; steel needed 20). Grep makeEnv level args; add boundary rows (L-1, L) to selection table.
+- 2026-10-08: added coal_rock/coal (L30). Adding a tier = data.ts (item, node, message) + 3 tests (id list, gate pair, xp/h vs previous tier for saved 0/1/2). Mutants requiredLevel/xp killed in scratch copy.

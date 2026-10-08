@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { facilityDef } from '@features/facilities';
 import { getNpcDef } from '@features/npc';
-import { WORLD_DEF } from '@features/world';
+import { FISHING_SPOTS as WORLD_FISHING_SPOTS, WORLD_DEF } from '@features/world';
+import { MINING_NODES } from '@features/skills/mining';
+import { FISHING_SPOTS } from '@features/skills/fishing';
 import { CONTENT } from '@app/registry';
 
 /** Every placement in the world refers to something the real registries know. */
@@ -31,5 +33,18 @@ describe('world spawn refs exist in the real registries', () => {
   it('the player spawn and every npc stand on valid tiles of the world grid', () => {
     expect(CONTENT.grid.isWalkable(CONTENT.spawn.x, CONTENT.spawn.y)).toBe(true);
     expect(CONTENT.grid.width).toBe(WORLD_DEF.widthTiles);
+  });
+  it('every rock spawn is a mining gather def', () => {
+    const ids = new Set(MINING_NODES.map((d) => d.id));
+    const rocks = of('rock');
+    expect(rocks.length).toBeGreaterThan(0);
+    expect(CONTENT.rocks.size).toBe(rocks.length);
+    for (const s of rocks) expect(ids.has(s.ref), `${s.id} -> ${s.ref}`).toBe(true);
+  });
+  it('every world fishing spot is a fishing module spot def', () => {
+    const ids = new Set(FISHING_SPOTS.map((d) => d.id));
+    expect(WORLD_FISHING_SPOTS.length).toBeGreaterThan(0);
+    expect(CONTENT.fishingSpots.size).toBe(WORLD_FISHING_SPOTS.length);
+    for (const f of WORLD_FISHING_SPOTS) expect(ids.has(f.defId), `${f.spotId}`).toBe(true);
   });
 });

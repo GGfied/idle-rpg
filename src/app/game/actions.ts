@@ -4,14 +4,16 @@ import { countItem, deposit, itemIds, swapSlots, withdraw } from '@core/inventor
 import { isDepleted, stopGather } from '@core/skills';
 import { facilityDef, optionsFor, reachRuleFor, requirementsFor } from '@features/facilities';
 import { getNpcDef, optionsFor as npcOptions } from '@features/npc';
+import { stopFishing } from '@features/skills/fishing';
 import { findPathToAdjacent, setDestination, setPath } from '@features/movement';
 import { NODE_EXAMINE } from '@app/registry';
+import { gatherNode } from '@app/game/gatherNode';
 import type { Content } from '@app/registry';
 import { addChat, addImportantChat } from '@app/game/chat';
 import { dropSlot, takeGround } from '@app/game/ground';
 import { findPathToTalk } from '@app/game/reach';
 import { meets } from '@app/game/requirements';
-import { NOTHING_TO_CHOP } from '@app/game/systems';
+import { nothingLeft } from '@app/game/gatherMessages';
 import type { GameState } from '@app/game/types';
 
 /** A new click cancels whatever the player was doing. */
@@ -19,12 +21,15 @@ function cancelActions(state: GameState): GameState {
   return {
     ...state,
     gathering: stopGather(state.gathering).state,
+    fishing: stopFishing(state.fishing).state,
+    pendingFishing: null,
     pendingInteraction: null,
     pendingFacility: null,
     pendingNpc: null,
     pendingGround: null,
     talk: null,
     bankOpen: false,
+    bankMode: 'full',
   };
 }
 
@@ -36,7 +41,7 @@ export function walkTo(state: GameState, content: Content, target: Tile): GameSt
 
 /** Click on a tree: walk next to it, then the gather system starts chopping. */
 export function interactTree(state: GameState, content: Content, nodeId: string): GameState {
-  const tree = content.trees.get(nodeId);
+  const tree = gatherNode(content, nodeId);
   // Tapping the tree you are already chopping (or walking to) must not restart the swing cooldown.
   if (
     tree &&
@@ -47,7 +52,7 @@ export function interactTree(state: GameState, content: Content, nodeId: string)
   if (!tree) return s;
   const node = s.gathering.nodes[nodeId];
   // A stump: say so now instead of walking all the way there first.
-  if (node && isDepleted(node)) return addImportantChat(s, NOTHING_TO_CHOP);
+  if (node && isDepleted(node)) return addImportantChat(s, nothingLeft(tree.defId));
   const path = findPathToAdjacent(content.grid, s.movement.position, tree);
   if (path === null)
     return addImportantChat({ ...s, movement: setPath(s.movement, []) }, "I can't reach that.");
@@ -55,8 +60,13 @@ export function interactTree(state: GameState, content: Content, nodeId: string)
 }
 
 export function examineTree(state: GameState, content: Content, nodeId: string): GameState {
-  const defId = content.trees.get(nodeId)?.defId;
-  return addChat(state, (defId && NODE_EXAMINE[defId]) || "It's a tree.");
+  const defId = gatherNode(content, nodeId)?.defId;
+  return addChat(state, (defId && NODE_EXAMINE[defId]) || 'You see nothing special.');
+}
+
+export function examineSpot(state: GameState, content: Content, spotId: string): GameState {
+  const defId = content.fishingSpots.get(spotId)?.defId;
+  return addChat(state, (defId && NODE_EXAMINE[defId]) || 'Fish are swimming here.');
 }
 
 export function examineItem(state: GameState, content: Content, slot: number): GameState {
@@ -155,7 +165,11 @@ export function examineNpc(state: GameState, content: Content, spawnId: string):
   return def ? addChat(state, def.examine) : state;
 }
 
-export const closeBank = (state: GameState): GameState => ({ ...state, bankOpen: false });
+export const closeBank = (state: GameState): GameState => ({
+  ...state,
+  bankOpen: false,
+  bankMode: 'full',
+});
 
 const itemName = (content: Content, id: string): string =>
   (content.items.get(id)?.name ?? id).toLowerCase();
@@ -190,6 +204,7 @@ export function bankWithdraw(
   itemId: string,
   quantity: number | 'all',
 ): GameState {
+  if (state.bankMode === 'depositOnly') return state;
   const r = withdraw(state.inventory, state.bank, itemId, quantity, content.items);
   if (!r.ok) return addImportantChat(state, BANK_ERRORS[r.error] ?? 'You cannot withdraw that.');
   return addChat(

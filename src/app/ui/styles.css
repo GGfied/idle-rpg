@@ -362,6 +362,17 @@ button {
 .menu-item:hover {
   background: var(--panel);
 }
+.menu-item--locked {
+  opacity: 0.6;
+  padding: 4px 10px;
+  cursor: default;
+}
+.menu-item-reason {
+  display: block;
+  font-size: 0.75em;
+  line-height: 1.2;
+  opacity: 0.85;
+}
 
 .banner {
   position: fixed;
@@ -1023,6 +1034,13 @@ button {
     border-radius: 16px 16px 0 0;
   }
 }
+/* Phone: the bank/deposit overlay already lists "Your inventory", so the docked sheet is hidden
+   while it is open (no duplicate item grids). Desktop keeps the sidebar. */
+@media (max-width: 767px) {
+  .hud[data-bank='true'] {
+    display: none;
+  }
+}
 @media (max-width: 767px) and (orientation: landscape) {
   .dialogue {
     position: fixed;
@@ -1117,4 +1135,200 @@ button {
   border: 0;
   color: inherit;
   font-size: 18px;
+}
+
+.bank-btn[data-dim] {
+  opacity: 0.5;
+}
+
+/* World map: expand icon under the minimap (left of the compass), overlay above the HUD. */
+.minimap-expand {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 2;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 2px solid var(--edge);
+  border-radius: 50%;
+  background: rgba(18, 20, 27, 0.84);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.worldmap-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  touch-action: none;
+}
+.worldmap {
+  position: relative;
+  width: min(92vw, 1100px);
+  height: min(88vh, 820px);
+  background: #0b0b10;
+  border: 2px solid var(--edge);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.worldmap-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+.worldmap-btn {
+  position: absolute;
+  z-index: 2;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: rgba(18, 20, 27, 0.88);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.worldmap-close {
+  top: 8px;
+  right: 8px;
+  font-size: 18px;
+}
+.worldmap-centre {
+  bottom: 8px;
+  right: 8px;
+  padding: 0 14px;
+}
+@media (max-width: 767px) {
+  .worldmap {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+    border-width: 0;
+  }
+  .worldmap-close {
+    top: max(8px, env(safe-area-inset-top));
+  }
+  .worldmap-centre {
+    bottom: max(8px, env(safe-area-inset-bottom));
+  }
+}
+
+/* Collapsible bottom sheet + minimizable chat: phone/narrow only. Desktop never shows these controls. */
+.sheet-fold,
+.chat-toggle,
+.chat-peek {
+  display: none;
+}
+@media (max-width: 767px) {
+  :root {
+    --chat-strip-h: calc(3 * 1.4em + 8px);
+  }
+  .sheet-fold {
+    display: block;
+    flex: 0 0 48px;
+    min-height: 44px;
+    background: var(--panel);
+    border: 0;
+    border-bottom: 2px solid var(--edge);
+    cursor: pointer;
+    font-size: 18px;
+  }
+  .hud[data-folded='true'] .hud-body {
+    display: none;
+  }
+  .hud[data-folded='true'] {
+    height: auto;
+  }
+  .chatbox[data-min='true'] {
+    display: none;
+  }
+  .chat-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    z-index: 11;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 22px;
+    background: rgba(16, 18, 24, 0.72);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .chat-toggle[data-min='false'] {
+    right: 8px;
+    bottom: calc(100% + var(--chat-strip-h) + 4px);
+  }
+  .chat-toggle[data-min='true'] {
+    left: 8px;
+    bottom: calc(100% + 8px);
+  }
+  .chat-dot {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #f0a830;
+    box-shadow: 0 0 0 2px rgba(16, 18, 24, 0.9);
+  }
+  .chat-peek {
+    display: block;
+    position: absolute;
+    z-index: 11;
+    left: 64px;
+    right: 8px;
+    bottom: calc(100% + 14px);
+    max-width: max-content;
+    padding: 4px 10px;
+    border-radius: 10px;
+    background: rgba(16, 18, 24, 0.8);
+    border-left: 2px solid #f0a830;
+    color: #ffd27a;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+  }
+}
+@media (max-width: 767px) and (orientation: landscape) {
+  .chat-toggle[data-min='false'] {
+    right: auto;
+    left: 8px;
+    position: fixed;
+    bottom: calc(8px + var(--chat-strip-h) + 4px);
+  }
+  .chat-toggle[data-min='true'] {
+    position: fixed;
+    left: 8px;
+    bottom: 8px;
+  }
+  .chat-peek {
+    position: fixed;
+    left: 64px;
+    right: auto;
+    bottom: 14px;
+    max-width: calc(100vw - 360px);
+  }
+  .hud[data-folded='true'] {
+    height: auto;
+  }
 }

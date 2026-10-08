@@ -2,14 +2,35 @@ import { describe, expect, it } from 'vitest';
 import { itemIconUrl, skillIconUrl, uiIconUrl } from './itemIcons';
 
 // Ids hardcoded: render may not import features (dependency rules).
-const WOODCUTTING_ITEM_IDS = ['logs', 'oak_logs', 'bronze_axe', 'iron_axe'];
+const WOODCUTTING_ITEM_IDS = [
+  'logs',
+  'oak_logs',
+  'bronze_axe',
+  'iron_axe',
+  'copper_ore',
+  'tin_ore',
+  'iron_ore',
+  'coal',
+  'bronze_pickaxe',
+  'iron_pickaxe',
+  'steel_pickaxe',
+  'raw_shrimp',
+  'raw_anchovies',
+  'raw_sardine',
+  'raw_herring',
+  'raw_trout',
+  'raw_mackerel',
+  'small_fishing_net',
+  'fishing_rod',
+  'fishing_bait',
+];
 
 describe('itemIconUrl', () => {
   it.each(WOODCUTTING_ITEM_IDS)('has an icon for %s', (id) => {
     expect(itemIconUrl(id)).toMatch(/svg/);
   });
   it('returns distinct urls per id', () => {
-    expect(new Set(WOODCUTTING_ITEM_IDS.map(itemIconUrl)).size).toBe(4);
+    expect(new Set(WOODCUTTING_ITEM_IDS.map(itemIconUrl)).size).toBe(WOODCUTTING_ITEM_IDS.length);
   });
   it('returns undefined for unknown ids', () => {
     expect(itemIconUrl('nope')).toBeUndefined();

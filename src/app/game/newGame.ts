@@ -3,6 +3,8 @@ import type { InventoryState } from '@core/inventory';
 import { emptyGroundItems } from '@core/items';
 import { createProgressionState, getLevel } from '@core/progression';
 import { createGatheringState } from '@core/skills';
+import { createFishingState } from '@features/skills/fishing';
+import { applyStarterKits } from '@app/game/starterKits';
 import { createPlayerHp } from '@features/combat';
 import { createMovementState } from '@features/movement';
 import { createPrayerPoints } from '@features/skills/prayer';
@@ -22,6 +24,10 @@ function startingInventory(content: Content): InventoryState {
 /** Fresh game: starting items, level 1 skills, standing at the spawn tile. */
 export function newGame(content: Content): GameState {
   const progression = createProgressionState();
+  return applyStarterKits(baseGame(content, progression), content);
+}
+
+function baseGame(content: Content, progression: GameState['progression']): GameState {
   return {
     inventory: startingInventory(content),
     bank: createBank(),
@@ -30,6 +36,8 @@ export function newGame(content: Content): GameState {
     prayer: createPrayerPoints(getLevel(progression, 'prayer')),
     movement: createMovementState(content.spawn),
     gathering: createGatheringState(),
+    fishing: createFishingState(),
+    pendingFishing: null,
     pendingInteraction: null,
     pendingFacility: null,
     pendingNpc: null,
@@ -38,6 +46,7 @@ export function newGame(content: Content): GameState {
     tick: 0,
     talk: null,
     bankOpen: false,
+    bankMode: 'full',
     chat: [],
     meta: { playTimeMs: 0 },
   };
@@ -45,5 +54,5 @@ export function newGame(content: Content): GameState {
 
 /** Resume from a save. Everything not saved (path, gather session, node state) starts empty. */
 export function fromSave(saved: SavedGame, content: Content): GameState {
-  return { ...newGame(content), ...saved };
+  return applyStarterKits({ ...newGame(content), ...saved }, content);
 }

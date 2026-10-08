@@ -12,11 +12,16 @@ export interface GroundItemLike {
 /** Most items drawn on one tile; the rest are still there, just not drawn. */
 export const MAX_PILE = 3;
 
-/** Pile slot offsets in world px (slot 0 = centre, 1 and 2 stack up-left and down-right). */
+/**
+ * Pile slot offsets in world px from the tile centre. The player stands on the centre and covers
+ * it, so the pile sits on the tile's FRONT (south) half: slot 0 front-left, 1 front-right, 2 the
+ * front corner. Each stays inside the 64x32 diamond (half width 32 * (1 - y / 16)), so it reads as
+ * on the ground and peeks out around the feet. The tap target stays at the tile centre.
+ */
 export const PILE_OFFSETS: readonly { x: number; y: number }[] = [
-  { x: 0, y: 0 },
-  { x: -7, y: -3 },
-  { x: 7, y: -2 },
+  { x: -13, y: 5 },
+  { x: 13, y: 5 },
+  { x: 0, y: 11 },
 ];
 
 /**
@@ -26,8 +31,8 @@ export const PILE_OFFSETS: readonly { x: number; y: number }[] = [
 export const HIT_RX = 30;
 export const HIT_RY = 24;
 
-/** Item icon size on the ground: about 40% of the 64 px tile width. */
-export const ICON_PX = 26;
+/** Item icon size on the ground: half the 64 px tile width; the icon's own 32 px art drawn 1:1. */
+export const ICON_PX = 32;
 
 export interface Placed {
   item: GroundItemLike;

@@ -19,6 +19,7 @@ import {
   takeGroundItem,
   useItemOn,
   examineItem,
+  examineSpot,
   examineTree,
   examineFacility,
   examineNpc,
@@ -28,6 +29,7 @@ import {
   walkTo,
 } from '@app/game/actions';
 import type { UseTarget } from '@app/game/actions';
+import { interactSpot } from '@app/game/fishing';
 import { getNpcDef } from '@features/npc';
 import { advanceTalk, closeTalk } from '@app/game/dialogue';
 import type { GameState } from '@app/game/types';
@@ -46,6 +48,8 @@ export type TabId = 'inventory' | 'skills';
 export interface MenuOption {
   label: string;
   onSelect: () => void;
+  /** Unmet requirement text (e.g. "Requires Mining 15 (you: 1)"); the entry is shown greyed. */
+  locked?: string;
 }
 
 /** A context menu open at a client-pixel position. */
@@ -119,6 +123,8 @@ export interface AppState {
   walkTo(tile: Tile): void;
   toggleRun(): void;
   interactTree(nodeId: string): void;
+  interactSpot(spotId: string): void;
+  examineSpot(spotId: string): void;
   examineTree(nodeId: string): void;
   examineItem(slot: number): void;
   dropSlot(slot: number): void;
@@ -227,6 +233,8 @@ export function createAppStore(
     setGame: (game) => set((s) => joined(s, game)),
     toggleRun: () => set((s) => ({ game: { ...s.game, movement: toggleRun(s.game.movement) } })),
     walkTo: (tile) => set(follow(act((g) => walkTo(g, content, tile)))),
+    interactSpot: (id) => set(follow(act((g) => interactSpot(g, content, id)))),
+    examineSpot: (id) => set(act((g) => examineSpot(g, content, id))),
     interactTree: (id) => set(follow(act((g) => interactTree(g, content, id)))),
     examineTree: (id) => set(act((g) => examineTree(g, content, id))),
     examineItem: (slot) => set(act((g) => examineItem(g, content, slot))),

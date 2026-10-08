@@ -3,14 +3,14 @@ import { FACILITIES } from './data';
 import type { FacilityDef } from './types';
 import { facilityDef, interactionFor, optionsFor, reachRuleFor, requirementsFor } from './logic';
 
-const PANELS = ['bankPanel'];
+const PANELS = ['bankPanel', 'depositPanel'];
 const RECIPE_GROUPS = ['range', 'furnace', 'anvil'];
 
 describe('facility data', () => {
   it('has unique kinds and the bank kinds', () => {
     const kinds = FACILITIES.map((f) => f.kind);
     expect(new Set(kinds).size).toBe(kinds.length);
-    expect(kinds).toEqual(expect.arrayContaining(['bank_booth', 'bank_chest']));
+    expect(kinds).toEqual(expect.arrayContaining(['bank_booth', 'bank_chest', 'deposit_chest']));
   });
 
   it.each(FACILITIES.map((f) => [f.kind, f] as const))('%s is well formed', (_k, def) => {
@@ -43,6 +43,24 @@ describe('interactionFor', () => {
   it('errors on unknown kind and option', () => {
     expect(interactionFor('nope')).toEqual({ ok: false, error: 'unknownFacility' });
     expect(interactionFor('bank_booth', 'use')).toEqual({ ok: false, error: 'unknownOption' });
+  });
+});
+
+describe('deposit chest', () => {
+  it('opens the deposit-only panel, not the bank panel', () => {
+    expect(interactionFor('deposit_chest')).toEqual({
+      ok: true,
+      value: { type: 'openPanel', panel: 'depositPanel' },
+    });
+    expect(interactionFor('deposit_chest', 'deposit').ok).toBe(true);
+    expect(optionsFor('deposit_chest').map((o) => o.label)).toEqual(['Deposit']);
+    expect(interactionFor('deposit_chest', 'bank')).toEqual({ ok: false, error: 'unknownOption' });
+  });
+  it('bank booth still opens the full bank', () => {
+    expect(interactionFor('bank_booth', 'bank')).toEqual({
+      ok: true,
+      value: { type: 'openPanel', panel: 'bankPanel' },
+    });
   });
 });
 

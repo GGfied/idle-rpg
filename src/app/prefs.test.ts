@@ -26,6 +26,20 @@ describe('setPref', () => {
     expect(prefs.get().hud.minimap).toBe(false);
   });
 
+  it('playerLook reaches the store and the persisted prefs; an invalid look is rejected', () => {
+    const storage = createMemoryStorage();
+    const prefs = createPreferencesStore({ storage, prefersReducedMotion: false });
+    const store = createAppStore(newGame(CONTENT), CONTENT, prefs);
+    expect(store.getState().prefs.playerLook).toBe('player');
+    store.getState().setPref({ playerLook: 'player_f' });
+    expect(store.getState().prefs.playerLook).toBe('player_f');
+    expect(createPreferencesStore({ storage, prefersReducedMotion: false }).get().playerLook).toBe(
+      'player_f',
+    );
+    store.getState().setPref({ playerLook: 'dragon' } as never);
+    expect(store.getState().prefs.playerLook).toBe('player_f');
+  });
+
   it('an invalid update changes nothing and reports an error line in chat', () => {
     const { store } = setup();
     const before = store.getState().prefs;
@@ -128,10 +142,12 @@ describe('notifications', () => {
   it('exposes every hud and notification flag for the hud to read', () => {
     const { store } = setup();
     expect(Object.keys(store.getState().prefs.hud).sort()).toEqual([
+      'chatFold',
       'chatbox',
       'hidden',
       'minimap',
       'orbs',
+      'sheetFold',
       'skillTracker',
     ]);
     expect(Object.keys(store.getState().prefs.notifications).sort()).toEqual([

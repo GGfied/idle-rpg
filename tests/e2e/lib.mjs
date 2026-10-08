@@ -137,10 +137,22 @@ async function startVite(port, origin) {
 export function withGame(opts, fn) {
   return runMain(async () => {
     hardTimeout(6 * 60e3);
+    // E2E_URL=http://127.0.0.1:5300/ or E2E_SHARED=1 (= :5300) reuses the warm live server (warmServer.mjs); no own vite.
+    const sharedUrl =
+      process.env.E2E_URL ?? (process.env.E2E_SHARED ? 'http://127.0.0.1:5300/' : '');
     const port = Number(process.env.E2E_PORT ?? opts.port);
-    const origin = `http://127.0.0.1:${port}/`;
+    const origin = sharedUrl ? sharedUrl.replace(/\/?$/, '/') : `http://127.0.0.1:${port}/`;
     const tickMs = opts.tickMs ?? 60;
-    const vite = await startVite(port, origin);
+    let vite = null;
+    if (sharedUrl) {
+      if (
+        !(await fetch(origin).then(
+          (r) => r.ok,
+          () => false,
+        ))
+      )
+        throw new Error(`shared server ${origin} is down: run node tests/e2e/warmServer.mjs`);
+    } else vite = await startVite(port, origin);
     const vp = opts.viewport ?? 'desktop';
     const cdp = await launchChrome({ width: VIEWPORTS[vp].width, height: VIEWPORTS[vp].height });
     const errors = [];
@@ -217,10 +229,13 @@ export function withGame(opts, fn) {
           storageTypes: 'local_storage',
         });
         await cdp.send('Page.navigate', { url: `${origin}?tickMs=${tickMs}${query}` });
+        const t0 = Date.now();
         await waitFor(() => E('ready()').catch(() => false), {
           timeoutMs: 25000,
           label: 'game ready (DEV hook)',
         });
+        g.lastReadyMs = Date.now() - t0;
+        if (process.env.E2E_TIMING) console.log(`[timing] game ready ${g.lastReadyMs} ms`);
         await sleep(800);
       },
       /** Run fn at 600 ms ticks (real-time smoothness / timing checks), restoring tickMs after. */
@@ -423,7 +438,7 @@ export function withGame(opts, fn) {
       return typeof r === 'number' && r !== 0 ? r : report();
     } finally {
       await cdp.close().catch(() => {});
-      killChild(vite);
+      if (vite) killChild(vite);
     }
   });
 }

@@ -11,7 +11,7 @@ import { launchChrome, sleep, killTracked, hardTimeout } from './cdp.mjs';
 
 hardTimeout(6 * 60e3);
 const PORT = Number(process.env.E2E_PORT || 5191);
-const ORIGIN = `http://127.0.0.1:${PORT}/`;
+const ORIGIN = `http://127.0.0.1:${PORT}/?tickMs=60`;
 const ROOT = process.env.E2E_ROOT || resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SHOTS = process.env.SHOTS_DIR || '';
 const results = [];
@@ -32,7 +32,15 @@ const expect = (c, m) => {
 async function startVite() {
   const proc = spawn(
     resolve(ROOT, 'node_modules/.bin/vite'),
-    ['--port', String(PORT), '--strictPort', '--host', '127.0.0.1'],
+    [
+      '--config',
+      resolve(ROOT, 'tests/e2e/vite.frozen.config.mjs'),
+      '--port',
+      String(PORT),
+      '--strictPort',
+      '--host',
+      '127.0.0.1',
+    ],
     { cwd: ROOT, stdio: 'ignore', detached: true },
   );
   for (let i = 0; i < 150; i++) {
@@ -284,26 +292,41 @@ async function main() {
         expect((await snap()).pos.x === 16, 'could not reach far corner (16,11)');
         await E('walkTo(13, 12)');
         await settle();
+        // The follow camera eases after the walk; wait until the doorway's screen point is still
+        // so the HUD/canvas hit-test below uses the final position, not a mid-ease one.
+        let last = null;
+        for (let i = 0; i < 20; i++) {
+          const c = await E('tileClient(13, 14, 0)');
+          if (last && Math.abs(c.x - last.x) < 1 && Math.abs(c.y - last.y) < 1) break;
+          last = c;
+          await sleep(200);
+        }
         let op = null;
+        const tried = [];
         for (const t of [
           { x: 13, y: 15 },
           { x: 12, y: 15 },
           { x: 14, y: 15 },
           { x: 13, y: 16 },
+          { x: 12, y: 16 },
+          { x: 14, y: 16 },
         ]) {
           const q = await E(`tileClient(${t.x}, ${t.y}, 0)`);
-          if (
+          const onTop =
             q.x > 0 &&
             q.y > 0 &&
             q.x < p.w &&
             q.y < p.h &&
-            (await E(`topIsCanvas(${q.x}, ${q.y})`))
-          ) {
+            (await E(`topIsCanvas(${q.x}, ${q.y})`));
+          tried.push(
+            `${t.x},${t.y}@${Math.round(q.x)},${Math.round(q.y)}:${onTop ? 'ok' : 'covered'}`,
+          );
+          if (onTop) {
             op = { ...q, t };
             break;
           }
         }
-        expect(op, 'no canvas-visible exit tile (HUD covers all)');
+        expect(op, `no canvas-visible exit tile (HUD covers all): ${tried.join(' ')}`);
         const before2 = await dom('return window.__seen.length');
         await tapAt(op.x, op.y);
         await settle();

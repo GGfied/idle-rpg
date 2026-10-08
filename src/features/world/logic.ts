@@ -9,6 +9,7 @@ import {
   CHUNK_SIZE,
   DEFAULT_AREA,
   TREE_SPAWNS,
+  QUARRY_ROCKS,
   MAP_PATCHES,
   WORLD_NPC_SPAWNS,
   WORLD_OBJECT_SPAWNS,
@@ -25,6 +26,7 @@ import type {
   MapLabel,
   MapPatch,
   RegionEdges,
+  RockSpawn,
   Spawn,
   TerrainKind,
   TreeSpawn,
@@ -69,6 +71,7 @@ export function buildWorld(): WorldDef {
 
   const counters: Record<string, number> = {};
   const spawns: Spawn[] = TREE_SPAWNS.map((s) => toSpawn('tree', s.nodeId, s.defId, s.x, s.y));
+  for (const q of QUARRY_ROCKS) spawns.push(toSpawn('rock', q.nodeId, q.defId, q.x, q.y));
   for (let y = 0; y < heightTiles; y++) {
     for (let x = 0; x < widthTiles; x++) {
       const def = TREE_CHARS[chars[y]![x]!];
@@ -143,6 +146,11 @@ export const WORLD_DEF: WorldDef = buildWorld();
 export const WORLD_TREES: readonly TreeSpawn[] = WORLD_DEF.spawns
   .filter((s) => s.type === 'tree')
   .map((s) => ({ nodeId: s.id, defId: s.ref as TreeSpawn['defId'], x: s.x, y: s.y }));
+
+/** Placed mining rocks (nodeId = instance id, defId = mining node def). */
+export const WORLD_ROCKS: readonly RockSpawn[] = WORLD_DEF.spawns
+  .filter((s) => s.type === 'rock')
+  .map((s) => ({ nodeId: s.id, defId: s.ref as RockSpawn['defId'], x: s.x, y: s.y }));
 
 /** Legacy: the village's 40x30 terrain; undefined outside it. Use WORLD_DEF.terrainAt for the world. */
 export function terrainAt(x: number, y: number): TerrainKind | undefined {

@@ -51,8 +51,13 @@ export interface CollisionGrid {
 }
 
 /** A prerequisite, checked by whoever owns the data it refers to (ids are plain strings). */
-export type Requirement =
+export type Requirement = (
   | { type: 'skillLevel'; skill: string; level: number }
   | { type: 'item'; itemId: string; count?: number }
   | { type: 'quest'; questId: string }
-  | { type: 'flag'; flag: string };
+  | { type: 'flag'; flag: string }
+) & {
+  /** Secret: while unmet, the text is "???" (or `hint`) and the current value is withheld. */
+  hidden?: boolean;
+  hint?: string;
+};

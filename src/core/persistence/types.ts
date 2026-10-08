@@ -58,6 +58,9 @@ export interface Preferences {
     skillTracker: boolean;
     chatbox: boolean;
     hidden: boolean;
+    /** Phone bottom sheet / chat fold; 'auto' = collapsed on phone, expanded on desktop (hud resolves). */
+    sheetFold: 'auto' | 'collapsed' | 'expanded';
+    chatFold: 'auto' | 'collapsed' | 'expanded';
   };
   notifications: {
     levelUpPopup: boolean;
@@ -67,6 +70,8 @@ export interface Preferences {
     areaNames: boolean;
   };
   visuals: { vfx: 'on' | 'reduced' | 'off'; animations: 'on' | 'reduced' | 'off' };
+  /** Which figure sprite the player is drawn with. A preference, never part of the save. */
+  playerLook: 'player' | 'player_f';
 }
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };

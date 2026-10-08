@@ -7,6 +7,8 @@ import { CONTENT, SAVE_SCHEMA } from '@app/registry';
 import { bankDeposit, bankDepositAll, interactTree } from '@app/game/actions';
 import { fromSave, newGame } from '@app/game/newGame';
 import { step } from '@app/game/step';
+import { BAIT_STACK } from '@app/game/starterKits';
+import { BAIT_ITEM_ID } from '@features/skills/fishing';
 import { createRuntime } from '@app/runtime';
 import type { RuntimeEnv } from '@app/runtime';
 
@@ -108,7 +110,14 @@ describe('bank interplay with tools', () => {
     const g = bankDepositAll({ ...base, inventory: added.value }, CONTENT);
     expect(countItem(g.inventory, 'logs')).toBe(0);
     expect(countItem(g.inventory, 'bronze_axe')).toBe(1);
-    expect(g.bank.items).toEqual([{ itemId: 'logs', quantity: 3 }]);
+    // Exactly the logs and the starter bait (slot order is not part of the contract).
+    expect(g.bank.items).toHaveLength(2);
+    expect(g.bank.items).toEqual(
+      expect.arrayContaining([
+        { itemId: 'logs', quantity: 3 },
+        { itemId: BAIT_ITEM_ID, quantity: BAIT_STACK },
+      ]),
+    );
     const again = bankDepositAll(g, CONTENT);
     expect(again.inventory).toBe(g.inventory);
     expect(again.chat.map((c) => c.text)).not.toContain('Your bank is full.');

@@ -6,9 +6,11 @@ import type {
   MapLabel,
   MapPatch,
   NamedLocation,
+  FishingSpotSpawn,
   NpcSpawn,
   ObjectSpawn,
   RegionData,
+  RockSpawn,
   TerrainKind,
   TreeSpawn,
 } from './types';
@@ -41,6 +43,81 @@ export const VILLAGE_TREES: readonly TreeSpawn[] = [
   t('oak_2', 'oak_tree', 24, 22),
   t('oak_3', 'oak_tree', 23, 23),
   t('oak_4', 'oak_tree', 26, 20),
+];
+
+const r = (nodeId: string, defId: RockSpawn['defId'], x: number, y: number): RockSpawn => ({
+  nodeId,
+  defId,
+  x,
+  y,
+});
+
+/**
+ * Stonefold Quarry (x69-79, y41-46): a rocky clearing east of the Greatmere road (x66), 6-11 tiles
+ * north of the Greatmere Bank booth (72,52). Rocks block movement like trees. Instance ids are node ids.
+ */
+export const QUARRY_ROCKS: readonly RockSpawn[] = [
+  r('quarry_copper_1', 'copper_rock', 73, 41),
+  r('quarry_copper_2', 'copper_rock', 75, 41),
+  r('quarry_copper_3', 'copper_rock', 74, 43),
+  r('quarry_copper_4', 'copper_rock', 77, 43),
+  r('quarry_tin_1', 'tin_rock', 70, 44),
+  r('quarry_tin_2', 'tin_rock', 72, 44),
+  r('quarry_tin_3', 'tin_rock', 71, 46),
+  r('quarry_tin_4', 'tin_rock', 73, 46),
+  r('quarry_iron_1', 'iron_rock', 77, 45),
+  r('quarry_iron_2', 'iron_rock', 79, 43),
+  r('quarry_iron_3', 'iron_rock', 78, 46),
+  r('quarry_coal_1', 'coal_rock', 70, 42),
+  r('quarry_coal_2', 'coal_rock', 75, 45),
+  r('quarry_coal_3', 'coal_rock', 76, 42),
+];
+
+/**
+ * Greatmere shore fishing spots. Each spot hops between its candidate WATER tiles (y51, beside the
+ * sand at y52); the first tile is the starting one. `defId` is fishing's spot def id.
+ */
+export const FISHING_SPOTS: readonly FishingSpotSpawn[] = [
+  {
+    spotId: 'shore_net_1',
+    defId: 'net_spot',
+    tiles: [
+      { x: 56, y: 51 },
+      { x: 58, y: 51 },
+      { x: 60, y: 51 },
+      { x: 59, y: 51 },
+    ],
+  },
+  {
+    spotId: 'shore_bait_1',
+    defId: 'bait_spot',
+    tiles: [
+      { x: 48, y: 51 },
+      { x: 50, y: 51 },
+      { x: 52, y: 51 },
+      { x: 54, y: 51 },
+    ],
+  },
+  {
+    spotId: 'shore_net_2',
+    defId: 'net_spot',
+    tiles: [
+      { x: 38, y: 51 },
+      { x: 40, y: 51 },
+      { x: 42, y: 51 },
+      { x: 45, y: 51 },
+    ],
+  },
+  {
+    spotId: 'shore_bait_2',
+    defId: 'bait_spot',
+    tiles: [
+      { x: 26, y: 51 },
+      { x: 29, y: 51 },
+      { x: 32, y: 51 },
+      { x: 35, y: 51 },
+    ],
+  },
 ];
 
 /** Interactive objects. They block movement; players use them from an adjacent tile. */
@@ -147,6 +224,10 @@ export const WORLD_OBJECT_SPAWNS: readonly ObjectSpawn[] = [
   // Fernhaven bank (building at 90..98, 60..67)
   { objectId: 'bank_booth_3', kind: 'bank_booth', x: 93, y: 62 },
   { objectId: 'bank_booth_4', kind: 'bank_booth', x: 95, y: 62 },
+  // Greatmere shore path (y53): booth on the grass just north of it, reached from (72,53).
+  { objectId: 'bank_booth_5', kind: 'bank_booth', x: 72, y: 52 },
+  // Whispering Wood path (y15): chest on the grass just north of it, reached from (48,15).
+  { objectId: 'deposit_chest_1', kind: 'deposit_chest', x: 48, y: 14 },
 ];
 
 /** NPCs standing on the enclosed staff tiles behind each bank booth (no wandering). */
@@ -178,6 +259,7 @@ export const namedLocations: Readonly<Record<string, NamedLocation>> = {
   greatmere_shore: { id: 'greatmere_shore', name: 'Greatmere Shore', tile: { x: 30, y: 53 } },
   fernhaven: { id: 'fernhaven', name: 'Fernhaven', tile: { x: 102, y: 69 } },
   fernhaven_bank: { id: 'fernhaven_bank', name: 'Fernhaven Bank', tile: { x: 94, y: 68 } },
+  stonefold_quarry: { id: 'stonefold_quarry', name: 'Stonefold Quarry', tile: { x: 71, y: 43 } },
 };
 
 /** Fallback for tiles outside every zone. */
@@ -203,6 +285,19 @@ export const AREA_ZONES: readonly AreaZone[] = [
     y1: 68,
   },
   { id: 'fernhaven', kind: 'village', name: 'Fernhaven', x0: 82, y0: 55, x1: 114, y1: 75 },
+  // Rocky clearing inside Greatmere East; listed first so it wins the overlap. Kind 'default'
+  // until world and audio share a 'mine' area kind.
+  {
+    id: 'stonefold_quarry',
+    kind: 'default',
+    name: 'Stonefold Quarry',
+    x0: 69,
+    y0: 41,
+    x1: 79,
+    y1: 46,
+  },
+  // Tree pocket east of the lake. y52 stays Greatmere Shore (listed earlier, wins).
+  { id: 'greatmere_east', kind: 'forest', name: 'Greatmere East', x0: 63, y0: 26, x1: 79, y1: 51 },
 ];
 
 /** Walled structures; rects derived from the wall tiles in the ASCII patches (door on the edge). */
@@ -237,4 +332,5 @@ export const BUILDINGS: readonly BuildingDef[] = [
 export const FACILITY_LABELS: readonly MapLabel[] = [
   { text: 'Willowbrook Bank', x: 13, y: 9, kind: 'facility', icon: 'bank' },
   { text: 'Fernhaven Bank', x: 94, y: 62, kind: 'facility', icon: 'bank' },
+  { text: 'Greatmere Bank', x: 72, y: 52, kind: 'facility', icon: 'bank' },
 ];

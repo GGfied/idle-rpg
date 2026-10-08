@@ -1,4 +1,8 @@
 # vfx memory
+- 2026-10-08: New gatherStopped reason = one `when` cue + one BLOCKED_TEXT label; the "every label has a cue" test already guards parity. Mutant in scratch copy went red.
+- 2026-10-08: Preview strips: scratch copy + `vite --port` + headless Chrome `--virtual-time-budget=1000..1300 --screenshot`; raise pool caps in the preview or the shared cap recycles the first columns' particles and you wrongly think they are invisible. Use a neutral node colour (brown chips vanish on brown). Kill vite by `lsof -ti :PORT`, not pkill.
+- 2026-10-08: Skill-filtered cues: `when` (equals) + `unless` (skip) in data; untagged events (old swingImpact) use `unless` so they still count as woodcutting. Anchors 'from'/'to' skip (no player fallback) when the tile is unresolved. Tint is cue `tintField` -> data table built from ROCK_LOOKS, so art colour is single-source.
+- 2026-10-08: Filtering a previously-unconditional cue (itemGathered->woodChips) breaks old tests that omit `skill`; update them to the new contract.
 - 2026-10-08: Iso move: effect defs carry `layer` (ground/world/overhead) + `lift` px in data; planEvent applies lift and computes depth via pure `effectDepth` (isoProjection.worldToTile->depthFor, ground -0.5, world +0.5, overhead LAYERS.VFX). Inputs stay feet world px so the API did not change. @render/index imports fine in vitest (no Phaser crash).
 - 2026-10-08: Cross-module facts (skill colours) are injected as optional createVfx callbacks, not duplicated; put the resolve/fallback in a pure logic.ts fn so vitest covers it without Phaser.
 - 2026-10-08: Cue matching (`when`) + per-cue `throttleMs` live in data/planEvent; throttle is a pure `createThrottle`. macOS sed needs `-i ''`; back up the file before mutation-testing.
@@ -8,3 +12,4 @@
 - 2026-10-08: Shell hook may block commands naming src/ paths in the main session; subagent runs of npx eslint/vitest on src/render/vfx worked fine.
 - 2026-10-08: Import shared render helpers via '@render/index' (graphics/coordinator rule); run tsc on the whole project before reporting, not just grep vfx.
 - 2026-10-08: Mode filtering (on/reduced/off, xpDrops) lives in pure `resolveEffect`+`planEvent(…, opts)`; flag data with `decorative`, no per-effect branches. Mutation-tested (break decorative check -> reduced test red). `npx tsc -p .` prints nothing; use bare `npx tsc --noEmit`. Build can fail from another agent's in-progress files (animation/data.ts) – report, don't touch.
+- 2026-10-08: New ore tint = one ITEM_TINT line from ROCK_LOOKS; mining cues filter by skill so new rocks need no cue edits.

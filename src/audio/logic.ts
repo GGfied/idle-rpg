@@ -9,15 +9,30 @@ import type {
   Volumes,
 } from './types';
 
-/** Sounds for an event; reason-specific entries beat plain ones. Unknown event -> []. */
+/**
+ * Sounds for an event. An entry matches when its `reason` and `skill` (if set) agree with the event
+ * (`orUnskilled` also accepts an event with no skill). Most specific wins: skill beats reason beats
+ * plain. Unknown event -> [].
+ */
 export function resolveEventSounds(
   event: AudioEvent,
   table: readonly EventSoundEntry[] = EVENT_SOUNDS,
 ): readonly SoundId[] {
-  const matches = table.filter((e) => e.type === event.type);
-  const specific = matches.find((e) => e.reason !== undefined && e.reason === event.reason);
-  if (specific) return specific.sounds;
-  return matches.find((e) => e.reason === undefined)?.sounds ?? [];
+  let best: EventSoundEntry | undefined;
+  let bestScore = -1;
+  for (const e of table) {
+    if (e.type !== event.type) continue;
+    if (e.reason !== undefined && e.reason !== event.reason) continue;
+    if (e.skill !== undefined && e.skill !== event.skill) {
+      if (!(e.orUnskilled && event.skill === undefined)) continue;
+    }
+    const score = (e.reason !== undefined ? 1 : 0) + (e.skill !== undefined ? 2 : 0);
+    if (score > bestScore) {
+      best = e;
+      bestScore = score;
+    }
+  }
+  return best?.sounds ?? [];
 }
 
 export function clampVolume(v: number): number {

@@ -7,6 +7,8 @@ export {
   NPC_SPAWNS,
   OBJECT_SPAWNS,
   PLAYER_SPAWN,
+  QUARRY_ROCKS,
+  FISHING_SPOTS,
   TREE_SPAWNS,
   WORLD,
   WORLD_NPC_SPAWNS,
@@ -15,6 +17,7 @@ export {
 } from './data';
 export {
   WORLD_DEF,
+  WORLD_ROCKS,
   WORLD_TREES,
   areaAt,
   buildingAt,
@@ -35,6 +38,7 @@ export type {
   BuildingDef,
   BuildingStyle,
   ChunkDef,
+  FishingSpotSpawn,
   MapLabel,
   NamedLocation,
   NpcSpawn,
@@ -42,6 +46,8 @@ export type {
   ObjectSpawn,
   RegionData,
   RegionEdges,
+  RockDefId,
+  RockSpawn,
   RoofKind,
   Spawn,
   TerrainKind,

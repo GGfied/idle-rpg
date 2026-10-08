@@ -1,4 +1,4 @@
-import type { Requirement } from '@core/contracts';
+import type { Requirement, RequirementResult } from '@core/contracts';
 
 /** What the integrator should do; the story module never touches other modules' state. */
 export type DialogueIntent =
@@ -36,7 +36,8 @@ export interface DialogueDef {
 
 /** Narrow read-only view of the game the interpreter needs. */
 export interface DialogueContext {
-  meets(req: Requirement): boolean;
+  /** Core's evaluateRequirement bound to the game state. */
+  evaluate(req: Requirement): RequirementResult;
 }
 
 export interface DialogueState {

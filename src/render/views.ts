@@ -4,20 +4,40 @@ import { isoProjection } from './projection';
 import { cullToCamera } from './viewCull';
 import { getTreeTexture, TREE_ORIGIN_Y, treeVariantFor } from './treeTextures';
 import type { TreeShape } from './treeArt';
+import { BOOTH_HALF_W, BOOTH_SIGN_TOP, CHEST_HALF_W, CHEST_TOP, OBJECT_ART } from './objectArt';
+import { ROCK_HALF_W, ROCK_TOP } from './rockArt';
+import { SPOT_HALF_W, SPOT_TOP } from './spotArt';
 import { figureRects } from './figureArt';
 import type { FigureLook, FigureRect, FigureView } from './figureArt';
-import { NPC_LOOKS, PLAYER_LOOK } from './figureLooks';
-import type { NpcSpriteKey } from './figureLooks';
+import { NPC_LOOKS, PLAYER_LOOKS } from './figureLooks';
+import type { NpcSpriteKey, PlayerLookId } from './figureLooks';
 
 export type { NpcSpriteKey };
 
 export type TreeKind = 'tree' | 'oak_tree';
-export type ObjectKind = 'bank_chest' | 'bank_booth';
+export type RockKind = 'copper_rock' | 'tin_rock' | 'iron_rock' | 'coal_rock';
+export type SpotKind = 'net_spot' | 'bait_spot';
+export type NodeKind = RockKind | SpotKind;
+export type ObjectKind = 'bank_chest' | 'bank_booth' | 'deposit_chest';
 
 /** Footprint in tiles. Render only declares it; `map` owns the collision grid and must block these tiles. */
 export const OBJECT_FOOTPRINTS: Record<ObjectKind, { w: number; h: number; blocking: boolean }> = {
   bank_chest: { w: 1, h: 1, blocking: true },
   bank_booth: { w: 1, h: 1, blocking: true },
+  deposit_chest: { w: 1, h: 1, blocking: true },
+};
+
+/**
+ * Footprints of gather nodes. Rocks block their tile (`map` must put them in the collision grid);
+ * spots sit on water tiles that are already unwalkable, so they add no collision of their own.
+ */
+export const NODE_FOOTPRINTS: Record<NodeKind, { w: number; h: number; blocking: boolean }> = {
+  copper_rock: { w: 1, h: 1, blocking: true },
+  tin_rock: { w: 1, h: 1, blocking: true },
+  iron_rock: { w: 1, h: 1, blocking: true },
+  coal_rock: { w: 1, h: 1, blocking: true },
+  net_spot: { w: 1, h: 1, blocking: false },
+  bait_spot: { w: 1, h: 1, blocking: false },
 };
 
 export interface EntityView {
@@ -33,6 +53,8 @@ export interface PlayerView extends EntityView {
   setName(name: string): void;
   /** Redraw the body as seen from behind (true) or the front. Optional hook for the animator; default front. */
   setBackView?(back: boolean): void;
+  /** Swap the figure's look at runtime (player: Settings). Keeps position, facing, view side and name. */
+  setLook?(look: FigureLook): void;
   /** The body figure (flips with facing, bobbed by the animator). Never contains the nameplate. */
   readonly body: Phaser.GameObjects.Graphics;
 }
@@ -63,19 +85,21 @@ const HIT_BELOW_FEET = 8;
 
 /** Canopy circle centre, px above the feet (tile bottom edge). Used by the drawing and the hit bounds. */
 const TREE_CANOPY_CENTRE_Y = 26;
-/** Bank chest drawn box (px): half width, and height of lid top above the feet. */
-const CHEST_HALF_W = 14;
-const CHEST_TOP = 22;
-
-/** Bank booth drawn box (px): half width, counter top and sign top above the feet. */
-const BOOTH_HALF_W = 15;
-const BOOTH_COUNTER_TOP = 18;
-const BOOTH_SIGN_TOP = 28;
 /** Person figure (player and NPCs): hair top above the feet and half width of the torso. */
 const FIGURE_TOP = 31;
 const FIGURE_HALF_W = 6;
 
-export type HitKind = TreeKind | ObjectKind | 'npc';
+export type HitKind = TreeKind | ObjectKind | NodeKind | 'npc';
+
+/** Kinds whose art is a pixel image: tap through transparent gaps (`opaqueAtImage`). Spots are not: the whole tile taps. */
+export const PIXEL_HIT_KINDS: ReadonlySet<HitKind> = new Set<HitKind>([
+  'tree',
+  'oak_tree',
+  'copper_rock',
+  'tin_rock',
+  'iron_rock',
+  'coal_rock',
+]);
 
 function scaled(up: number, radius: number): { up: number; radius: number } {
   return { up: up * ART_SCALE, radius: radius * ART_SCALE };
@@ -90,6 +114,13 @@ export const VIEW_HIT_BOUNDS: Record<HitKind, { up: number; radius: number }> = 
   oak_tree: scaled(TREE_CANOPY_CENTRE_Y + TREE_STYLE.oak_tree.radius, TREE_STYLE.oak_tree.radius),
   bank_chest: scaled(CHEST_TOP, CHEST_HALF_W),
   bank_booth: scaled(BOOTH_SIGN_TOP, BOOTH_HALF_W),
+  deposit_chest: scaled(CHEST_TOP, CHEST_HALF_W),
+  copper_rock: scaled(ROCK_TOP, ROCK_HALF_W),
+  tin_rock: scaled(ROCK_TOP, ROCK_HALF_W),
+  iron_rock: scaled(ROCK_TOP, ROCK_HALF_W),
+  coal_rock: scaled(ROCK_TOP, ROCK_HALF_W),
+  net_spot: scaled(SPOT_TOP, SPOT_HALF_W),
+  bait_spot: scaled(SPOT_TOP, SPOT_HALF_W),
   npc: scaled(FIGURE_TOP, FIGURE_HALF_W),
 };
 
@@ -120,13 +151,13 @@ export function facingScaleX(left: boolean): 1 | -1 {
 }
 
 /** Container origin is the entity's feet (the diamond centre); the figure is drawn above it. */
-function makeContainer(scene: Phaser.Scene): Phaser.GameObjects.Container {
+export function makeContainer(scene: Phaser.Scene): Phaser.GameObjects.Container {
   const c = scene.add.container(0, 0);
   cullToCamera(scene, c);
   return c;
 }
 
-function place(c: Phaser.GameObjects.Container, x: number, y: number): void {
+export function place(c: Phaser.GameObjects.Container, x: number, y: number): void {
   c.setPosition(x, y);
   const t = isoProjection.worldToTile(x, y);
   c.setDepth(isoProjection.depthFor(t.tx, t.ty));
@@ -153,10 +184,12 @@ function drawFigure(g: Phaser.GameObjects.Graphics, look: FigureLook, view: Figu
 }
 
 /** One figure + nameplate builder for the player and every NPC. */
-function createFigureView(scene: Phaser.Scene, look: FigureLook, name?: string): PlayerView {
+function createFigureView(scene: Phaser.Scene, initial: FigureLook, name?: string): PlayerView {
+  let look = initial;
+  let side: FigureView = 'front';
   const container = makeContainer(scene);
   const g = scene.add.graphics();
-  drawFigure(g, look, 'front');
+  drawFigure(g, look, side);
   const label = scene.add
     .text(0, -40 * ART_SCALE, name ?? '', {
       fontFamily: 'Arial, Helvetica, sans-serif',
@@ -177,7 +210,11 @@ function createFigureView(scene: Phaser.Scene, look: FigureLook, name?: string):
     body: g,
     setWorldPosition: (x, y) => place(container, x, y),
     setFacing: (left) => g.setScale(facingScaleX(left) * ART_SCALE, ART_SCALE), // body only, never the label
-    setBackView: (back) => drawFigure(g, look, back ? 'back' : 'front'),
+    setBackView: (back) => drawFigure(g, look, (side = back ? 'back' : 'front')),
+    setLook: (next) => {
+      look = next;
+      drawFigure(g, look, side);
+    },
     setName: (n) => {
       label.setText(n).setVisible(n.length > 0);
     },
@@ -185,8 +222,13 @@ function createFigureView(scene: Phaser.Scene, look: FigureLook, name?: string):
   };
 }
 
-export function createPlayerView(scene: Phaser.Scene, name?: string): PlayerView {
-  return createFigureView(scene, PLAYER_LOOK, name);
+/** The player figure; `lookId` picks the look (default 'player'). Switch later with `view.setLook(PLAYER_LOOKS[id])`. */
+export function createPlayerView(
+  scene: Phaser.Scene,
+  name?: string,
+  lookId: PlayerLookId = 'player',
+): PlayerView {
+  return createFigureView(scene, PLAYER_LOOKS[lookId], name);
 }
 
 /** NPC figure from data (`spriteKey`), distinct outfit per key. Same body/label rules as the player. */
@@ -245,30 +287,13 @@ export function createTreeView(scene: Phaser.Scene, kind: TreeKind): TreeView {
   };
 }
 
-/** Static world object (bank chest / booth). Same origin and depth rules as trees. */
+/** Static world object (bank chest / booth / deposit chest). Same origin and depth rules as trees. */
 export function createObjectView(scene: Phaser.Scene, kind: ObjectKind): EntityView {
   const container = makeContainer(scene);
   const g = scene.add.graphics();
-  if (kind === 'bank_chest') {
-    g.fillStyle(0x000000, 0.25).fillEllipse(0, -2, CHEST_HALF_W * 2, 8);
-    g.fillStyle(0x7a4a22, 1).fillRect(-12, -18, 24, 16); // body
-    g.fillStyle(0x93602d, 1).fillRect(-12, -CHEST_TOP, 24, 6); // lid
-    g.fillStyle(0x5a3216, 1).fillRect(-12, -17, 24, 1); // lid seam
-    g.fillStyle(0x9aa0a8, 1).fillRect(-9, -22, 3, 20).fillRect(6, -22, 3, 20); // metal bands
-    g.fillStyle(0xe0b84a, 1).fillRect(-2, -19, 4, 5); // lock plate
-    g.fillStyle(0x3a2412, 1).fillRect(-1, -17, 2, 2); // keyhole
-  }
-  if (kind === 'bank_booth') {
-    g.fillStyle(0x000000, 0.25).fillEllipse(0, -2, BOOTH_HALF_W * 2, 8);
-    g.fillStyle(0x6e4220, 1).fillRect(-BOOTH_HALF_W, -BOOTH_COUNTER_TOP + 4, BOOTH_HALF_W * 2, 14); // front
-    g.fillStyle(0x8a5a2b, 1).fillRect(-BOOTH_HALF_W, -BOOTH_COUNTER_TOP, BOOTH_HALF_W * 2, 5); // counter top
-    g.fillStyle(0x4a2b12, 1).fillRect(-12, -11, 24, 1).fillRect(-12, -5, 24, 1); // panel seams
-    g.fillStyle(0x3a2412, 1).fillRect(-BOOTH_HALF_W, -BOOTH_SIGN_TOP + 4, 3, 10); // sign posts
-    g.fillRect(BOOTH_HALF_W - 3, -BOOTH_SIGN_TOP + 4, 3, 10);
-    g.fillStyle(0xe0b84a, 1).fillRect(-10, -BOOTH_SIGN_TOP, 20, 7); // gold sign
-    g.fillStyle(0x8a6a1a, 1).fillRect(-10, -BOOTH_SIGN_TOP + 6, 20, 1); // sign shade
-    g.fillStyle(0x3a2412, 1).fillRect(-1, -BOOTH_SIGN_TOP + 2, 2, 3); // sign mark
-  }
+  const art = OBJECT_ART[kind];
+  g.fillStyle(0x000000, 0.25).fillEllipse(0, -2, art.halfW * 2, 8);
+  for (const rc of art.rects) g.fillStyle(rc.color, 1).fillRect(rc.x, rc.y, rc.w, rc.h);
   g.setScale(ART_SCALE);
   container.add(g);
   return {

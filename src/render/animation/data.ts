@@ -24,8 +24,9 @@ export const WALK_CYCLE_MS = 520;
 export const RUN_CYCLE_MS = 340;
 
 /**
- * Gaits as data. Legs swing more than arms; the arm trails the opposite leg (contralateral), the forearm
- * trails the upper arm. Walk and run share every phase relation; run is faster, bigger and leans more.
+ * Gaits as data. Legs swing more than arms; each arm runs on the SAME phase as the opposite leg
+ * (contralateral, armLag 0: forward extreme and zero crossings on the same frame; user 2026-10-08 "in sync with the
+ * legs"). Walk and run share every phase relation; run is faster, bigger and leans more.
  */
 export const GAITS: Readonly<Record<GaitKey, GaitDef>> = {
   walk: {
@@ -34,10 +35,14 @@ export const GAITS: Readonly<Record<GaitKey, GaitDef>> = {
     kneeDeg: 35,
     armDeg: 16,
     elbowDeg: 8,
-    armLag: 0.07,
-    forearmLag: 0.04,
+    armLag: 0,
+    forearmLag: 0,
     bobPx: 0.9,
     leanDeg: 2,
+    armDepth: 1,
+    depthSwing: 1,
+    kneeDepth: 1,
+    legDepth: 1,
   },
   run: {
     cycleMs: RUN_CYCLE_MS,
@@ -45,10 +50,14 @@ export const GAITS: Readonly<Record<GaitKey, GaitDef>> = {
     kneeDeg: 60,
     armDeg: 28,
     elbowDeg: 30,
-    armLag: 0.07,
-    forearmLag: 0.05,
+    armLag: 0,
+    forearmLag: 0,
     bobPx: 1.4,
     leanDeg: 9,
+    armDepth: 1.8,
+    depthSwing: 2,
+    kneeDepth: 0.4,
+    legDepth: 1.8,
   },
 };
 
@@ -59,6 +68,9 @@ export const BREATH_PERIOD_MS = 2800;
 /** Which gather state a tool kind starts. New skills add an entry here (and a state below). */
 export const GATHER_STATE_BY_TOOL: Readonly<Record<string, AnimState>> = {
   axe: 'chop',
+  pickaxe: 'mine',
+  net: 'fishNet',
+  rod: 'fishRod',
 };
 
 /** Walking beats gathering (moving cancels a session); gathering beats idle. */
@@ -68,6 +80,18 @@ export const ANIM_STATES: Readonly<Record<AnimState, AnimStateDef>> = {
     priority: 1,
     applies: (i: AnimInput) => i.gathering && GATHER_STATE_BY_TOOL[i.toolKind ?? ''] === 'chop',
   },
+  mine: {
+    priority: 1,
+    applies: (i: AnimInput) => i.gathering && GATHER_STATE_BY_TOOL[i.toolKind ?? ''] === 'mine',
+  },
+  fishNet: {
+    priority: 1,
+    applies: (i: AnimInput) => i.gathering && GATHER_STATE_BY_TOOL[i.toolKind ?? ''] === 'fishNet',
+  },
+  fishRod: {
+    priority: 1,
+    applies: (i: AnimInput) => i.gathering && GATHER_STATE_BY_TOOL[i.toolKind ?? ''] === 'fishRod',
+  },
   walk: { priority: 2, applies: (i: AnimInput) => i.moving },
 };
 
@@ -76,11 +100,43 @@ export const TOOL_TINTS: Readonly<Record<string, number>> = {
   bronze_axe: 0xb07a3c,
   iron_axe: 0x8a8f96,
   steel_axe: 0xb9c2cc,
+  bronze_pickaxe: 0xb07a3c,
+  iron_pickaxe: 0x8a8f96,
+  steel_pickaxe: 0xb9c2cc,
 };
 export const DEFAULT_TOOL_TINT = 0xb07a3c;
 export const AXE_HANDLE_COLOR = 0x6b4a2b;
-/** Forearm-local y of the fist: the axe is gripped here. */
+/** Forearm-local y of the fist: the axe is gripped here (the LEAD hand, just below the head). */
 export const AXE_GRIP_Y = 9;
+/** Distance along the handle from the lead hand to the rear hand (which sits near the butt end). */
+export const AXE_HAND_GAP = 5;
+/** A grip hand at least this far below the shoulder (art px) keeps its elbow over the torso (see chop.ts solveGrip). */
+export const ELBOW_TUCK_MIN_Y = 4;
+/** Chop twist: shoulders narrow to (1 - this * twist) of their width at full twist (a torso turn seen side-on). */
+export const TWIST_NARROW = 0.3;
+/** A limb swinging toward/away from the camera is drawn longer/shorter (foreshortening); its length factor stays within these. */
+/** How strongly a swing toward/away from the camera moves a limb up/down the screen (1 = the full iso foreshortening). */
+export const SWING_DEPTH_GAIN = 0.5;
+export const SWING_LEN_MIN = 0.85;
+export const SWING_LEN_MAX = 1.2;
+/** Most sideways share of a walk swing on the four diagonals: the sprite faces the camera there, so it must not read as a lateral swing. */
+export const DIAGONAL_LATERAL_CAP = 0.15;
+/**
+ * Swing direction on screen per facing (unit vectors, x = sideways, y + = toward the camera). Side-on (e/w) the swing is
+ * the plain forward/back arc; facing s/n and the four diagonals (the sprite faces the camera or turns its back) it is
+ * mostly up/down with a length change (foreshortening). The diagonals keep only a small sideways part
+ * (DIAGONAL_LATERAL_CAP) toward the true screen direction, so a hand or foot never crosses the body's centre line.
+ */
+export const FACING_SWING: Readonly<Record<Facing8, { x: number; y: number }>> = {
+  n: { x: 0, y: -1 },
+  ne: { x: DIAGONAL_LATERAL_CAP, y: -0.989 },
+  e: { x: 1, y: 0 },
+  se: { x: DIAGONAL_LATERAL_CAP, y: 0.989 },
+  s: { x: 0, y: 1 },
+  sw: { x: -DIAGONAL_LATERAL_CAP, y: 0.989 },
+  w: { x: -1, y: 0 },
+  nw: { x: -DIAGONAL_LATERAL_CAP, y: -0.989 },
+};
 /**
  * Back view: the swing runs towards/away from the camera, so its sideways reach is foreshortened to this
  * fraction (the arm then rises beside the head instead of sticking out across the screen).
@@ -96,16 +152,348 @@ export interface AxeRect {
   alpha: number;
 }
 /**
- * The axe in art px, origin at the grip, +y pointing away from the shoulder along the arm: the handle runs
- * through the fist and the head sits at the far end, so the arm visibly leads to the blade.
+ * The axe in art px, origin at the LEAD grip, +y towards the head: the handle runs through both fists (the rear
+ * one AXE_HAND_GAP behind, near the butt) and the head sits just beyond the lead hand.
  */
 export function axeRects(bladeColor: number): AxeRect[] {
   return [
-    { x: -1, y: -3, w: 2, h: 15, color: AXE_HANDLE_COLOR, alpha: 1 }, // handle
-    { x: -7, y: 6, w: 6, h: 7, color: bladeColor, alpha: 1 }, // blade on the leading (-x) side of the swing
-    { x: -7, y: 6, w: 1, h: 7, color: 0xffffff, alpha: 0.25 }, // edge glint
+    { x: -1, y: -10, w: 2, h: 20, color: AXE_HANDLE_COLOR, alpha: 1 }, // handle: butt, rear grip, lead grip, head
+    { x: -7, y: 3, w: 6, h: 7, color: bladeColor, alpha: 1 }, // blade on the leading (-x) side of the swing
+    { x: -7, y: 3, w: 1, h: 7, color: 0xffffff, alpha: 0.25 }, // edge glint
   ];
 }
+
+/**
+ * The pickaxe in art px, same frame as axeRects (origin at the LEAD grip, +y along the haft towards the head):
+ * a wooden haft through both fists and a T-head across its end whose two tips taper to a point. The head's long
+ * axis is the swing plane (local x), so one tip leads the strike and, at impact, points down into the rock.
+ */
+export function pickRects(headColor: number): AxeRect[] {
+  return [
+    { x: -1, y: -10, w: 2, h: 23, color: AXE_HANDLE_COLOR, alpha: 1 }, // haft: butt, rear grip, lead grip, head
+    { x: -4, y: 10, w: 8, h: 3, color: headColor, alpha: 1 }, // head bar
+    { x: -6, y: 10.5, w: 2, h: 2, color: headColor, alpha: 1 }, // taper, leading tip side
+    { x: 4, y: 10.5, w: 2, h: 2, color: headColor, alpha: 1 }, // taper, trailing tip side
+    { x: -8, y: 11, w: 2, h: 1, color: headColor, alpha: 1 }, // point
+    { x: 6, y: 11, w: 2, h: 1, color: headColor, alpha: 1 }, // point
+    { x: -4, y: 10, w: 8, h: 1, color: 0xffffff, alpha: 0.25 }, // top glint
+  ];
+}
+
+/**
+ * The hand net in art px, same frame as axeRects (origin at the LEAD grip, +y along the pole towards the hoop): a wooden
+ * pole through both fists and a small round hoop at its end with a cross-hatched mesh, in the small_fishing_net icon
+ * colours (dark rim, tan mesh). Built once; the pole is 22 tall so it is told apart from the pickaxe haft (21).
+ */
+export function netRects(): AxeRect[] {
+  const R = 5.5;
+  const cy = 17.5;
+  const out: AxeRect[] = [{ x: -1, y: -8, w: 2, h: 22, color: AXE_HANDLE_COLOR, alpha: 1 }];
+  for (let y = -6; y <= 6; y++) {
+    for (let x = -6; x <= 6; x++) {
+      const d = Math.hypot(x, y);
+      if (d > R + 0.5) continue;
+      if (d > R - 0.7) out.push({ x, y: cy + y, w: 1, h: 1, color: NET_RIM_COLOR, alpha: 1 });
+      else if ((x + y) % 2 === 0 || (x - y) % 3 === 0)
+        out.push({ x, y: cy + y, w: 1, h: 1, color: NET_MESH_COLOR, alpha: 0.8 });
+    }
+  }
+  return out;
+}
+
+/** Rod colours from the fishing_rod icon: dark grip, steel reel, two browns for the shaft, pale line, red/white float. */
+export const ROD_GRIP_COLOR = 0x2c2c34;
+export const ROD_REEL_COLOR = 0xaab2bb;
+export const ROD_SHAFT_COLOR = 0x875a31;
+export const ROD_TIP_COLOR = 0xa57743;
+export const ROD_LINE_COLOR = 0xdfe6ea;
+export const ROD_FLOAT_RED = 0xe23b3b;
+export const ROD_FLOAT_WHITE = 0xf4f4f4;
+/** Rod-local y of the tip (origin at the LEAD grip, +y towards the tip) and the length of the line hanging from it. */
+export const ROD_TIP_Y = 22;
+export const ROD_LINE_LEN = 18;
+
+/**
+ * The fishing rod in art px, same frame as axeRects: a dark grip through both fists with a small steel reel, a
+ * brown shaft that tapers from 2px to 1px, and a pale tip. 30 tall (net pole 22, pickaxe haft 21), so it is told apart.
+ */
+export function rodRects(): AxeRect[] {
+  return [
+    { x: -1, y: -8, w: 2, h: 10, color: ROD_GRIP_COLOR, alpha: 1 }, // grip: butt, rear hand, lead hand
+    { x: 1, y: -1, w: 2, h: 2, color: ROD_REEL_COLOR, alpha: 1 }, // reel
+    { x: -1, y: 2, w: 2, h: 9, color: ROD_SHAFT_COLOR, alpha: 1 }, // thick shaft
+    { x: 0, y: 11, w: 1, h: 9, color: ROD_TIP_COLOR, alpha: 1 }, // thin shaft
+    { x: 0, y: 20, w: 1, h: 2, color: ROD_LINE_COLOR, alpha: 1 }, // tip
+  ];
+}
+
+/** The hanging line and its float, in a frame whose origin is the rod tip and +y is straight DOWN (kept upright by the animator). */
+export function rodLineRects(): AxeRect[] {
+  return [
+    { x: 0, y: 0, w: 1, h: ROD_LINE_LEN, color: ROD_LINE_COLOR, alpha: 1 },
+    { x: -1, y: ROD_LINE_LEN, w: 3, h: 2, color: ROD_FLOAT_RED, alpha: 1 },
+    { x: -1, y: ROD_LINE_LEN + 2, w: 3, h: 1, color: ROD_FLOAT_WHITE, alpha: 1 },
+  ];
+}
+export const NET_RIM_COLOR = 0x1c1108;
+export const NET_MESH_COLOR = 0xe3c68b;
+
+export type ChopEase = 'inOut' | 'in' | 'step';
+/**
+ * One chop pose, all in the TORSO frame (art px, +x forward, +y down, origin between the shoulders).
+ * `gx, gy` = lead hand; `theta` = handle angle in degrees as Phaser rotation (0 = head straight below the
+ * hands, negative = head forward/up, -90 = forward). The rear hand is derived from them, so both hands are
+ * on the handle by construction. `lean` forward lean (deg), `twist` 0..1 shoulder turn, `dip` body drop in px
+ * (negative = rise). `ease` shapes the segment that STARTS at this key.
+ */
+export interface ChopKey {
+  phase: number;
+  ease: ChopEase;
+  gx: number;
+  gy: number;
+  theta: number;
+  lean: number;
+  twist: number;
+  dip: number;
+  /** Distance along the handle from the lead hand to the rear hand (default AXE_HAND_GAP); wider at the wind-up so two fists show. */
+  gap?: number;
+}
+/** Hand spacing at the top of the wind-up: the rear fist is well down the handle, clear of the lead fist and the head. */
+export const WINDUP_HAND_GAP = 9;
+/**
+ * Swing: ready, raise the axe over the shoulder (lean back, rise, shoulders turned), hold, strike (fast), hit
+ * at SWING_IMPACT_PHASE with the head below the hands and the edge down, bite/recoil with a body overshoot, settle.
+ * The last key repeats the first so the cycle loops. theta runs -125 -> -210 (up and over) -> -62 (clockwise).
+ */
+export const CHOP_KEYS: Readonly<Record<MotionParams['chopStyle'], readonly ChopKey[]>> = {
+  swing: [
+    { phase: 0, ease: 'inOut', gx: 4.5, gy: 10.5, theta: -125, lean: 3, twist: 0, dip: 0 },
+    { phase: 0.22, ease: 'inOut', gx: 9, gy: 0, theta: -170, lean: -2, twist: 0.5, dip: -0.3 },
+    {
+      phase: 0.44,
+      ease: 'inOut',
+      gx: 3,
+      gy: -9,
+      theta: -210,
+      lean: -7,
+      twist: 1,
+      dip: -0.7,
+      gap: WINDUP_HAND_GAP,
+    },
+    {
+      phase: 0.54,
+      ease: 'in',
+      gx: 3,
+      gy: -9,
+      theta: -212,
+      lean: -8,
+      twist: 1,
+      dip: -0.7,
+      gap: WINDUP_HAND_GAP,
+    },
+    { phase: 0.62, ease: 'inOut', gx: 10, gy: 1, theta: -135, lean: 4, twist: 0.2, dip: 0 },
+    {
+      phase: SWING_IMPACT_PHASE,
+      ease: 'inOut',
+      gx: 4,
+      gy: 14.5,
+      theta: -76,
+      lean: 10,
+      twist: 0,
+      dip: 0.7,
+    },
+    { phase: 0.74, ease: 'inOut', gx: 4, gy: 15, theta: -84, lean: 12, twist: 0, dip: 0.9 },
+    { phase: 0.86, ease: 'inOut', gx: 3.5, gy: 12.5, theta: -100, lean: 6, twist: 0, dip: 0.25 },
+    { phase: 1, ease: 'inOut', gx: 4.5, gy: 10.5, theta: -125, lean: 3, twist: 0, dip: 0 },
+  ],
+  tap: [
+    { phase: 0, ease: 'step', gx: 5, gy: 9, theta: -105, lean: 0, twist: 0, dip: 0 },
+    {
+      phase: SWING_IMPACT_PHASE,
+      ease: 'step',
+      gx: 4.5,
+      gy: 11,
+      theta: -75,
+      lean: 0,
+      twist: 0,
+      dip: 0,
+    },
+    { phase: 0.78, ease: 'step', gx: 5, gy: 9, theta: -105, lean: 0, twist: 0, dip: 0 },
+    { phase: 1, ease: 'step', gx: 5, gy: 9, theta: -105, lean: 0, twist: 0, dip: 0 },
+  ],
+  static: [{ phase: 0, ease: 'step', gx: 5, gy: 9, theta: -105, lean: 0, twist: 0, dip: 0 }],
+};
+
+const REST_TAP: ChopKey = {
+  phase: 0,
+  ease: 'step',
+  gx: 5,
+  gy: 9,
+  theta: -105,
+  lean: 0,
+  twist: 0,
+  dip: 0,
+};
+/**
+ * Mining swing (same machinery and impact phase as the chop): the same overhead wind-up, then a heavier downward
+ * strike at the rock on the ground in front of the feet, so the hands land lower and further forward than the chop's
+ * with a deeper dip. The haft ends up pointing forward-down (theta -58), so the leading tip of the head points DOWN into
+ * the rock. A short recoil, then back to ready.
+ */
+export const MINE_KEYS: Readonly<Record<MotionParams['chopStyle'], readonly ChopKey[]>> = {
+  swing: [
+    { phase: 0, ease: 'inOut', gx: 4.5, gy: 10.5, theta: -125, lean: 3, twist: 0, dip: 0 },
+    { phase: 0.22, ease: 'inOut', gx: 9, gy: 0, theta: -165, lean: -2, twist: 0.5, dip: -0.3 },
+    {
+      phase: 0.44,
+      ease: 'inOut',
+      gx: 3,
+      gy: -9,
+      theta: -205,
+      lean: -7,
+      twist: 1,
+      dip: -0.7,
+      gap: WINDUP_HAND_GAP,
+    },
+    {
+      phase: 0.54,
+      ease: 'in',
+      gx: 3,
+      gy: -9,
+      theta: -207,
+      lean: -8,
+      twist: 1,
+      dip: -0.7,
+      gap: WINDUP_HAND_GAP,
+    },
+    { phase: 0.62, ease: 'inOut', gx: 9, gy: 3, theta: -120, lean: 5, twist: 0.2, dip: 0 },
+    {
+      phase: SWING_IMPACT_PHASE,
+      ease: 'inOut',
+      gx: 6,
+      gy: 15,
+      theta: -58,
+      lean: 12,
+      twist: 0,
+      dip: 1.1,
+    },
+    { phase: 0.74, ease: 'inOut', gx: 6, gy: 15.5, theta: -64, lean: 13, twist: 0, dip: 1.2 },
+    { phase: 0.86, ease: 'inOut', gx: 5, gy: 12.5, theta: -95, lean: 7, twist: 0, dip: 0.3 },
+    { phase: 1, ease: 'inOut', gx: 4.5, gy: 10.5, theta: -125, lean: 3, twist: 0, dip: 0 },
+  ],
+  tap: [
+    REST_TAP,
+    {
+      phase: SWING_IMPACT_PHASE,
+      ease: 'step',
+      gx: 5,
+      gy: 11,
+      theta: -62,
+      lean: 0,
+      twist: 0,
+      dip: 0,
+    },
+    { phase: 0.78, ease: 'step', gx: 5, gy: 9, theta: -105, lean: 0, twist: 0, dip: 0 },
+    { phase: 1, ease: 'step', gx: 5, gy: 9, theta: -105, lean: 0, twist: 0, dip: 0 },
+  ],
+  static: CHOP_KEYS.static,
+};
+/**
+ * Net fishing (same machinery): a quick two-handed cast of the hoop forward-down toward the water (wind-up behind the
+ * shoulder, throw), a hold while it sinks, then a SLOW haul: the hands draw in and the pole comes back upright with a
+ * small lean back. No impact beat (fishing runs its own loop; the pose is visual only). Tap = a small dip of the pole.
+ */
+export const NET_KEYS: Readonly<Record<MotionParams['chopStyle'], readonly ChopKey[]>> = {
+  swing: [
+    { phase: 0, ease: 'inOut', gx: 4.5, gy: 10.5, theta: -125, lean: 3, twist: 0, dip: 0 },
+    { phase: 0.12, ease: 'inOut', gx: 8, gy: 3, theta: -165, lean: -3, twist: 0.4, dip: -0.2 },
+    { phase: 0.24, ease: 'inOut', gx: 7, gy: 9, theta: -100, lean: 6, twist: 0.1, dip: 0.3 },
+    { phase: 0.3, ease: 'inOut', gx: 8, gy: 12, theta: -66, lean: 9, twist: 0, dip: 0.7 },
+    { phase: 0.46, ease: 'inOut', gx: 8, gy: 12.5, theta: -60, lean: 10, twist: 0, dip: 0.8 },
+    { phase: 0.78, ease: 'inOut', gx: 3.5, gy: 8, theta: -112, lean: -4, twist: 0.2, dip: 0 },
+    { phase: 1, ease: 'inOut', gx: 4.5, gy: 10.5, theta: -125, lean: 3, twist: 0, dip: 0 },
+  ],
+  tap: [
+    REST_TAP,
+    { phase: 0.3, ease: 'step', gx: 6, gy: 11, theta: -88, lean: 0, twist: 0, dip: 0 },
+    { phase: 0.78, ease: 'step', gx: 5, gy: 9, theta: -105, lean: 0, twist: 0, dip: 0 },
+    { phase: 1, ease: 'step', gx: 5, gy: 9, theta: -105, lean: 0, twist: 0, dip: 0 },
+  ],
+  static: CHOP_KEYS.static,
+};
+/**
+ * Rod fishing (same machinery) on a TIMELINE (see SWING_TIMELINES), not a fixed cycle: phase 0..0.3 is the one-off CAST
+ * (the rod tip goes back over the shoulder, then whips forward), 0.3..0.7 is the WAIT loop (rod held out over the water,
+ * the tip bobbing slightly; both ends are the same rest pose so it loops), 0.7..1 is the CATCH lift (tip up, hands
+ * draw in, settle back to the rest pose). Visual only: no impact beat.
+ */
+export const ROD_KEYS: Readonly<Record<MotionParams['chopStyle'], readonly ChopKey[]>> = {
+  swing: [
+    { phase: 0, ease: 'inOut', gx: 4.5, gy: 10.5, theta: -110, lean: 2, twist: 0, dip: 0 },
+    { phase: 0.08, ease: 'inOut', gx: 9, gy: 0, theta: -170, lean: -2, twist: 0.5, dip: -0.3 },
+    { phase: 0.15, ease: 'in', gx: 3, gy: -9, theta: -208, lean: -7, twist: 1, dip: -0.7 },
+    { phase: 0.22, ease: 'inOut', gx: 10, gy: 1, theta: -112, lean: 5, twist: 0.2, dip: 0.2 },
+    { phase: 0.3, ease: 'inOut', gx: 8, gy: 8, theta: -113, lean: 4, twist: 0, dip: 0.3 },
+    { phase: 0.4, ease: 'inOut', gx: 8, gy: 7.6, theta: -108, lean: 4, twist: 0, dip: 0.3 },
+    { phase: 0.55, ease: 'inOut', gx: 8, gy: 8.4, theta: -119, lean: 4, twist: 0, dip: 0.3 },
+    { phase: 0.7, ease: 'inOut', gx: 8, gy: 8, theta: -113, lean: 4, twist: 0, dip: 0.3 },
+    { phase: 0.78, ease: 'inOut', gx: 7, gy: 2, theta: -148, lean: -3, twist: 0.2, dip: -0.2 },
+    { phase: 0.9, ease: 'inOut', gx: 8, gy: 8.5, theta: -106, lean: 5, twist: 0, dip: 0.4 },
+    { phase: 1, ease: 'inOut', gx: 8, gy: 8, theta: -113, lean: 4, twist: 0, dip: 0.3 },
+  ],
+  tap: [
+    { phase: 0, ease: 'step', gx: 5, gy: 9, theta: -112, lean: 0, twist: 0, dip: 0 },
+    { phase: 0.3, ease: 'step', gx: 6, gy: 9, theta: -113, lean: 0, twist: 0, dip: 0 },
+    { phase: 0.5, ease: 'step', gx: 6, gy: 9, theta: -108, lean: 0, twist: 0, dip: 0 },
+    { phase: 0.7, ease: 'step', gx: 6, gy: 9, theta: -113, lean: 0, twist: 0, dip: 0 },
+    { phase: 0.8, ease: 'step', gx: 5, gy: 8, theta: -142, lean: 0, twist: 0, dip: 0 },
+    { phase: 0.9, ease: 'step', gx: 6, gy: 9, theta: -113, lean: 0, twist: 0, dip: 0 },
+  ],
+  static: CHOP_KEYS.static,
+};
+/** Timeline of a swing state that is not a plain loop: one-off cast, then a looping wait; the catch pulse plays [waitEnd, 1]. */
+export interface SwingTimeline {
+  castMs: number;
+  waitMs: number;
+  catchMs: number;
+  /** Key phases where the cast ends (wait starts) and the wait ends (the catch lift starts). */
+  castEnd: number;
+  waitEnd: number;
+}
+export const SWING_TIMELINES: Readonly<Partial<Record<AnimState, SwingTimeline>>> = {
+  fishRod: { castMs: 1100, waitMs: 2400, catchMs: 800, castEnd: 0.3, waitEnd: 0.7 },
+};
+/** Swing keys per two-handed tool state; the same chopPose machinery plays any of them. */
+export const SWING_KEYS = {
+  chop: CHOP_KEYS,
+  mine: MINE_KEYS,
+  fishNet: NET_KEYS,
+  fishRod: ROD_KEYS,
+} as const;
+export type SwingState = keyof typeof SWING_KEYS;
+/** Per swing state: the named rig graphic, how to draw it, and whether the swing fires onImpact (fishing is visual only). */
+export const SWING_TOOLS: Readonly<
+  Record<
+    SwingState,
+    {
+      name: string;
+      rects: (tint: number) => AxeRect[];
+      impact: boolean;
+      /** A line hanging from the tool tip (rod-local `tipY`), drawn upright in its own graphic named `<name>Line`. */
+      hang?: { tipY: number; rects: () => AxeRect[] };
+    }
+  >
+> = {
+  chop: { name: 'axe', rects: axeRects, impact: true },
+  mine: { name: 'pick', rects: pickRects, impact: true },
+  fishNet: { name: 'net', rects: netRects, impact: false },
+  fishRod: {
+    name: 'rod',
+    rects: rodRects,
+    impact: false,
+    hang: { tipY: ROD_TIP_Y, rects: rodLineRects },
+  },
+};
 
 /** Reduced mode fades are capped well under the 120 ms budget. */
 export const REDUCED_FADE_MS = 100;
@@ -182,3 +570,8 @@ export const FLOWER_SWAY: Readonly<Record<MotionMode, SwayParams>> = {
 };
 /** World px beyond the camera view within which flowers still sway. */
 export const FLOWER_VIEW_MARGIN = 48;
+/**
+ * When the animation state changes, the body offset (lean shift, bob) eases from where it was to the new pose over this
+ * long instead of snapping (a run's 9 deg lean to a chop's 3 deg moved the body ~1.5 art px in one frame).
+ */
+export const POSE_BLEND_MS = 160;

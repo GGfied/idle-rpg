@@ -4,10 +4,10 @@ import { CORRUPT_KEY, SAVE_KEY, createMemoryStorage, createSaveManager } from '@
 import { SKILLS, getLevel, isSkillId } from '@core/progression';
 import { isDepleted } from '@core/skills';
 import { STARTING_ITEMS, WOODCUTTING_NODES } from '@features/skills/woodcutting';
-import { TREE_SPAWNS } from '@features/world';
+import { FISHING_SPOTS, TREE_SPAWNS } from '@features/world';
 import { contentRefs, runTicks, scriptedRng, seededRng } from '@test-utils/index';
 import { CONTENT, NODE_EXAMINE, SAVE_SCHEMA } from '@app/registry';
-import { dropSlot, interactTree } from '@app/game/actions';
+import { dropSlot, examineTree, interactTree } from '@app/game/actions';
 import { fromSave, newGame } from '@app/game/newGame';
 import { step } from '@app/game/step';
 import type { GameState } from '@app/game/types';
@@ -37,6 +37,18 @@ describe('content references across modules', () => {
       expect(NODE_EXAMINE[defId]).toBeTruthy();
     },
   );
+
+  it.each([...CONTENT.gatherDefs.keys(), ...FISHING_SPOTS.map((f) => f.defId)])(
+    'node kind %s has its own examine text',
+    (defId) => {
+      expect(NODE_EXAMINE[defId]).toBeTruthy();
+    },
+  );
+
+  it('examine fallback is not tree-specific', () => {
+    const g = examineTree(newGame(CONTENT), CONTENT, 'no_such_node');
+    expect(texts(g).join(' ')).not.toMatch(/tree/i);
+  });
 
   it.each(WOODCUTTING_NODES.map((d) => [d.id, d.skill] as const))(
     'GatherDef %s skill "%s" is a SkillId',
@@ -131,9 +143,9 @@ describe('scripted game', () => {
 
   it('chops to a full inventory, stops with a message, resumes after dropping a log', () => {
     const rng = seededRng(42);
-    // 27 logs + the axe fill all 28 slots.
-    let r = play(newGame(CONTENT), 1, (s) => countItem(s.inventory, 'logs') === 27, rng);
-    expect(countItem(r.s.inventory, 'logs')).toBe(27);
+    // 23 logs + the axe, pickaxe, net, rod and bait (starter kits) fill all 28 slots.
+    let r = play(newGame(CONTENT), 1, (s) => countItem(s.inventory, 'logs') === 23, rng);
+    expect(countItem(r.s.inventory, 'logs')).toBe(23);
     expect(countItem(r.s.inventory, 'bronze_axe')).toBe(1);
     expect(r.s.inventory.slots.every((x) => x !== null)).toBe(true);
     expect(getLevel(r.s.progression, 'woodcutting')).toBeGreaterThan(1);
@@ -147,15 +159,15 @@ describe('scripted game', () => {
     );
     expect(texts(r.s)).toContain('Your inventory is too full to hold any more logs.');
     expect(r.s.gathering.session).toBeNull();
-    expect(countItem(r.s.inventory, 'logs')).toBe(27);
+    expect(countItem(r.s.inventory, 'logs')).toBe(23);
 
     // Drop one log (slot 0 is the axe, slot 1 the first log) and resume.
     const slot = r.s.inventory.slots.findIndex((x) => x?.itemId === 'logs');
     const dropped = dropSlot(r.s, CONTENT, slot);
-    expect(countItem(dropped.inventory, 'logs')).toBe(26);
+    expect(countItem(dropped.inventory, 'logs')).toBe(22);
     expect(texts(dropped)).toContain('You drop the logs.');
-    const after = play(dropped, r.tick, (s) => countItem(s.inventory, 'logs') === 27, rng);
-    expect(countItem(after.s.inventory, 'logs')).toBe(27);
+    const after = play(dropped, r.tick, (s) => countItem(s.inventory, 'logs') === 23, rng);
+    expect(countItem(after.s.inventory, 'logs')).toBe(23);
   });
 
   it('dropping the axe while chopping stops with the no-axe message', () => {

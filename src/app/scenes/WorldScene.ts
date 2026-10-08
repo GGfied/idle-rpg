@@ -10,14 +10,18 @@ import { createGestureInput } from '@platform/input';
 import type { GestureInput } from '@platform/input';
 import {
   createPlayerView,
+  PLAYER_LOOKS,
   createBuildingRenderer,
   createChunkRenderer,
   isInsideBuilding,
   isoProjection,
+  setCameraInsets,
   setCameraZoom,
   setupCameraFor,
   createWaterOverlay,
   createGroundItemViews,
+  PIXEL_HIT_KINDS,
+  opaqueAtImage,
 } from '@render/index';
 import type {
   BuildingRenderer,
@@ -25,6 +29,8 @@ import type {
   WaterOverlay,
   Facing8,
   PlayerView,
+  PlayerLookId,
+  FigureLook,
 } from '@render/index';
 import {
   animateTreeFall,
@@ -39,9 +45,17 @@ import type { EffectRunner, TileRect } from '@render/effects';
 import '@app/scenes/worldEffects';
 import { LIMITS_DESKTOP, LIMITS_MOBILE, createVfx } from '@render/vfx';
 import type { Vfx } from '@render/vfx';
+import { getMethod } from '@features/skills/fishing';
 import { CHUNK_SIZE, WORLD_DEF } from '@features/world';
-import type { ObjectSpawn, TreeSpawn } from '@features/world';
-import { WOODCUTTING_MESSAGES } from '@features/skills/woodcutting';
+import type { FishingSpotSpawn, ObjectSpawn, RockSpawn, TreeSpawn } from '@features/world';
+import { startedLine } from '@app/game/gatherMessages';
+import { playerAnimInput, rodCatchLanded } from '@app/scenes/animInput';
+import { animatorImpactCounts, attemptLanded, swingImpactEvent } from '@app/scenes/swingClock';
+import type { SessionSnap } from '@app/scenes/swingClock';
+import { spotTile } from '@app/game/fishingSpots';
+import { buildVfxContext, swingVfxEvent } from '@app/scenes/vfxContext';
+import { createNodeViews } from '@app/scenes/nodeViews';
+import type { NodeViews } from '@app/scenes/nodeViews';
 import { isBuildingShell } from '@app/scenes/buildingShell';
 import { createChunkViews } from '@app/scenes/chunkViews';
 import type { ChunkViews } from '@app/scenes/chunkViews';
@@ -52,11 +66,15 @@ import type { HitTarget, IsOpaqueAt } from '@app/scenes/objectAtPoint';
 import { advanceTrail, renderPosition, startTrail } from '@app/scenes/renderTrail';
 import type { Trail } from '@app/scenes/renderTrail';
 import { applyVisualPrefs } from '@app/scenes/applyPrefs';
+import { applyPlayerLook, lookIdFromPrefs } from '@app/scenes/playerLook';
 import { clampCentreToDiamond, panScroll } from '@app/scenes/panCamera';
 import { followOffset, hudInsets, withStackedAbove } from '@app/scenes/visibleArea';
 import type { NpcInstance } from '@features/npc';
 import { facilityMenu, npcMenu } from '@app/game/menus';
+import { lockableOption, lockedReason } from '@app/game/menuLock';
+import { flashEvent } from '@app/scenes/stopFlash';
 import { CONTENT } from '@app/registry';
+import { gatherNode } from '@app/game/gatherNode';
 import type { AppEvent } from '@app/registry';
 import type { AppState, AppStore, MenuOption } from '@app/store';
 
@@ -74,6 +92,8 @@ export interface SceneDeps {
 /** What a pointer can land on besides the ground. */
 interface Hit {
   tree?: TreeSpawn;
+  rock?: RockSpawn;
+  spot?: FishingSpotSpawn;
   obj?: ObjectSpawn;
   npc?: NpcInstance;
 }
@@ -94,6 +114,10 @@ export class WorldScene extends Phaser.Scene {
   private readonly deps: SceneDeps;
   private player!: PlayerView;
   private views!: ChunkViews;
+  private nodes?: NodeViews;
+  /** Gather session after the previous tick (mining swings are read off what the tick did). */
+  private fishToolKind: string | undefined;
+  private prevSession: SessionSnap | null = null;
   private effects?: EffectRunner;
   private water?: WaterOverlay;
   private ground!: ReturnType<typeof createChunkRenderer>;
@@ -106,6 +130,7 @@ export class WorldScene extends Phaser.Scene {
   private trail: Trail = startTrail({ x: 0, y: 0 }, 0);
   private cam!: Phaser.Cameras.Scene2D.Camera;
   private observer?: ResizeObserver;
+  private mutations?: MutationObserver;
   private animator?: PlayerAnimator;
   private vfx?: Vfx;
   private animState: AnimState = 'idle';
@@ -114,6 +139,7 @@ export class WorldScene extends Phaser.Scene {
   private wasGathering = false;
   private facing: Facing8 = 's';
   private prefs!: Preferences;
+  private playerLook: PlayerLookId = 'player';
 
   constructor(deps: SceneDeps) {
     super('world');
@@ -152,17 +178,19 @@ export class WorldScene extends Phaser.Scene {
         return node !== undefined && isDepleted(node);
       },
     });
+    this.nodes = createNodeViews(
+      this,
+      [...CONTENT.rocks.values()],
+      [...CONTENT.fishingSpots.values()],
+      (f) => spotTile(f, state.game.fishing),
+      () => this.prefs.visuals.animations !== 'off',
+    );
+    for (const id of CONTENT.rocks.keys()) this.paintRock(id);
     this.ensureWindow(state.game.movement.position);
 
-    this.player = createPlayerView(this, 'You');
-    this.animator = createPlayerAnimator(this, this.player, {
-      mode: state.prefs.visuals.animations,
-    });
-    // Every axe swing: one chat line + one sound, from the same impact moment.
-    this.animator.onImpact = () => {
-      this.deps.audio.handleEvent({ type: 'swingImpact' });
-      this.deps.store.getState().say(WOODCUTTING_MESSAGES.started);
-    };
+    this.playerLook = lookIdFromPrefs(state.prefs);
+    this.player = createPlayerView(this, 'You', this.playerLook);
+    this.buildAnimator(PLAYER_LOOKS[this.playerLook]);
     this.vfx = createVfx(
       this,
       window.innerWidth < 768 ? LIMITS_MOBILE : LIMITS_DESKTOP,
@@ -190,6 +218,7 @@ export class WorldScene extends Phaser.Scene {
       if (s.prefs !== this.prefs) {
         this.prefs = s.prefs;
         applyVisualPrefs(s.prefs, { vfx: this.vfx, animator: this.animator });
+        this.applyLook(s.prefs);
       }
       this.syncFromState(s);
     });
@@ -214,6 +243,12 @@ export class WorldScene extends Phaser.Scene {
     };
   }
 
+  /** Placeholder rock art follows the node's depletion in game state. */
+  private paintRock(nodeId: string): void {
+    const node = this.deps.store.getState().game.gathering.nodes[nodeId];
+    this.nodes?.setDepleted(nodeId, node !== undefined && isDepleted(node));
+  }
+
   /** Per frame: only interpolates drawing between the previous and current tile. */
   override update(time: number): void {
     this.placePlayer(this.deps.alpha());
@@ -222,17 +257,67 @@ export class WorldScene extends Phaser.Scene {
     this.effects?.frame(time);
   }
 
+  /** The overlay rig for `look`. Every swing: one chat line + one sound, from the same impact moment. */
+  private buildAnimator(look: FigureLook): void {
+    this.animator = createPlayerAnimator(this, this.player, {
+      mode: this.deps.store.getState().prefs.visuals.animations,
+      look,
+    });
+    this.animator.onImpact = () => {
+      const defId = this.deps.store.getState().game.gathering.session?.defId;
+      const toolKind = defId ? CONTENT.gatherDefs.get(defId)?.toolKind : undefined;
+      if (animatorImpactCounts(this.animState, toolKind)) this.swingImpact();
+    };
+  }
+
+  private vfxContext(): ReturnType<typeof buildVfxContext> {
+    const playerWorld = { x: this.player.container.x, y: this.player.container.y };
+    return buildVfxContext(
+      CONTENT,
+      this.deps.store.getState().game,
+      playerWorld,
+      isoProjection.tileToWorld,
+    );
+  }
+
+  /** One swing landed: the sound (by the skill of what is being gathered) and the chat line. */
+  private swingImpact(
+    defId: string | undefined = this.deps.store.getState().game.gathering.session?.defId,
+    nodeId: string | undefined = this.deps.store.getState().game.gathering.session?.nodeId,
+  ): void {
+    const g = this.deps.store.getState();
+    const skill = defId ? CONTENT.gatherDefs.get(defId)?.skill : undefined;
+    this.deps.audio.handleEvent(swingImpactEvent(skill));
+    this.vfx?.handleEvent(swingVfxEvent(skill, nodeId), this.vfxContext());
+    const line = startedLine(defId);
+    if (line) g.say(line);
+  }
+
+  /** Live look switch from the Settings pref: body redrawn, rig rebuilt (it caches the look). */
+  private applyLook(prefs: Preferences): void {
+    this.playerLook = applyPlayerLook(prefs, this.playerLook, {
+      view: this.player,
+      rebuildAnimator: (look) => {
+        this.animator?.destroy();
+        this.buildAnimator(look);
+      },
+    });
+  }
+
   /** Per frame: pick the player's animation from plain state and advance it. */
   private animate(time: number): void {
     const g = this.deps.store.getState().game;
     const session = g.gathering.session;
     const moving = this.trail.from.x !== this.trail.to.x || this.trail.from.y !== this.trail.to.y;
-    const toolKind = session ? CONTENT.gatherDefs.get(session.defId)?.toolKind : undefined;
-    this.animState = nextAnimState(this.animState, {
+    const fish = g.fishing.session;
+    const { toolKind, ...animIn } = playerAnimInput({
       moving,
       gathering: session !== null,
-      toolKind,
+      gatherToolKind: session ? CONTENT.gatherDefs.get(session.defId)?.toolKind : undefined,
+      fishing: fish !== null,
+      fishToolKind: fish ? getMethod(fish.defId, fish.method)?.def.toolKind : undefined,
     });
+    this.animState = nextAnimState(this.animState, { ...animIn, toolKind });
     const level = (skill: string): number =>
       isSkillId(skill) ? getLevel(g.progression, skill) : 1;
     const tool = toolKind ? bestTool(CONTENT.tools, toolKind, itemIds(g.inventory), level) : null;
@@ -245,15 +330,18 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private onTickEvents(events: AppEvent[]): void {
-    // Feet (diamond centre) of the player and of each node, in world px.
-    const playerWorld = { x: this.player.container.x, y: this.player.container.y };
-    const nodeWorld = (id: string): { x: number; y: number } | undefined => {
-      const t = this.spawn(id);
-      return t ? isoProjection.tileToWorld(t.x, t.y) : undefined;
-    };
+    const vfxCtx = this.vfxContext();
+    this.tickMiningSwing(events);
+    this.tickRodCatch(events);
     for (const e of events) {
-      this.vfx?.handleEvent({ ...e }, { playerWorld, nodeWorld });
-      if (e.type === 'nodeDepleted') {
+      if (e.type === 'spotMoved') this.moveSpot(e.spotId, e.to);
+      this.vfx?.handleEvent(flashEvent({ ...e }), vfxCtx);
+      if (
+        (e.type === 'nodeDepleted' || e.type === 'nodeRespawned') &&
+        CONTENT.rocks.has(e.nodeId)
+      ) {
+        this.paintRock(e.nodeId);
+      } else if (e.type === 'nodeDepleted') {
         const v = this.views.tree(e.nodeId);
         if (v) {
           const t = this.spawn(e.nodeId);
@@ -266,6 +354,32 @@ export class WorldScene extends Phaser.Scene {
         if (v) void animateTreeRegrow(this, v, { mode: this.prefs.visuals.animations });
       }
     }
+  }
+
+  /** Mining: land a swing (sound + vfx + chat) on every attempt, read off the tick (the animator's mine impacts are ignored). */
+  private tickMiningSwing(events: readonly AppEvent[]): void {
+    const g = this.deps.store.getState().game;
+    const post = g.gathering.session;
+    const prev = this.prevSession;
+    this.prevSession = post;
+    const snap = post ?? prev;
+    if (!snap || CONTENT.gatherDefs.get(snap.defId)?.toolKind !== 'pickaxe') return;
+    if (attemptLanded(prev, post, events)) this.swingImpact(snap.defId, snap.nodeId);
+  }
+
+  /** A rod catch plays the reel/lift once; the session is read pre-clear via the last seen tool kind. */
+  private tickRodCatch(events: readonly AppEvent[]): void {
+    const fish = this.deps.store.getState().game.fishing.session;
+    if (fish) this.fishToolKind = getMethod(fish.defId, fish.method)?.def.toolKind;
+    if (rodCatchLanded(events, this.fishToolKind)) this.animator?.pulse('catch');
+  }
+
+  private moveSpot(spotId: string, index: number): void {
+    const spawn = CONTENT.fishingSpots.get(spotId);
+    const tile = spawn?.tiles[index];
+    if (!spawn || !tile) return;
+    this.nodes?.moveSpot(spotId, tile);
+    this.targets = this.targets.map((t) => (t.ref.spot === spawn ? { ...t, tile } : t));
   }
 
   private placePlayer(alpha: number): void {
@@ -301,6 +415,13 @@ export class WorldScene extends Phaser.Scene {
     const tree = session ? this.spawn(session.nodeId) : undefined;
     if (tree && (tree.x !== pos.x || tree.y !== pos.y))
       this.facing = facingFromStep(tree.x - pos.x, tree.y - pos.y);
+    const fishSpot = game.fishing.session
+      ? CONTENT.fishingSpots.get(game.fishing.session.spotId)
+      : undefined;
+    if (fishSpot) {
+      const t = spotTile(fishSpot, game.fishing);
+      if (t.x !== pos.x || t.y !== pos.y) this.facing = facingFromStep(t.x - pos.x, t.y - pos.y);
+    }
   }
 
   /**
@@ -315,8 +436,14 @@ export class WorldScene extends Phaser.Scene {
       const hud = document.querySelector('#hud')?.getBoundingClientRect() ?? null;
       const chat = document.querySelector('.chatbox')?.getBoundingClientRect() ?? null;
       const insets = hudInsets(canvas, withStackedAbove(hud, chat));
+      // hud publishes the live covered height as --hud-bottom-inset; it wins over the rect fallback.
+      const v = parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue('--hud-bottom-inset'),
+      );
+      if (Number.isFinite(v) && v >= 0) insets.bottom = Math.min(v, canvas.bottom - canvas.top);
       const o = followOffset(insets, this.cam.zoom);
       this.cam.setFollowOffset(o.x, o.y);
+      setCameraInsets(this.cam, insets);
     };
     this.applyInsets = apply;
     apply();
@@ -326,10 +453,25 @@ export class WorldScene extends Phaser.Scene {
     this.observer.observe(this.game.canvas);
     const hudEl = document.querySelector('#hud');
     if (hudEl) this.observer.observe(hudEl);
+    const chatEl = document.querySelector('.chatbox');
+    if (chatEl) this.observer.observe(chatEl);
+    // A CSS variable or class change on :root / #hud (sheet or chat collapse) has no resize event.
+    this.mutations = new MutationObserver(apply);
+    this.mutations.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['style', 'class'],
+    });
+    if (hudEl)
+      this.mutations.observe(hudEl, {
+        attributes: true,
+        subtree: true,
+        attributeFilter: ['class', 'style', 'data-collapsed', 'data-settings'],
+      });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, apply);
       window.removeEventListener('resize', apply);
       this.observer?.disconnect();
+      this.mutations?.disconnect();
     });
   }
 
@@ -348,6 +490,16 @@ export class WorldScene extends Phaser.Scene {
     this.effects?.chunksChanged(l);
     this.targets = [
       ...l.trees.map((t) => ({ tile: t, kind: t.defId, ref: { tree: t } })),
+      ...[...CONTENT.rocks.values()].map((r) => ({
+        tile: r,
+        kind: r.defId,
+        ref: { rock: r },
+      })),
+      ...[...CONTENT.fishingSpots.values()].map((f) => ({
+        tile: spotTile(f, this.deps.store.getState().game.fishing),
+        kind: f.defId,
+        ref: { spot: f },
+      })),
       ...l.objects.map((o) => ({ tile: o, kind: o.kind, ref: { obj: o } })),
       ...l.npcs.map((n) => ({ tile: n, kind: 'npc' as const, ref: { npc: n } })),
     ];
@@ -360,23 +512,16 @@ export class WorldScene extends Phaser.Scene {
     this.applyInsets();
   }
 
-  /** Alpha of a standing tree's art under a world point (follows sway); undefined = stump/other. */
+  /** Pixel hit under a world point for trees and rocks (follows sway); undefined = stump, spot or other. */
   private readonly isOpaqueAt: IsOpaqueAt<Hit> = (target, wx, wy) => {
-    const tree = target.ref.tree;
-    const view = tree ? this.views.tree(tree.nodeId) : undefined;
-    if (!view || !view.art.visible) return undefined;
-    const art = view.art;
-    const dx = wx - view.container.x - art.x;
-    const dy = wy - view.container.y - art.y;
-    const c = Math.cos(-art.rotation);
-    const s = Math.sin(-art.rotation);
-    const lx = (dx * c - dy * s) / art.scaleX + art.displayOriginX;
-    const ly = (dx * s + dy * c) / art.scaleY + art.displayOriginY;
-    if (lx < 0 || ly < 0 || lx >= art.width || ly >= art.height) return false;
-    return (
-      this.textures.getPixelAlpha(Math.floor(lx), Math.floor(ly), art.texture.key, art.frame.name) >
-      20
-    );
+    const { tree, rock } = target.ref;
+    const view = tree
+      ? this.views.tree(tree.nodeId)
+      : rock
+        ? this.nodes?.get(rock.nodeId)
+        : undefined;
+    if (!view || !view.art.visible || !PIXEL_HIT_KINDS.has(target.kind)) return undefined;
+    return opaqueAtImage(this.textures, view.container, view.art, wx, wy);
   };
 
   private applyInsets: () => void = () => undefined;
@@ -388,8 +533,8 @@ export class WorldScene extends Phaser.Scene {
     this.applyInsets();
   }
 
-  private spawn(nodeId: string): TreeSpawn | undefined {
-    return CONTENT.trees.get(nodeId);
+  private spawn(nodeId: string): { x: number; y: number } | undefined {
+    return gatherNode(CONTENT, nodeId);
   }
 
   private bindInput(cam: Phaser.Cameras.Scene2D.Camera): void {
@@ -425,20 +570,32 @@ export class WorldScene extends Phaser.Scene {
         return;
       }
       const hit = hitAt(x, y);
-      const { tree, obj, npc } = hit;
-      const tile = tree ?? obj ?? npc ?? tileAt(x, y);
+      const { tree, rock, spot, obj, npc } = hit;
+      const tile =
+        tree ??
+        rock ??
+        (spot && spotTile(spot, this.deps.store.getState().game.fishing)) ??
+        obj ??
+        npc ??
+        tileAt(x, y);
       if (!tile) return;
       const store = this.deps.store.getState();
       store.closeMenu();
       const at = isoProjection.tileToWorld(tile.x, tile.y);
-      this.vfx?.clickMarker(at.x, at.y, tree || obj || npc ? 'interact' : 'walk');
+      this.vfx?.clickMarker(at.x, at.y, tree || rock || spot || obj || npc ? 'interact' : 'walk');
       const using = store.useSelection !== null;
-      if (using && (npc || obj || tree)) {
+      if (using && (npc || obj || tree || rock || spot)) {
         if (npc) store.useItemOn({ kind: 'npc', id: npc.spawnId });
-        else store.useItemOn({ kind: 'object', id: obj ? obj.objectId : tree!.nodeId });
+        else
+          store.useItemOn({
+            kind: 'object',
+            id: obj ? obj.objectId : ((tree ?? rock)?.nodeId ?? spot!.spotId),
+          });
       } else if (npc) store.interactNpc(npc.spawnId);
       else if (obj) store.interactFacility(obj.objectId);
       else if (tree) store.interactTree(tree.nodeId);
+      else if (rock) store.interactTree(rock.nodeId);
+      else if (spot) store.interactSpot(spot.spotId);
       else {
         store.cancelUse();
         store.walkTo(tile);
@@ -469,8 +626,14 @@ export class WorldScene extends Phaser.Scene {
         });
         return;
       }
-      const { tree, obj, npc } = hitAt(x, y);
-      const tile = tree ?? obj ?? npc ?? tileAt(x, y);
+      const { tree, rock, spot, obj, npc } = hitAt(x, y);
+      const tile =
+        tree ??
+        rock ??
+        (spot && spotTile(spot, this.deps.store.getState().game.fishing)) ??
+        obj ??
+        npc ??
+        tileAt(x, y);
       if (!tile) return;
       const store = this.deps.store.getState();
       const options: MenuOption[] = npc
@@ -489,12 +652,34 @@ export class WorldScene extends Phaser.Scene {
                   ? store.interactFacility(obj.objectId, e.optionId)
                   : store.examineFacility(obj.objectId),
             }))
-          : tree
+          : spot
             ? [
-                { label: 'Chop down Tree', onSelect: () => store.interactTree(tree.nodeId) },
-                { label: 'Examine Tree', onSelect: () => store.examineTree(tree.nodeId) },
+                lockableOption(
+                  { label: spotVerb(spot), onSelect: () => store.interactSpot(spot.spotId) },
+                  lockedReason(store.game, CONTENT, { kind: 'spot', defId: spot.defId }),
+                  store.say,
+                ),
+                { label: 'Examine Fishing spot', onSelect: () => store.examineSpot(spot.spotId) },
               ]
-            : [{ label: 'Walk here', onSelect: () => store.walkTo(tile) }];
+            : rock
+              ? [
+                  lockableOption(
+                    { label: 'Mine Rock', onSelect: () => store.interactTree(rock.nodeId) },
+                    lockedReason(store.game, CONTENT, { kind: 'node', defId: rock.defId }),
+                    store.say,
+                  ),
+                  { label: 'Examine Rock', onSelect: () => store.examineTree(rock.nodeId) },
+                ]
+              : tree
+                ? [
+                    lockableOption(
+                      { label: 'Chop down Tree', onSelect: () => store.interactTree(tree.nodeId) },
+                      lockedReason(store.game, CONTENT, { kind: 'node', defId: tree.defId }),
+                      store.say,
+                    ),
+                    { label: 'Examine Tree', onSelect: () => store.examineTree(tree.nodeId) },
+                  ]
+                : [{ label: 'Walk here', onSelect: () => store.walkTo(tile) }];
       options.push({ label: 'Cancel', onSelect: () => undefined });
       store.openMenu({
         x,
@@ -503,9 +688,13 @@ export class WorldScene extends Phaser.Scene {
           ? npcMenu(npc.npcId).title
           : obj
             ? facilityMenu(obj.kind).title
-            : tree
-              ? treeTitle(tree)
-              : 'Ground',
+            : spot
+              ? 'Fishing spot'
+              : rock
+                ? rockTitle(rock)
+                : tree
+                  ? treeTitle(tree)
+                  : 'Ground',
         options,
       });
     });
@@ -546,6 +735,8 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private teardown(): void {
+    this.nodes?.destroy();
+    this.nodes = undefined;
     this.water?.destroy();
     this.water = undefined;
     this.groundItems?.destroy();
@@ -567,3 +758,9 @@ export class WorldScene extends Phaser.Scene {
 }
 
 const treeTitle = (t: TreeSpawn): string => (t.defId === 'oak_tree' ? 'Oak tree' : 'Tree');
+
+const rockTitle = (r: RockSpawn): string =>
+  r.defId.replace('_rock', '').replace(/^./, (c) => c.toUpperCase()) + ' rock';
+
+const spotVerb = (s: FishingSpotSpawn): string =>
+  s.defId === 'bait_spot' ? 'Bait Fishing spot' : 'Net Fishing spot';

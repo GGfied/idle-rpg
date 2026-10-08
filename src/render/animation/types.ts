@@ -1,6 +1,6 @@
 import type { Facing8 } from '@render/index';
 
-export type AnimState = 'idle' | 'walk' | 'chop';
+export type AnimState = 'idle' | 'walk' | 'chop' | 'mine' | 'fishNet' | 'fishRod';
 
 /** Plain state the integrator passes each frame. Never game logic. */
 export interface AnimInput {
@@ -47,6 +47,20 @@ export interface GaitDef {
   bobPx: number;
   /** Forward lean of the torso. */
   leanDeg: number;
+  /**
+   * Multiplier on the arm's foreshortening when the swing runs toward/away from the camera (facing s/n): there the
+   * arm only grows/shrinks (clamped), so a run reads stiff. 1 = none (walk). Fades out to 1 as the facing turns side-on.
+   */
+  armDepth: number;
+  /**
+   * Facing s/n only (fades out toward the diagonals): multiplier on the depth component of the swing axis, so the
+   * hand and foot travel further up/down the screen, and the share of the knee bend that still shows (a knee folding
+   * toward the camera is barely visible, and shown in full it bends the foot's rise/fall out of step with the arm),
+   * and the leg's own foreshortening multiplier (as armDepth). 1 = none (walk).
+   */
+  depthSwing: number;
+  kneeDepth: number;
+  legDepth: number;
 }
 
 /**
@@ -68,9 +82,40 @@ export interface Pose {
   /** Knee bend, radians >= 0, shin folds backwards. */
   kneeFront: number;
   kneeBack: number;
-  /** Radians. Axe pivots at the front shoulder; 0 = pointing up. */
+  /**
+   * Chop only. Handle angle in the TORSO frame, Phaser-signed (0 = head straight below the hands, negative =
+   * forward). Relative to the front forearm the axe turns by axeAngle + armAngle.
+   */
   axeAngle: number;
   axeVisible: boolean;
+  /** Chop only: the lead hand's target (the handle's grip point) in the torso frame, art px. */
+  gripX: number;
+  gripY: number;
+  /** Chop only: 0..1 shoulder turn (shoulders narrow by TWIST_NARROW * twist). */
+  twist: number;
+}
+
+/** Rig measurements the arm/leg solvers need, art px (from the look's pivots, never hardcoded to one body). */
+export interface RigGeom {
+  /** Shoulder offset from the body centre line (the front arm at +, the back arm at -). */
+  shoulderX: number;
+  /** Upper-arm length (shoulder to elbow). */
+  elbowY: number;
+  /** Forearm length to the gripping fist. */
+  handY: number;
+  hipY: number;
+  kneeY: number;
+}
+
+/** Which way the walk swing runs on screen: |x| of the facing in the (flipped) rig, and y (+ = toward the camera). */
+export interface SwingAxis {
+  x: number;
+  y: number;
+}
+
+/** How a chop is viewed: the swing plane's sideways reach (1 front, BACK_VIEW_SWING_REACH facing away). */
+export interface ChopView {
+  reach: number;
 }
 
 /** 'off' = no motion at all: static held tool while chopping, instant tree swaps. 'reduced' = no walk bob, a small tool tap instead of a swing, instant tree swaps with a short fade. */

@@ -82,6 +82,8 @@ describe('hit bounds (iso)', () => {
     expect(VIEW_HIT_BOUNDS.bank_chest.up).toBe(22 * ART_SCALE);
     expect(VIEW_HIT_BOUNDS.bank_booth).toEqual({ up: 28 * ART_SCALE, radius: 15 * ART_SCALE });
     expect(VIEW_HIT_BOUNDS.npc).toEqual({ up: 31 * ART_SCALE, radius: 6 * ART_SCALE });
+    expect(VIEW_HIT_BOUNDS.deposit_chest).toEqual(VIEW_HIT_BOUNDS.bank_chest);
+    expect(hitBoundsFor('deposit_chest', c).h).toBe(22 * ART_SCALE + 8);
     expect(OBJECT_FOOTPRINTS.bank_booth).toEqual({ w: 1, h: 1, blocking: true });
   });
   it('a tree box covers trunk, canopy top and canopy edge, and nothing past them', () => {

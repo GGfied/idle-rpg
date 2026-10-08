@@ -30,6 +30,8 @@ describe('preferences defaults', () => {
       skillTracker: true,
       chatbox: true,
       hidden: false,
+      sheetFold: 'auto',
+      chatFold: 'auto',
     });
     expect(p.notifications).toEqual({
       levelUpPopup: true,
@@ -62,6 +64,8 @@ describe('preferences set', () => {
       skillTracker: true,
       chatbox: true,
       hidden: false,
+      sheetFold: 'auto',
+      chatFold: 'auto',
     });
     expect(p.sound.volumes).toEqual({ master: 0.7, sfx: 0.2, ui: 1, music: 0.6, ambience: 0.8 });
     expect(stored(storage).version).toBe(1);
@@ -161,6 +165,70 @@ describe('preferences loading', () => {
     expect(stored(storage).prefs.notifications.areaNames).toBe(false);
     const again = createPreferencesStore({ storage, prefersReducedMotion: false });
     expect(again.get().notifications.areaNames).toBe(false);
+  });
+  describe.each(['sheetFold', 'chatFold'] as const)('hud.%s', (key) => {
+    it("defaults to 'auto', also for old prefs without the key", () => {
+      expect(make().store.get().hud[key]).toBe('auto');
+      const old = make(false, { [PREFS_KEY]: env({ hud: { minimap: false } }) }).store.get();
+      expect(old.hud[key]).toBe('auto');
+      expect(old.hud.minimap).toBe(false);
+    });
+    it.each(['auto', 'collapsed', 'expanded'] as const)('%s is kept on load and via set', (v) => {
+      expect(make(false, { [PREFS_KEY]: env({ hud: { [key]: v } }) }).store.get().hud[key]).toBe(v);
+      const { store, storage } = make();
+      store.set({ hud: { [key]: 'collapsed' } }); // non-default first so the write is not a no-op
+      expect(store.set({ hud: { [key]: v } }).ok).toBe(true);
+      expect(stored(storage).prefs.hud[key]).toBe(v);
+      expect(createPreferencesStore({ storage, prefersReducedMotion: false }).get().hud[key]).toBe(
+        v,
+      );
+    });
+    it.each([['bogus'], [5], [null], [{}], ['__proto__']])('invalid %j loads as auto', (bad) => {
+      expect(make(false, { [PREFS_KEY]: env({ hud: { [key]: bad } }) }).store.get().hud[key]).toBe(
+        'auto',
+      );
+    });
+    it('set rejects an invalid value and keeps the old one', () => {
+      const { store } = make();
+      expect(store.set({ hud: { [key]: 'nope' as 'auto' } }).ok).toBe(false);
+      expect(store.get().hud[key]).toBe('auto');
+    });
+  });
+  it("playerLook defaults to 'player'", () => {
+    expect(make().store.get().playerLook).toBe('player');
+    expect(defaultPreferences(true).playerLook).toBe('player');
+  });
+  it.each(['player', 'player_f'])('playerLook %s is kept on load and via set', (look) => {
+    expect(make(false, { [PREFS_KEY]: env({ playerLook: look }) }).store.get().playerLook).toBe(
+      look,
+    );
+    const { store, storage } = make();
+    store.set({ playerLook: 'player_f' }); // 'player' is the default, so set it from a non-default
+    expect(store.set({ playerLook: look as 'player' | 'player_f' }).ok).toBe(true);
+    expect(stored(storage).prefs.playerLook).toBe(look);
+    expect(createPreferencesStore({ storage, prefersReducedMotion: false }).get().playerLook).toBe(
+      look,
+    );
+  });
+  it.each([['bogus'], [5], [null], [{}], ['__proto__']])(
+    'unknown playerLook %j on load falls back to player without throwing',
+    (bad) => {
+      const { store } = make(false, {
+        [PREFS_KEY]: env({ playerLook: bad, hud: { orbs: false } }),
+      });
+      expect(store.get().playerLook).toBe('player');
+      expect(store.get().hud.orbs).toBe(false);
+    },
+  );
+  it('old stored prefs without playerLook load with player', () => {
+    const { store } = make(false, { [PREFS_KEY]: env({ visuals: { vfx: 'off' } }) });
+    expect(store.get().playerLook).toBe('player');
+    expect(store.get().visuals.vfx).toBe('off');
+  });
+  it('set rejects an unknown playerLook and leaves it unchanged', () => {
+    const { store } = make();
+    expect(store.set({ playerLook: 'x' as 'player' }).ok).toBe(false);
+    expect(store.get().playerLook).toBe('player');
   });
   it("accepts animations 'off' via set and persists it", () => {
     const { store, storage } = make();

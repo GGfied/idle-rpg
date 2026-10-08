@@ -1,10 +1,21 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Requirement } from '@core/contracts';
+import { evaluateRequirement, type Requirement } from '@core/contracts';
 import { DIALOGUES, advance, currentView, startDialogue } from './index';
 import type { DialogueContext, DialogueDef } from './index';
 
-const allow: DialogueContext = { meets: () => true };
-const deny: DialogueContext = { meets: () => false };
+const verdict = (met: boolean): DialogueContext => ({
+  evaluate: (req) => ({
+    ...evaluateRequirement(req, {
+      skillLevel: () => 0,
+      itemCount: () => 0,
+      questDone: () => false,
+      flag: () => false,
+    }),
+    met,
+  }),
+});
+const allow = verdict(true);
+const deny = verdict(false);
 
 const gated: DialogueDef = {
   id: 'test_gated',
@@ -28,7 +39,10 @@ const gated: DialogueDef = {
   },
 };
 
+let tmp: DialogueDef | undefined;
 afterEach(() => {
+  if (tmp) DIALOGUES.splice(DIALOGUES.indexOf(tmp), 1);
+  tmp = undefined;
   const i = DIALOGUES.indexOf(gated);
   if (i >= 0) DIALOGUES.splice(i, 1);
 });
@@ -143,7 +157,7 @@ describe('choice requirements', () => {
     DIALOGUES.push(gated);
     const s = startDialogue('test_gated', deny);
     expect(currentView(s)?.choices).toEqual([
-      { text: 'Open', locked: true, requirementText: 'Needs Mining level 5' },
+      { text: 'Open', locked: true, requirementText: 'Requires Mining 5 (you: 0)' },
       { text: 'Leave', locked: false },
     ]);
     const r = advance(s, 0);
@@ -155,11 +169,68 @@ describe('choice requirements', () => {
   it('unlocks when the context meets the requirement', () => {
     DIALOGUES.push(gated);
     const seen: Requirement[] = [];
-    const ctx: DialogueContext = { meets: (r) => (seen.push(r), true) };
+    const ctx: DialogueContext = {
+      evaluate: (r) => (seen.push(r), { met: true, text: '' }),
+    };
     const s = startDialogue('test_gated', ctx);
     expect(currentView(s)?.choices[0]).toEqual({ text: 'Open', locked: false });
     expect(advance(s, 0).intents).toEqual([{ type: 'giveItem', itemId: 'x' }]);
     expect(seen[0]).toEqual({ type: 'skillLevel', skill: 'mining', level: 5 });
+  });
+});
+
+describe('choice requirements via evaluate()', () => {
+  const evalCtx = (level: number, hidden = false): DialogueContext => ({
+    evaluate: (req) =>
+      evaluateRequirement({ ...req, hidden } as Requirement, {
+        skillLevel: () => level,
+        itemCount: () => 0,
+        questDone: () => false,
+        flag: () => false,
+      }),
+  });
+  const woodGate = (extra: object = {}): DialogueDef => ({
+    ...gated,
+    nodes: {
+      ...gated.nodes,
+      menu: {
+        type: 'choice',
+        options: [
+          {
+            text: 'Chop',
+            next: 'bye',
+            requirement: { type: 'skillLevel', skill: 'woodcutting', level: 15, ...extra },
+          },
+          { text: 'Leave', next: 'bye' },
+        ],
+      },
+    },
+  });
+
+  it('locked text comes from the evaluator', () => {
+    DIALOGUES.push(woodGate());
+    tmp = DIALOGUES[DIALOGUES.length - 1];
+    const s = startDialogue('test_gated', evalCtx(5));
+    expect(currentView(s)?.choices[0]).toEqual({
+      text: 'Chop',
+      locked: true,
+      requirementText: 'Requires Woodcutting 15 (you: 5)',
+    });
+    expect(advance(s, 0).state).toBe(s);
+  });
+
+  it('unlocks when the evaluator says met', () => {
+    DIALOGUES.push(woodGate());
+    tmp = DIALOGUES[DIALOGUES.length - 1];
+    const s = startDialogue('test_gated', evalCtx(15));
+    expect(currentView(s)?.choices[0]).toEqual({ text: 'Chop', locked: false });
+  });
+
+  it('hidden unmet shows ???', () => {
+    DIALOGUES.push(woodGate());
+    tmp = DIALOGUES[DIALOGUES.length - 1];
+    const s = startDialogue('test_gated', evalCtx(5, true));
+    expect(currentView(s)?.choices[0]?.requirementText).toBe('???');
   });
 });
 

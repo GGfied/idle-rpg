@@ -1,0 +1,8 @@
+- 2026-10-08 Adding a high-XP fish can break the 'pure xp/h < 24000 at L99' band test (bait spot hit 24.6k at trout xp 40/succ 135); tune xp AND successHigh, then re-run balance. tests/balance/fishingProposal.test.ts hardcodes fish ids (throws on new fish; balance owns it). Use mutants on gate/weight/message.
+- 2026-10-08 Retuning baseTicks breaks hardcoded cooldown/countdown numbers in tests (countdown(...,4), cd=5, toBe(5)); grep them. Balance harness prints real XP/h incl. walking (L99 net 11.9k, bait 15.2k).
+- 2026-10-08 Adding an event to every tick path breaks old `toEqual([])` asserts; update them, and assert idle ticks stay `[]`. Mutant script: slice with `index` of a unique anchor (my first anchor matched an earlier function and duplicated code).
+- 2026-10-08 Core `GatherDef`/`tickGathering` can't do bait, per-fish success or spot moves: wrote own `tickFishing` in the module reusing successChance/rollTable/nodeState. Report core gaps instead of forking the loop silently.
+- 2026-10-08 `nodeState` doubles as a countdown: depleteNode(tick, wait) + tickNode().respawned = "move due".
+- 2026-10-08 Mutant check found a weak test (canFit at the catch survived because the pre-check stopped first); use call-counting canFit to hit each guard separately.
+- 2026-10-08 macOS sed needs `sed -i ''`; mutate in $SCRATCH/mut copy (rsync + symlinked node_modules), never the live tree.
+- 2026-10-08 `npm run lint` can be red from other agents' files (tests/e2e/isoBank.e2e.mjs prettier); check `eslint`/`prettier --check` on own folder to separate.

@@ -1,4 +1,4 @@
-import { ISO } from '@render/index';
+import { ISO, ROCK_LOOKS } from '@render/index';
 import type { BlockedLabel, EffectDef, VfxCue, VfxLimits } from './types';
 
 /** Same blocked cue plays at most once per this many ms (the game can re-emit every tick). */
@@ -6,13 +6,42 @@ export const BLOCKED_THROTTLE_MS = 600;
 
 /** Game event type -> cues to play. New events are new entries here. */
 export const EVENT_VFX: Readonly<Record<string, readonly VfxCue[]>> = {
-  itemGathered: [{ effect: 'woodChips', at: 'node' }],
+  itemGathered: [
+    { effect: 'logPuff', at: 'node', when: { skill: 'woodcutting' } },
+    { effect: 'oreSparkle', at: 'node', when: { skill: 'mining' }, tintField: 'itemId' },
+    { effect: 'catchSplash', at: 'node', when: { skill: 'fishing' } },
+    { effect: 'catchRing', at: 'node', when: { skill: 'fishing' } },
+  ],
+  // Needs `nodeId` on the event (the scene adds it from the gathering session).
+  // No skill on the event counts as woodcutting (the axe swing predates the tag).
+  swingImpact: [
+    { effect: 'woodChips', at: 'node', towardPlayer: 6, unless: { skill: 'mining' } },
+    { effect: 'barkFlakes', at: 'node', towardPlayer: 8, unless: { skill: 'mining' } },
+    { effect: 'leafDrift', at: 'node', unless: { skill: 'mining' } },
+    { effect: 'rockDust', at: 'node', when: { skill: 'mining' } },
+    { effect: 'stoneChips', at: 'node', when: { skill: 'mining' } },
+  ],
+  fishingStarted: [
+    { effect: 'castSplash', at: 'node' },
+    { effect: 'castRing', at: 'node' },
+  ],
+  spotMoved: [
+    { effect: 'spotRipple', at: 'from' },
+    { effect: 'spotRippleOuter', at: 'from' },
+    { effect: 'spotRipple', at: 'to' },
+    { effect: 'spotRippleOuter', at: 'to' },
+  ],
   xpGained: [{ effect: 'xpDrop', at: 'player' }],
   levelUp: [
     { effect: 'levelUpRing', at: 'player' },
     { effect: 'levelUpSparkle', at: 'player' },
   ],
-  nodeDepleted: [{ effect: 'treeFallDust', at: 'node' }],
+  nodeDepleted: [
+    { effect: 'treeFallDust', at: 'node', unless: { skill: 'mining' } },
+    { effect: 'leafBurst', at: 'node', unless: { skill: 'mining' } },
+    { effect: 'rockBurst', at: 'node', when: { skill: 'mining' } },
+    { effect: 'rockPebbles', at: 'node', when: { skill: 'mining' } },
+  ],
   // gatherStopped: depleted / cancelled / unknown reasons match no cue and play nothing.
   gatherStopped: [
     {
@@ -45,6 +74,12 @@ export const EVENT_VFX: Readonly<Record<string, readonly VfxCue[]>> = {
       when: { reason: 'inventoryFull' },
       throttleMs: BLOCKED_THROTTLE_MS,
     },
+    {
+      effect: 'blockedText',
+      at: 'player',
+      when: { reason: 'noBait' },
+      throttleMs: BLOCKED_THROTTLE_MS,
+    },
   ],
 };
 
@@ -56,7 +91,18 @@ export const BLOCKED_TEXT: Readonly<Record<string, BlockedLabel>> = {
   },
   noTool: { text: 'No axe', withField: { field: 'tool', text: 'No {value}' } },
   inventoryFull: { text: 'Inventory full' },
+  noBait: { text: 'No bait' },
 };
+
+/** Ore item id -> sparkle colour. Colours come from the rock art so they always match the vein. */
+export const ITEM_TINT: Readonly<Record<string, number>> = {
+  copper_ore: ROCK_LOOKS.copper_rock.ore,
+  tin_ore: ROCK_LOOKS.tin_rock.ore,
+  iron_ore: ROCK_LOOKS.iron_rock.ore,
+  coal: ROCK_LOOKS.coal_rock.ore,
+};
+
+const WATER = [0x9fd4f0, 0xd6eefb, 0x6fb6e0] as const;
 
 export const EFFECTS: Readonly<Record<string, EffectDef>> = {
   woodChips: {
@@ -73,6 +119,62 @@ export const EFFECTS: Readonly<Record<string, EffectDef>> = {
     lifeMs: 450,
     jitter: 4,
   },
+  logPuff: {
+    kind: 'burst',
+    layer: 'world',
+    lift: 22,
+    decorative: true,
+    count: 4,
+    colors: [0xa8772f, 0xc99a52],
+    size: [2, 4],
+    spread: 10,
+    rise: 14,
+    fall: 6,
+    lifeMs: 380,
+    jitter: 3,
+  },
+  barkFlakes: {
+    kind: 'burst',
+    layer: 'world',
+    lift: 26,
+    decorative: true,
+    count: 4,
+    colors: [0x5a3b1e, 0x4a2f17, 0x6e4a26],
+    size: [2, 3],
+    spread: 20,
+    rise: 8,
+    fall: 14,
+    lifeMs: 500,
+    jitter: 3,
+  },
+  leafDrift: {
+    kind: 'burst',
+    layer: 'world',
+    lift: 64,
+    decorative: true,
+    count: 3,
+    colors: [0x4f8f3a, 0x6aa84f, 0x3d7a2e],
+    size: [3, 4],
+    spread: 20,
+    rise: 2,
+    fall: 40,
+    lifeMs: 900,
+    jitter: 14,
+  },
+  leafBurst: {
+    kind: 'burst',
+    layer: 'world',
+    lift: 52,
+    decorative: true,
+    count: 10,
+    colors: [0x4f8f3a, 0x6aa84f, 0x3d7a2e, 0x86b85a],
+    size: [3, 5],
+    spread: 30,
+    rise: 8,
+    fall: 44,
+    lifeMs: 950,
+    jitter: 16,
+  },
   treeFallDust: {
     kind: 'burst',
     layer: 'world',
@@ -87,6 +189,144 @@ export const EFFECTS: Readonly<Record<string, EffectDef>> = {
     lifeMs: 650,
     round: true,
     jitter: 10,
+  },
+  rockDust: {
+    kind: 'burst',
+    layer: 'world',
+    lift: 12,
+    decorative: true,
+    count: 5,
+    colors: [0xb9aea0, 0xcfc6ba, 0x9d9388],
+    size: [4, 7],
+    spread: 14,
+    rise: 6,
+    fall: -6,
+    lifeMs: 520,
+    round: true,
+    jitter: 8,
+  },
+  stoneChips: {
+    kind: 'burst',
+    layer: 'world',
+    lift: 18,
+    decorative: true,
+    count: 4,
+    colors: [0x7a7068, 0x5d554f, 0x978c82],
+    size: [2, 4],
+    spread: 18,
+    rise: 16,
+    fall: 10,
+    lifeMs: 420,
+    jitter: 5,
+  },
+  oreSparkle: {
+    kind: 'burst',
+    layer: 'overhead',
+    lift: 30,
+    decorative: true,
+    count: 7,
+    colors: [0xffffff],
+    size: [3, 4],
+    spread: 16,
+    rise: 22,
+    fall: -6,
+    lifeMs: 600,
+    jitter: 6,
+  },
+  rockBurst: {
+    kind: 'burst',
+    layer: 'world',
+    lift: 10,
+    decorative: true,
+    count: 12,
+    colors: [0xb9aea0, 0xcfc6ba, 0x9d9388, 0x857b72],
+    size: [5, 10],
+    spread: 32,
+    rise: 8,
+    fall: -8,
+    lifeMs: 750,
+    round: true,
+    jitter: 12,
+  },
+  rockPebbles: {
+    kind: 'burst',
+    layer: 'world',
+    lift: 30,
+    decorative: true,
+    count: 6,
+    colors: [0x6b625b, 0x544d47, 0x8a8077],
+    size: [3, 6],
+    spread: 22,
+    rise: 4,
+    fall: 30,
+    lifeMs: 600,
+    jitter: 10,
+  },
+  castSplash: {
+    kind: 'burst',
+    layer: 'world',
+    lift: 6,
+    decorative: true,
+    count: 5,
+    colors: WATER,
+    size: [2, 3],
+    spread: 10,
+    rise: 14,
+    fall: 4,
+    lifeMs: 450,
+    round: true,
+    jitter: 4,
+  },
+  castRing: {
+    kind: 'ring',
+    layer: 'ground',
+    squashY: 0.5,
+    color: 0xcfeaf8,
+    radius: [3, 16],
+    width: 2,
+    lifeMs: 550,
+  },
+  catchSplash: {
+    kind: 'burst',
+    layer: 'world',
+    lift: 10,
+    decorative: true,
+    count: 10,
+    colors: WATER,
+    size: [2, 4],
+    spread: 18,
+    rise: 28,
+    fall: 4,
+    lifeMs: 650,
+    round: true,
+    jitter: 5,
+  },
+  catchRing: {
+    kind: 'ring',
+    layer: 'ground',
+    squashY: 0.5,
+    color: 0xeaf6fd,
+    radius: [4, 22],
+    width: 2,
+    lifeMs: 650,
+  },
+  spotRipple: {
+    kind: 'ring',
+    layer: 'ground',
+    squashY: 0.5,
+    color: 0xbfe3f5,
+    radius: [4, 20],
+    width: 2,
+    lifeMs: 800,
+  },
+  spotRippleOuter: {
+    kind: 'ring',
+    layer: 'ground',
+    squashY: 0.5,
+    color: 0x8fcbe8,
+    radius: [8, 30],
+    width: 1,
+    lifeMs: 1100,
   },
   levelUpSparkle: {
     kind: 'burst',
@@ -167,7 +407,7 @@ export const REDUCED_LIFE_SCALE = 0.6;
 
 /** Caps. Phones get the smaller set, chosen by data (pass to createVfx). */
 export const LIMITS_DESKTOP: VfxLimits = { texts: 20, particles: 64, rings: 8, markers: 4 };
-export const LIMITS_MOBILE: VfxLimits = { texts: 12, particles: 32, rings: 4, markers: 3 };
+export const LIMITS_MOBILE: VfxLimits = { texts: 12, particles: 32, rings: 6, markers: 3 };
 
 /** Drops spawned within this window stack upward instead of overlapping. */
 export const XP_STACK_WINDOW_MS = 700;

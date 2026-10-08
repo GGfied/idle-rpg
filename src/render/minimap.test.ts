@@ -17,6 +17,10 @@ import {
   clearMinimapLabelCache,
   MINIMAP_LABEL_FONT_PX,
   minimapLabelFontPx,
+  MINIMAP_DEPLETED_ALPHA,
+  type MinimapMarker,
+  facingToMinimapAngle,
+  tileDeltaToMinimapAngle,
 } from './minimap';
 
 const src = {
@@ -256,10 +260,10 @@ describe('minimap labels', () => {
   });
   it('nudges an overlapping region instead of dropping it (first keeps its anchor)', () => {
     const { ctx } = textCtx();
-    const out = layoutMinimapLabels(ctx, [region('Aaaa', 1000, 500), region('Bbbb', 1001, 500)], v);
+    const out = layoutMinimapLabels(ctx, [region('Aaaa', 1000, 496), region('Bbbb', 1001, 496)], v);
     expect(out.map((p) => p.label.text)).toEqual(['Aaaa', 'Bbbb']);
-    expect(out[0]!.y).toBe(60);
-    expect(out[1]!.y).not.toBe(60);
+    expect(out[0]!.y).toBe(44);
+    expect(out[1]!.y).not.toBe(44);
     expect(out[1]!.top >= out[0]!.top + out[0]!.h || out[1]!.top + out[1]!.h <= out[0]!.top).toBe(
       true,
     );
@@ -567,5 +571,280 @@ describe('minimapRimArrow', () => {
 describe('minimap palette', () => {
   it('has a colour for every terrain kind the tile palette knows (no magenta fallback)', () => {
     for (const kind of Object.keys(DEFAULT_PALETTE)) expect(MINIMAP_PALETTE).toHaveProperty(kind);
+  });
+});
+
+describe('player marker vs labels', () => {
+  function ctxLog() {
+    const ev: string[] = [];
+    const ctx = {
+      font: '',
+      textAlign: 'left',
+      textBaseline: 'alphabetic',
+      lineJoin: 'miter',
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1,
+      globalAlpha: 1,
+      imageSmoothingEnabled: true,
+      measureText: (t: string) => ({ width: t.length * 6 }),
+      fillText: (t: string) => ev.push(`text:${t}:a${ctx.globalAlpha}`),
+      strokeText: () => {},
+      beginPath: () => {},
+      arc: (_x: number, _y: number, rad: number) => {
+        if (rad < 5) ev.push(`dot:${ctx.fillStyle}`);
+      },
+      fill: () => {},
+      stroke: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      closePath: () => {},
+      save: () => {},
+      restore: () => {},
+      clip: () => {},
+      fillRect: () => {},
+      strokeRect: () => {},
+      drawImage: () => {},
+    } as unknown as Minimap2D;
+    return { ctx, ev };
+  }
+  const v: MinimapView = { centre: { x: 1000, y: 500 }, radiusPx: 60, pxPerTile: 4 };
+  const region = (text: string, x: number, y: number): MinimapLabel => ({
+    text,
+    x,
+    y,
+    kind: 'region',
+  });
+  const hitsCentre = (p: { left: number; top: number; w: number; h: number }) =>
+    p.left < 66 && p.left + p.w > 54 && p.top < 66 && p.top + p.h > 54;
+
+  it('moves a label that sits on the player to a clear spot, unfaded', () => {
+    const { ctx } = ctxLog();
+    const [p] = layoutMinimapLabels(ctx, [region('Eastmere', 1000, 500)], v);
+    expect(p).toBeDefined();
+    expect(hitsCentre(p!)).toBe(false);
+    expect(p!.faded).toBeUndefined();
+  });
+  it('keeps the label but fades it when no clear spot exists', () => {
+    const { ctx } = ctxLog();
+    const tall: MinimapView = { ...v, radiusPx: 16 };
+    const [p] = layoutMinimapLabels(ctx, [region('Hi', 1000, 500)], tall);
+    expect(p).toBeDefined();
+    expect(p!.faded).toBe(true);
+  });
+  it('draws the label translucent and the player dot after every label and marker', () => {
+    const { ctx, ev } = ctxLog();
+    const img = buildMinimapImage({ width: 4, height: 4, kindAt: () => 'grass' }, { pxPerTile: 4 });
+    const tiny: MinimapView = { ...v, radiusPx: 16 };
+    drawMinimap(
+      ctx,
+      {} as CanvasImageSource,
+      img,
+      tiny,
+      [
+        { kind: 'player', tile: { x: 1000, y: 500 } },
+        { kind: 'npc', tile: { x: 1000, y: 500 } },
+      ],
+      [region('Hi', 1000, 500)],
+    );
+    expect(ev.some((e) => e.startsWith('text:Hi:a0.4'))).toBe(true);
+    const lastText = Math.max(...ev.map((e, i) => (e.startsWith('text:') ? i : -1)));
+    expect(ev.lastIndexOf(`dot:${MINIMAP_MARKERS.player.color}`)).toBe(ev.length - 1);
+    expect(ev.lastIndexOf(`dot:${MINIMAP_MARKERS.player.color}`)).toBeGreaterThan(lastText);
+    expect(ctx.globalAlpha).toBe(1);
+  });
+  it('outlines the player more heavily than other markers', () => {
+    expect(MINIMAP_MARKERS.player.outlineWidth).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('resource node markers', () => {
+  const nodeImg = buildMinimapImage(
+    { width: 20, height: 20, kindAt: () => 'grass' },
+    { pxPerTile: 4 },
+  );
+  const nodeView: MinimapView = {
+    centre: { x: 10, y: 10 },
+    radiusPx: 50,
+    pxPerTile: 4,
+    zoom: 1,
+    pixelRatio: 1,
+    bounds: { width: 20, height: 20 },
+  };
+  /** Draw one marker and record the fill colour + alpha used when its shape was filled. */
+  function drawOne(marker: MinimapMarker): { fill: string; alpha: number } | undefined {
+    let rec: { fill: string; alpha: number } | undefined;
+    const st = { fillStyle: '', globalAlpha: 1 };
+    const ctx = {
+      get fillStyle() {
+        return st.fillStyle;
+      },
+      set fillStyle(v: string) {
+        st.fillStyle = v;
+      },
+      get globalAlpha() {
+        return st.globalAlpha;
+      },
+      set globalAlpha(v: number) {
+        st.globalAlpha = v;
+      },
+      strokeStyle: '',
+      lineWidth: 1,
+      imageSmoothingEnabled: true,
+      save() {},
+      restore() {},
+      beginPath() {},
+      arc() {},
+      clip() {},
+      fill() {
+        rec = { fill: st.fillStyle, alpha: st.globalAlpha };
+      },
+      stroke() {},
+      fillRect(_x: number, _y: number, w: number) {
+        if (w < 90) rec = { fill: st.fillStyle, alpha: st.globalAlpha };
+      },
+      strokeRect() {},
+      drawImage() {},
+    } as unknown as Minimap2D;
+    drawMinimap(ctx, {} as CanvasImageSource, nodeImg, nodeView, [marker]);
+    expect(ctx.globalAlpha).toBe(1);
+    return rec;
+  }
+  const at = { x: 10, y: 11 };
+  it('every rock kind is a stone square with its own ore tint, never a green tree dot', () => {
+    const rocks = ['rock_copper', 'rock_tin', 'rock_iron', 'rock_coal'] as const;
+    const fills = rocks.map((k) => MINIMAP_MARKERS[k].color);
+    expect(new Set(fills).size).toBe(4);
+    for (const k of rocks) {
+      expect(MINIMAP_MARKERS[k].shape).toBe('square');
+      expect(MINIMAP_MARKERS[k].color).not.toBe(MINIMAP_MARKERS.tree.color);
+      expect(drawOne({ kind: k, tile: at })?.fill).toBe(MINIMAP_MARKERS[k].color);
+    }
+  });
+  it('a depleted rock is dimmed, a live one is not', () => {
+    expect(drawOne({ kind: 'rock_iron', tile: at })?.alpha).toBe(1);
+    expect(drawOne({ kind: 'rock_iron', tile: at, depleted: true })?.alpha).toBe(
+      MINIMAP_DEPLETED_ALPHA,
+    );
+  });
+  it('fishing spots are white-ringed dots larger than a tree dot; net differs from bait', () => {
+    for (const k of ['spot_net', 'spot_bait'] as const) {
+      const m = MINIMAP_MARKERS[k];
+      expect(m.shape).toBe('dot');
+      expect(m.outline).toBe('#ffffff');
+      expect(m.size).toBeGreaterThan(MINIMAP_MARKERS.tree.size);
+    }
+    expect(MINIMAP_MARKERS.spot_net.color).not.toBe(MINIMAP_MARKERS.spot_bait.color);
+    expect(drawOne({ kind: 'spot_bait', tile: at })?.fill).toBe(MINIMAP_MARKERS.spot_bait.color);
+  });
+  it('each tree kind has its own green dot style; oak is darker, bigger and brown-ringed', () => {
+    const n = MINIMAP_MARKERS.tree_normal;
+    const o = MINIMAP_MARKERS.tree_oak;
+    expect(n.color).not.toBe(o.color);
+    expect(n.shape).toBe('dot');
+    expect(o.shape).toBe('dot');
+    expect(o.size).toBeGreaterThan(n.size);
+    expect(o.outline).toBe('#8a5a2b');
+    expect(n.outline).toBeUndefined();
+    const green = (c: string) => parseInt(c.slice(3, 5), 16) > parseInt(c.slice(1, 3), 16) * 1.2;
+    expect(green(n.color) && green(o.color)).toBe(true);
+    expect(drawOne({ kind: 'tree_oak', tile: at })?.fill).toBe(o.color);
+    expect(drawOne({ kind: 'tree_normal', tile: at })?.fill).toBe(n.color);
+    expect(MINIMAP_MARKERS.tree.color).toBe('#1f9d3a');
+  });
+});
+
+describe('player facing arrow', () => {
+  const v: MinimapView = { centre: { x: 10, y: 10 }, radiusPx: 60, pxPerTile: 4 };
+  const img = { width: 4, height: 4, pxPerTile: 4, data: new Uint8ClampedArray(64) };
+  function run(marker: MinimapMarker) {
+    const pts: Array<[number, number]> = [];
+    let arcs = 0;
+    let fillStyle = '';
+    const fills: string[] = [];
+    const ctx = {
+      set fillStyle(c: string) {
+        fillStyle = c;
+      },
+      get fillStyle() {
+        return fillStyle;
+      },
+      strokeStyle: '',
+      lineWidth: 1,
+      lineJoin: 'miter',
+      globalAlpha: 1,
+      imageSmoothingEnabled: true,
+      font: '',
+      textAlign: '',
+      textBaseline: '',
+      measureText: () => ({ width: 1 }),
+      beginPath: () => {},
+      arc: () => void arcs++,
+      moveTo: (x: number, y: number) => void pts.push([x, y]),
+      lineTo: (x: number, y: number) => void pts.push([x, y]),
+      closePath: () => {},
+      fill: () => void fills.push(fillStyle),
+      stroke: () => {},
+      save: () => {},
+      restore: () => {},
+      clip: () => {},
+      fillRect: () => {},
+      strokeRect: () => {},
+      fillText: () => {},
+      strokeText: () => {},
+      drawImage: () => {},
+    } as unknown as Minimap2D;
+    drawMinimap(ctx, {} as CanvasImageSource, img, v, [marker]);
+    return { pts, arcs, fills };
+  }
+  const at = { x: 10, y: 10 }; // view centre = canvas (60, 60)
+
+  it('draws a dot, no polygon, when facing is unset', () => {
+    const r = run({ kind: 'player', tile: at });
+    expect(r.pts).toHaveLength(0);
+    expect(r.arcs).toBeGreaterThan(1); // clip circle + the dot
+  });
+
+  it('draws a white 4-point arrow, not a dot, when facing is set', () => {
+    const r = run({ kind: 'player', tile: at, facing: 0 });
+    expect(r.pts).toHaveLength(4);
+    expect(r.fills.at(-1)).toBe(MINIMAP_MARKERS.player.color);
+    expect(r.arcs).toBe(1); // only the clip circle
+  });
+
+  it('points its tip along the angle', () => {
+    const tip = (a: number) => run({ kind: 'player', tile: at, facing: a }).pts[0]!;
+    const e = tip(0);
+    const s = tip(Math.PI / 2);
+    const w = tip(Math.PI);
+    expect(e[0]).toBeGreaterThan(60 + 3);
+    expect(e[1]).toBeCloseTo(60);
+    expect(s[1]).toBeGreaterThan(60 + 3);
+    expect(s[0]).toBeCloseTo(60);
+    expect(w[0]).toBeLessThan(60 - 3);
+  });
+
+  it('ignores a non-finite facing (dot)', () => {
+    expect(run({ kind: 'player', tile: at, facing: NaN }).pts).toHaveLength(0);
+  });
+
+  it('maps game facings and tile deltas to one angle', () => {
+    expect(facingToMinimapAngle('se')).toBe(0); // +x tile
+    expect(facingToMinimapAngle('sw')).toBeCloseTo(Math.PI / 2); // +y tile
+    expect(facingToMinimapAngle('ne')).toBeCloseTo(-Math.PI / 2);
+    expect(facingToMinimapAngle('nope')).toBeUndefined();
+    const dirs: Array<[string, number, number]> = [
+      ['se', 1, 0],
+      ['s', 1, 1],
+      ['sw', 0, 1],
+      ['w', -1, 1],
+      ['nw', -1, 0],
+      ['n', -1, -1],
+      ['ne', 0, -1],
+      ['e', 1, -1],
+    ];
+    for (const [f, dx, dy] of dirs)
+      expect(facingToMinimapAngle(f)).toBeCloseTo(tileDeltaToMinimapAngle(dx, dy)!);
+    expect(tileDeltaToMinimapAngle(0, 0)).toBeUndefined();
   });
 });

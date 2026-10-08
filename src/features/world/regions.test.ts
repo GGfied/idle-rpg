@@ -88,6 +88,7 @@ describe('derived region labels', () => {
     expect(WORLD_DEF.labels.filter((l) => l.kind === 'facility').map((l) => l.text)).toEqual([
       'Willowbrook Bank',
       'Fernhaven Bank',
+      'Greatmere Bank',
     ]);
   });
 });

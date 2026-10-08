@@ -15,8 +15,26 @@ export interface TreeSpawn {
   readonly y: number;
 }
 
+/** Node definition ids; the mining module defines GatherDefs with exactly these ids. */
+export type RockDefId = 'copper_rock' | 'tin_rock' | 'iron_rock' | 'coal_rock';
+
+export interface RockSpawn {
+  /** Unique node id for this placed rock, e.g. 'quarry_copper_1'. */
+  readonly nodeId: string;
+  readonly defId: RockDefId;
+  readonly x: number;
+  readonly y: number;
+}
+
+/** A fishing spot: fishing's `defId` plus the water tiles it may hop between (first = start). */
+export interface FishingSpotSpawn {
+  readonly spotId: string;
+  readonly defId: 'net_spot' | 'bait_spot';
+  readonly tiles: readonly Tile[];
+}
+
 /** Kinds of interactive world objects; the owning module (bank) handles each kind. */
-export type ObjectKind = 'bank_chest' | 'bank_booth';
+export type ObjectKind = 'bank_chest' | 'bank_booth' | 'deposit_chest';
 
 export interface ObjectSpawn {
   /** Unique id for this placed object, e.g. 'bank_chest_1'. */
@@ -83,12 +101,12 @@ export interface ChunkDef {
   readonly blocked: Uint8Array;
 }
 
-/** A placed tree, object or NPC in global tile coordinates; `ref` is the owning module's id. */
+/** A placed tree, rock, object or NPC in global tile coordinates; `ref` is the owning module's id. */
 export interface Spawn {
-  readonly type: 'tree' | 'object' | 'npc';
+  readonly type: 'tree' | 'rock' | 'object' | 'npc';
   /** Unique placement id (nodeId / objectId / spawnId). */
   readonly id: string;
-  /** Tree def id, object kind or npc id. */
+  /** Tree or rock def id, object kind or npc id. */
   readonly ref: string;
   readonly x: number;
   readonly y: number;

@@ -89,6 +89,17 @@ Work must be resumable by a fresh session at any point.
   balance, `add`, `spend → Result<'insufficientFunds'>`), shown in the player's info panel; never an ItemDef, never in an
   inventory or bank slot. Shops, loot tables (a `coins` drop entry credits the wallet), quests and fees all go through
   the wallet API. Not built yet. (User, 2026-10-08.)
+- **One item image everywhere (user rule).** "inventory view === bank view === dropped view === shop view": an item
+  looks identical in the inventory, bank, ground drops, shops, tooltips and anywhere else, because every view reads ONE icon
+  source per item id (render's icon function/texture key via the shared `ItemSlot`). No panel or view draws its own
+  item art. A test asserts every item id resolves to the same source on every path. (User, 2026-10-08.)
+- **Small slices for every agent (user rule).** Not only qa: integrator, animation and every other agent get ONE small,
+  focused task per run (a few files, one concern), not a bundle. Independent slices that touch different files run in
+  parallel as separate agents. Slices that touch the same file run in sequence. Never queue several follow-ups onto one
+  long-running agent. Reason: big bundles take very long, and one stuck part blocks everything. (User, 2026-10-08:
+  "same as integrator i think it will take very long if not sliced".) Each integrator slice is followed at once by
+  its OWN small qa slice that checks just that wiring in the browser. Don't batch them into a later qa round. (User,
+  2026-10-08: "integrator qa too".)
 - **Toggles are positive (user rule).** A setting's label names the thing, and On means it's active or shown
   ("Sound", "Show HUD", "Minimap"); never negative labels like "Mute", "Hide" or "Disable". (User, 2026-10-08.)
 - **Locked things stay visible (user rule).** Unlock lists, achievements, quests and perk nodes show
@@ -100,7 +111,11 @@ Work must be resumable by a fresh session at any point.
   "prove the test fails" checks in a copy, never in the live tree. Recipe (seconds, works with uncommitted
   files): `rsync -a --exclude node_modules --exclude dist /Users/Derrick/Projects/idle-rpg/ "$SCRATCH/mut/" &&
   ln -s /Users/Derrick/Projects/idle-rpg/node_modules "$SCRATCH/mut/node_modules"`, mutate there, then
-  `npx vitest run --root "$SCRATCH/mut" <file>`. "A copy is too much work" is not a reason to mutate live files. Use absolute paths in generated edit scripts. (Seen 3×, 2026-10-08: integrator's stray CSS file,
+  `npx vitest run --root "$SCRATCH/mut" <file>`. "A copy is too much work" is not a reason to mutate live files.
+  Every e2e or mutant vite server must use its own `cacheDir`, never the default `node_modules/.vite`. Because the
+  scratch copy symlinks node_modules, that cache is shared with the user's :5173 server. When a test server
+  re-optimizes deps, it breaks the live game on fresh loads (HUD crash "null reading useContext"; seen 2026-10-08).
+  Start test servers only through `tests/e2e/vite.frozen.config.mjs`. Use absolute paths in generated edit scripts. (Seen 3×, 2026-10-08: integrator's stray CSS file,
   the half-built sidebar, animation's mangled data.ts.)
 - **Every agent runs e2e scripts in the FOREGROUND** (`node tests/e2e/<x>.e2e.mjs`, Bash timeout 420000) and reads the
   output directly. Never background a test and poll a log for a word (a `until grep -q SUMMARY` loop waited forever on a
@@ -121,6 +136,18 @@ Work must be resumable by a fresh session at any point.
   `docs/qa-coverage.md` in the same response as each log line or report it sees (⏳ with port when dispatched, the
   result when it lands), never batched to the end of a round. Reason: when the session hits its usage limit, results
   that were only in an agent's head are lost and must be re-run. (User, 2026-10-08, after the 04:55 restart.)
+- **Always update qa-coverage.md AND the task list (user rule).** In the same response as EVERY agent report (code-only
+  too, not just qa), every dispatch and every new user request, the main session updates both. In
+  `docs/qa-coverage.md`, update the feature's row (🔧 = code done but browser check owed, ⏳ + port = running,
+  ✅ = qa passed + mutant red, ❌ = queued) and keep the "Running now" / "Still open" lines current. In the task list
+  (TaskCreate/TaskUpdate), add a task for each new item, and flip each task to in_progress/completed the moment it
+  changes. Never batch these or let them go stale. (User, 2026-10-08: "please always remember to update these 2".)
+
+- **Agents report progress as they go (user rule).** Every agent appends one dated line to `docs/agent-progress.md`
+  (single `>>`, append-only, format `- HH:MM <agent> <item#>: <what happened> — next: <next step>`) at each milestone:
+  started, first compiling save, tests green, mutant result, blocked, done. Also send these as interim notes rather
+  than waiting for one final report. Reason: when quota runs out mid-task, another account or agent resumes from this
+  file plus the runbook, without redoing the work. (User, 2026-10-08.)
 
 ## Stack
 

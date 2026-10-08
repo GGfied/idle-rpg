@@ -10,7 +10,11 @@ export interface EffectBase {
   lift?: number;
 }
 
-export type VfxAnchor = 'player' | 'node';
+/**
+ * 'node' = the event's nodeId (or spotId); 'from' / 'to' = the tile index in the event's `from` / `to`
+ * field on that node (fishing spotMoved), resolved by `VfxContext.tileWorld`.
+ */
+export type VfxAnchor = 'player' | 'node' | 'from' | 'to';
 
 /** One thing to play when an event arrives. `effect` is a key of `EFFECTS`. */
 export interface VfxCue {
@@ -19,6 +23,12 @@ export interface VfxCue {
   at: VfxAnchor;
   /** Only play when every listed event field equals the value (e.g. `{ reason: 'noTool' }`). */
   when?: Readonly<Record<string, string>>;
+  /** Skip when any listed event field equals the value (e.g. rock depletion must not play tree dust). */
+  unless?: Readonly<Record<string, string>>;
+  /** Shift the 'node' anchor this many px toward the player (the face of the trunk that is struck). */
+  towardPlayer?: number;
+  /** Tint the effect with `ITEM_TINT[event[tintField]]` (e.g. ore colour from the gathered itemId). */
+  tintField?: string;
   /** Drop repeats of this cue (same effect + same `when`) within this many ms. */
   throttleMs?: number;
 }
@@ -124,6 +134,8 @@ export interface VfxEvent {
 export interface VfxContext {
   playerWorld: { x: number; y: number };
   nodeWorld?: (nodeId: string) => { x: number; y: number } | undefined;
+  /** Feet world px of tile `index` of a node's tile list (fishing spots hop between tiles). */
+  tileWorld?: (nodeId: string, index: number) => { x: number; y: number } | undefined;
 }
 
 export interface VfxLimits {

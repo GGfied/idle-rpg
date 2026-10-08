@@ -83,6 +83,28 @@ describe('axe selection and success rate', () => {
   });
 });
 
+describe('oak vs normal tree balance', () => {
+  it('oak values are pinned', () => {
+    expect(getTreeDef('oak_tree')).toMatchObject({ xp: 45, successLow: 48, successHigh: 150 });
+  });
+
+  // Expected xp per tick: a 4-tick attempt cycle, tree falls every log (3-tick walk),
+  // oak falls 1 log in 8 (depleteChance 1/8).
+  const xpPerTick = (id: string, level: number): number => {
+    const d = getTreeDef(id)!;
+    const p = successChance(level, d.successLow, d.successHigh);
+    const fall = d.depleteChance;
+    return d.xp / (d.baseTicks / p + 3 * fall);
+  };
+
+  it.each(Array.from({ length: 85 }, (_, i) => i + 15))(
+    'oak out-earns the normal tree at level %i',
+    (level) => {
+      expect(xpPerTick('oak_tree', level)).toBeGreaterThan(xpPerTick('tree', level));
+    },
+  );
+});
+
 const makeEnv = (over: Partial<GatherEnv> = {}, owned = ['bronze_axe'], level = 1): GatherEnv => ({
   getDef: getTreeDef,
   level: () => level,

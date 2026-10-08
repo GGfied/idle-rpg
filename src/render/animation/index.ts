@@ -2,9 +2,11 @@ export {
   nextAnimState,
   computePose,
   makePose,
-  chopAngle,
-  tapAngle,
-  foreshortenSwing,
+  rigGeom,
+  swingAxis,
+  swingPhase,
+  projectSwing,
+  swingLength,
   facingFromStep,
   facingIsLeft,
   facingIsBack,
@@ -14,6 +16,7 @@ export {
   idUnit,
 } from './logic';
 export type { FallVector } from './logic';
+export { chopPose, foreshortenSwing, solveArm, handFromAngles } from './chop';
 export {
   TICK_MS,
   CHOP_SWING_PERIOD_MS,
@@ -26,6 +29,18 @@ export {
   REDUCED_FADE_MS,
   BACK_VIEW_SWING_REACH,
   axeRects,
+  pickRects,
+  netRects,
+  rodRects,
+  rodLineRects,
+  ROD_KEYS,
+  SWING_TIMELINES,
+  NET_KEYS,
+  SWING_TOOLS,
+  CHOP_KEYS,
+  MINE_KEYS,
+  AXE_HAND_GAP,
+  FACING_SWING,
 } from './data';
 export { createPlayerAnimator } from './playerAnimator';
 export type { PlayerAnimator } from './playerAnimator';
@@ -35,4 +50,13 @@ export { createTreeSway } from './treeSway';
 export type { TreeSway } from './treeSway';
 export { animateTreeFall, animateTreeRegrow } from './treeAnim';
 export type { TreeFallStyle, TreeAnimOpts } from './treeAnim';
-export type { AnimState, MotionMode, MotionParams, AnimInput, SetStateOpts, Pose } from './types';
+export type {
+  AnimState,
+  MotionMode,
+  MotionParams,
+  AnimInput,
+  SetStateOpts,
+  Pose,
+  RigGeom,
+  SwingAxis,
+} from './types';

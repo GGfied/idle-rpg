@@ -89,6 +89,9 @@ export const MAX_PREFS_BYTES = 16_000;
 export const PREF_ENUMS: Readonly<Record<string, readonly string[]>> = {
   'visuals.vfx': ['on', 'reduced', 'off'],
   'visuals.animations': ['on', 'reduced', 'off'],
+  playerLook: ['player', 'player_f'],
+  'hud.sheetFold': ['auto', 'collapsed', 'expanded'],
+  'hud.chatFold': ['auto', 'collapsed', 'expanded'],
 };
 
 /** `prefsMigrations[n]` upgrades the stored prefs object from version n to n + 1 (none yet). */

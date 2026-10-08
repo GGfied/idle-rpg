@@ -52,13 +52,16 @@ export {
   figureLegPivots,
 } from './figureArt';
 export type { FigureLook, FigureRect } from './figureArt';
-export { PLAYER_LOOK } from './figureLooks';
+export { PLAYER_LOOK, PLAYER_LOOKS, asPlayerLookId } from './figureLooks';
+export type { PlayerLookId } from './figureLooks';
 export {
   createPlayerView,
   createTreeView,
   createNpcView,
   createObjectView,
   OBJECT_FOOTPRINTS,
+  NODE_FOOTPRINTS,
+  PIXEL_HIT_KINDS,
   ART_SCALE,
   VIEW_HIT_BOUNDS,
   hitBoundsFor,
@@ -69,20 +72,37 @@ export type {
   TreeView,
   TreeKind,
   ObjectKind,
+  RockKind,
+  SpotKind,
+  NodeKind,
   HitKind,
   NpcView,
   NpcSpriteKey,
 } from './views';
-export { setupCamera, setupCameraFor, setCameraZoom } from './camera';
-export { itemIconUrl, skillIconUrl, uiIconUrl } from './itemIcons';
+export { setupCamera, setupCameraFor, setCameraZoom, setCameraInsets } from './camera';
+export {
+  itemIconIds,
+  itemIconSource,
+  itemIconUrl,
+  skillIconUrl,
+  uiIconUrl,
+  type ItemIconSource,
+} from './itemIcons';
 export {
   buildMinimapImage,
   buildMinimapWindow,
   minimapWindowCovers,
   drawMinimap,
+  drawWorldMap,
+  worldMapTileToPx,
+  worldMapPxToTile,
+  clampWorldMapScale,
+  WORLD_MAP_MAX_PX_PER_TILE,
   minimapTileToPx,
   minimapPxToTile,
   minimapRimArrow,
+  facingToMinimapAngle,
+  tileDeltaToMinimapAngle,
   MINIMAP_MARKERS,
   MINIMAP_PALETTE,
 } from './minimap';
@@ -92,6 +112,7 @@ export type {
   MinimapImageOptions,
   MinimapEdges,
   MinimapView,
+  WorldMapView,
   MinimapMarker,
   MinimapMarkerKind,
   MinimapMarkerStyle,
@@ -126,3 +147,9 @@ export type { GroundItemViews, GroundItemViewOptions } from './groundItemViews';
 export { MAX_PILE, HIT_RX, HIT_RY } from './groundItemModel';
 export type { GroundItemLike } from './groundItemModel';
 export { portraitUrl, portraitLook, PORTRAIT_LOOK_IDS } from './portrait';
+export { createNodeView, isSpotKind, NODE_IDLE } from './nodeViews';
+export type { NodeView, NodeViewOptions } from './nodeViews';
+export { opaqueAtImage } from './artHit';
+export type { HitImage, HitTextures } from './artHit';
+export { SPOT_FRAMES } from './spotArt';
+export { ROCK_LOOKS } from './rockArt';

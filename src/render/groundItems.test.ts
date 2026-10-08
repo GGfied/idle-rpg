@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { hitDistance, MAX_PILE, planPiles, qtyBadge, type GroundItemLike } from './groundItemModel';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { itemIconIds, itemIconSource, itemIconUrl } from './itemIcons';
+import {
+  hitDistance,
+  MAX_PILE,
+  PILE_OFFSETS,
+  planPiles,
+  qtyBadge,
+  type GroundItemLike,
+} from './groundItemModel';
 import { createGroundItemViews } from './groundItemViews';
 import { isoProjection } from './projection';
 
@@ -126,7 +134,7 @@ function fakeScene() {
     },
     cameras: { main: { scrollX: 0, scrollY: 0, zoom: 1, width: 100, height: 100 } },
   };
-  return { scene: scene as never, containers, tweens, handlers };
+  return { scene: scene as never, containers, tweens, handlers, textures };
 }
 
 describe('createGroundItemViews', () => {
@@ -134,7 +142,7 @@ describe('createGroundItemViews', () => {
     const { scene, containers } = fakeScene();
     const v = createGroundItemViews(scene, isoProjection, {
       motion: () => 'off',
-      iconUrl: () => undefined,
+      iconSource: () => undefined,
     });
     v.sync([it_('a', 3, 3), it_('b', 3, 3, 5), it_('c', 6, 6)]);
     expect(containers).toHaveLength(3);
@@ -162,7 +170,7 @@ describe('createGroundItemViews', () => {
     const { scene, containers, handlers } = fakeScene();
     const v = createGroundItemViews(scene, isoProjection, {
       motion: () => 'off',
-      iconUrl: () => undefined,
+      iconSource: () => undefined,
     });
     v.sync([it_('a', 0, 0)]);
     v.sync([]);
@@ -178,14 +186,114 @@ describe('createGroundItemViews', () => {
     const on = fakeScene();
     createGroundItemViews(on.scene, isoProjection, {
       motion: () => 'on',
-      iconUrl: () => undefined,
+      iconSource: () => undefined,
     }).sync([it_('a', 1, 1)]);
     expect(on.tweens).toHaveLength(1);
     const off = fakeScene();
     createGroundItemViews(off.scene, isoProjection, {
       motion: () => 'off',
-      iconUrl: () => undefined,
+      iconSource: () => undefined,
     }).sync([it_('a', 1, 1)]);
     expect(off.tweens).toHaveLength(0);
+  });
+});
+
+describe('one icon source per item (inventory === bank === ground)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('has art for every item the game defines (ids kept in sync with the features)', () => {
+    // render may not import features: the list is the registered item ids that need icons.
+    const IDS = [
+      'logs',
+      'oak_logs',
+      'bronze_axe',
+      'iron_axe',
+      'coal',
+      'copper_ore',
+      'tin_ore',
+      'iron_ore',
+      'bronze_pickaxe',
+      'iron_pickaxe',
+      'steel_pickaxe',
+      'raw_shrimp',
+      'raw_anchovies',
+      'raw_sardine',
+      'raw_herring',
+      'raw_trout',
+      'raw_mackerel',
+      'small_fishing_net',
+      'fishing_rod',
+      'fishing_bait',
+    ];
+    expect(itemIconIds()).toEqual([...IDS].sort());
+  });
+
+  it('the ground view loads exactly the URL the inventory/bank slots use, under the shared key', () => {
+    for (const id of itemIconIds()) {
+      const loaded: string[] = [];
+      vi.stubGlobal(
+        'Image',
+        class {
+          onload: (() => void) | null = null;
+          set src(u: string) {
+            loaded.push(u);
+            this.onload?.();
+          }
+        },
+      );
+      const { scene, textures } = fakeScene();
+      createGroundItemViews(scene, isoProjection, { motion: () => 'off' }).sync([
+        it_('a', 1, 1, 1, id),
+      ]);
+      // ItemSlot (inventory, bank, shops) and the drag ghost call itemIconUrl(id).
+      expect(loaded, id).toContain(itemIconUrl(id));
+      expect(
+        loaded.filter((u) => u === itemIconUrl(id)),
+        id,
+      ).toHaveLength(1);
+      expect(textures.has(itemIconSource(id)!.key), id).toBe(true);
+    }
+  });
+});
+
+describe('drops are visible beside the player', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('pile slots sit on the front half of the tile, inside the diamond, and apart', () => {
+    expect(PILE_OFFSETS).toHaveLength(MAX_PILE);
+    for (const o of PILE_OFFSETS) {
+      expect(o.y).toBeGreaterThan(0); // south of the feet, not under them
+      expect(Math.abs(o.x)).toBeLessThanOrEqual(32 * (1 - o.y / 16)); // on the tile diamond
+    }
+    expect(new Set(PILE_OFFSETS.map((o) => `${o.x},${o.y}`)).size).toBe(MAX_PILE);
+    // At least one slot clears the player's ~9 px half-width body.
+    expect(PILE_OFFSETS.filter((o) => Math.abs(o.x) > 9).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('drawn piles are offset from the tile centre but the tap target stays on the tile', () => {
+    const { scene, containers } = fakeScene();
+    const v = createGroundItemViews(scene, isoProjection, {
+      motion: () => 'off',
+      iconSource: () => undefined,
+    });
+    v.sync([it_('a', 4, 4), it_('b', 4, 4), it_('c', 4, 4)]);
+    const w = isoProjection.tileToWorld(4, 4);
+    for (const c of containers) expect(c.y).toBeGreaterThan(w.y);
+    expect(v.hitTest(w.x, w.y)).not.toBeNull();
+  });
+
+  it('every icon texture exists before the first drop', () => {
+    vi.stubGlobal(
+      'Image',
+      class {
+        onload: (() => void) | null = null;
+        set src(_u: string) {
+          this.onload?.();
+        }
+      },
+    );
+    const { scene, textures } = fakeScene();
+    createGroundItemViews(scene, isoProjection, { motion: () => 'off' });
+    for (const id of itemIconIds()) expect(textures.has(itemIconSource(id)!.key), id).toBe(true);
   });
 });

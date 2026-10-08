@@ -37,6 +37,13 @@ You own `src/render/animation/` in a small OSRS-inspired browser RPG. Read `CLAU
   figureLegs.test; a rig change left animation.e2e asserting a 5-child rig.)
 - Natural human gait (user, 2026-10-08: "same timing looks weird"): arms swing opposite to the same-side leg
   (contralateral), legs swing more than arms, the arm lags slightly, the swing knee bends, 2 bobs per stride.
+- Adding a SWING_TOOLS row (a new tool graphic) changes the forearm and back-layer child counts. Update
+  `playerAnimator.test.ts` and `tests/e2e/animation.e2e.mjs` in the same change, and give every tool graphic a
+  NAME so e2e finds it by name, not by index. (Seen twice, 2026-10-08: net and rod.)
+- Before modelling a fix for a qa e2e failure, read how that e2e computes its metric and reproduce the live
+  number in a scratch vitest with the SAME metric. Trust the model only once it matches the live value.
+  (Seen twice, 2026-10-08: the run-arm fixes; a hand-position model predicted 0.85 while qa's forearm/shin
+  metric measured 0.34.)
 
 ## Learning loop (self-improvement)
 - **Before every task:** read your memory, `.claude/agent-memory/animation/MEMORY.md` (Claude Code loads it
