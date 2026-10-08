@@ -57,7 +57,7 @@ const PAGE = `(() => {
     boostWc: async () => { const m = await import('/src/core/progression/index.ts'); const s = H().store; const g = s.getState().game;
       s.setState({ game: { ...g, progression: m.addXp(g.progression, 'woodcutting', 5000).state } }); },
     place: (x, y) => { const s = H().store; const g = s.getState().game;
-      s.setState({ game: { ...g, movement: { ...g.movement, position: { x, y }, path: [], running: false }, gathering: { ...g.gathering, session: null } } }); },
+      s.setState({ game: { ...g, movement: { ...g.movement, position: { x, y }, path: [], running: false }, gathering: { ...g.gathering, session: null }, pendingInteraction: null } }); },
     pathEnd: () => { const m = H().store.getState().game.movement; return { end: m.path.length ? m.path[m.path.length - 1] : null, pos: m.position, len: m.path.length }; },
     session: () => H().store.getState().game.gathering.session,
     spy: () => { const s = H().store; window.__calls = []; const st = s.getState();

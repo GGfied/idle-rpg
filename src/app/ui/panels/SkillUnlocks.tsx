@@ -15,6 +15,7 @@ const KIND_TITLE: Readonly<Record<SkillUnlock['kind'], string>> = {
   rock: 'Rocks',
   fish: 'Fish',
   tool: 'Tools',
+  food: 'Food',
 };
 const TOOL_TITLE: Readonly<Record<string, string>> = {
   woodcutting: 'Axes',
@@ -23,7 +24,7 @@ const TOOL_TITLE: Readonly<Record<string, string>> = {
 };
 /** Locked nodes never reveal what they are. */
 const UNKNOWN = 'Unknown';
-const KIND_ORDER: readonly SkillUnlock['kind'][] = ['tree', 'rock', 'fish', 'tool'];
+const KIND_ORDER: readonly SkillUnlock['kind'][] = ['tree', 'rock', 'fish', 'tool', 'food'];
 
 /** A skill's unlock tree: one branch per kind, a chain of nodes by level. Locked nodes stay visible with the reason. */
 export function SkillUnlocksView({ skillId, game }: { skillId: string; game: GameState }) {

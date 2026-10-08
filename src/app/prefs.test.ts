@@ -120,11 +120,8 @@ describe('prefs reach vfx and animation', () => {
   it('tolerates missing targets', () => {
     expect(() => applyVisualPrefs(defaultPreferences(true), {})).not.toThrow();
   });
-  it('reduced-motion default flows into the store', () => {
-    expect(setup(true).store.getState().prefs.visuals).toEqual({
-      vfx: 'reduced',
-      animations: 'reduced',
-    });
+  it('reduced-motion device flag does not change the visual defaults', () => {
+    expect(setup(true).store.getState().prefs.visuals).toEqual({ vfx: 'on', animations: 'on' });
   });
 });
 

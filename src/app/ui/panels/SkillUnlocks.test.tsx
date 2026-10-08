@@ -6,7 +6,7 @@ import { newGame } from '@app/game/newGame';
 import type { GameState } from '@app/game/types';
 import { SkillUnlocksView } from '@app/ui/panels/SkillUnlocks';
 
-type Built = 'woodcutting' | 'mining' | 'fishing';
+type Built = 'woodcutting' | 'mining' | 'fishing' | 'cooking';
 
 function at(skill: Built, level: number): GameState {
   const g = newGame(CONTENT);
@@ -28,6 +28,7 @@ describe('SkillUnlocksView tree', () => {
     expect(html).toContain('Axes');
     expect(render('mining', at('mining', 1))).toContain('Pickaxes');
     expect(render('fishing', at('fishing', 1))).toContain('Fish');
+    expect(render('cooking', at('cooking', 1))).toContain('Food');
   });
 
   it.each([
@@ -55,7 +56,7 @@ describe('SkillUnlocksView tree', () => {
     expect(html).not.toContain('Oak logs');
   });
 
-  it.each(['attack', 'cooking', 'magic'])('%s (not built): renders nothing', (skill) => {
+  it.each(['attack', 'magic'])('%s (not built): renders nothing', (skill) => {
     expect(render(skill, newGame(CONTENT))).toBe('');
   });
 });

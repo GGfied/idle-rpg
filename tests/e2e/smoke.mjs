@@ -98,11 +98,20 @@ await withGame({ port: PORT, budgetMs: BUDGET_MS, viewport: PARTS[MINE[0]] }, as
   };
   /** Reload WITHOUT clearing storage (g.load() starts a fresh save). */
   const reload = async () => {
+    // marker on the OLD page: ready() must come from the reloaded page, not the one still unloading
+    await g.eval('window.__oldPage = 1');
     await g.cdp.send('Page.reload');
-    await g.waitFor(() => g.page('ready()').catch(() => false), {
-      timeoutMs: 25000,
-      label: 'game ready after reload',
-    });
+    await g.waitFor(
+      () =>
+        g
+          .eval(`!window.__oldPage && !!window.__idleRpg?.store`)
+          .then((ok) => ok && g.page('ready()'))
+          .catch(() => false),
+      {
+        timeoutMs: 25000,
+        label: 'game ready after reload',
+      },
+    );
   };
 
   const chain = async () => {
@@ -135,10 +144,13 @@ await withGame({ port: PORT, budgetMs: BUDGET_MS, viewport: PARTS[MINE[0]] }, as
       await S(`watchSwing(${JSON.stringify(SWING)})`);
       await clickTile(firstTree);
       await g
-        .waitFor(async () => (await S('swingSeen()')) > 0, {
-          timeoutMs: 20000,
-          label: 'swing message',
-        })
+        .waitFor(
+          async () => {
+            const n = await snap();
+            return n.session === firstTree.nodeId || n.inv.some((i) => i && i.id === 'logs');
+          },
+          { timeoutMs: 20000, label: 'chop session on the tree (or a log)' },
+        )
         .catch(async (e) => {
           const n = await snap();
           throw new Error(
@@ -163,14 +175,13 @@ await withGame({ port: PORT, budgetMs: BUDGET_MS, viewport: PARTS[MINE[0]] }, as
           .catch(() => {});
       }
       const done = await snap();
-      return `chat has swing line; logs=${done.inv.filter((i) => i && i.id === 'logs').length}; wcXp=${done.wcXp}`;
+      return `chop session + logs=${done.inv.filter((i) => i && i.id === 'logs').length}; wcXp=${done.wcXp}`;
     });
 
     await check('d', 'click a tree CANOPY also starts chopping', async () => {
       await settle();
       const t = await nearestTree([firstTree?.nodeId]);
       await S(`watchSwing(${JSON.stringify(SWING)})`);
-      const before = await S('swingSeen()');
       await clickTile(t, CANOPY_DY);
       const hit = await g
         .waitFor(
@@ -185,10 +196,17 @@ await withGame({ port: PORT, budgetMs: BUDGET_MS, viewport: PARTS[MINE[0]] }, as
         hit,
         `canopy click on ${t.nodeId} (${t.x},${t.y}) did not start chopping (pending/session = the tree actually picked, if another id = picking hit a neighbour tree): ${JSON.stringify(await snap().then((s) => ({ pos: s.pos, pathLen: s.pathLen, pending: s.pending, session: s.session })))}`,
       );
-      await g.waitFor(async () => (await S('swingSeen()')) > before, {
-        timeoutMs: 20000,
-        label: 'swing message',
-      });
+      const logsBefore = hit.inv.filter((i) => i && i.id === 'logs').length;
+      // swing line is posted at the animation impact (~2 s real time); at fast ticks the session can end first
+      await g.waitFor(
+        async () => {
+          const s = await snap();
+          return (
+            s.session === t.nodeId || s.inv.filter((i) => i && i.id === 'logs').length > logsBefore
+          );
+        },
+        { timeoutMs: 20000, label: 'chop session on the canopy-clicked tree (or a log)' },
+      );
       return `${t.nodeId} at (${t.x},${t.y}) chopping after canopy click`;
     });
 

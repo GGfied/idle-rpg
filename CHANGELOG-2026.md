@@ -1,5 +1,66 @@
 # Changelog 2026
 
+## 2026-10-09
+
+### v0.1.4 · 2026-10-09 SGT
+
+**Cooking skill tree, Animations default On, gentler Reduced walk, and a CPU-aware e2e harness**
+
+Version 0.1.4. The Cooking skill gets its unlock tree, the game no longer switches itself to Reduced animations from
+the browser's reduce-motion flag, Reduced mode walks instead of sliding, and e2e runs now leave CPU free and share
+one dev server.
+
+#### Added
+
+- **`src/core/persistence/fixtures/prefs-v1.json`** - a saved v1 preferences fixture (visuals `reduced`) for the
+  v1 -> v2 migration test.
+- **`tests/e2e/cpuGate.mjs`**, **`tests/e2e/cpuGate.test.mjs`** - a machine-wide gate: a test starts a headless
+  Chrome only while fewer than 4 run and load1 + 1 stays within 80% of the cores, so the machine keeps 20% free;
+  `budgetJudge` subtracts the time spent queued at the gate from a file's time budget.
+- **`tests/e2e/warmPage.mjs`** - loads the game once and imports every `/src/...` module the tests use, so the shared
+  dev server transforms them once per run.
+- **`tests/e2e/animDefault.e2e.mjs`** - in Brave with reduce-motion on: a fresh profile shows Animations and Effects
+  On, a saved v1 `reduced` migrates to On, and a Reduced picked in Settings survives a reload.
+- **`tests/e2e/animReduced.e2e.mjs`** - walk swing at On, Reduced (half) and Off, desktop and phone, in Brave.
+
+#### Changed
+
+- **`src/app/game/skillUnlocks.ts`**, **`src/app/ui/panels/SkillUnlocks.tsx`** - Cooking now has an unlock tree: a
+  `food` kind built from `COOKING_RECIPES` (cooked item at its level), shown as a "Food" branch.
+- **`src/app/game/skillUnlocks.test.ts`**, **`src/app/ui/panels/SkillUnlocks.test.tsx`**,
+  **`tests/e2e/skillUnlocks.e2e.mjs`** - tests for the Food branch.
+- **`src/core/persistence/preferences.ts`**, **`src/core/persistence/data.ts`** - visuals always default to `on`;
+  prefs version 2 with a migration that turns a stored `reduced` into `on` (`on`/`off` untouched).
+- **`src/app/runtime.ts`** - removed the `prefers-reduced-motion` auto-pick; defaults come only from preferences.
+- **`src/core/persistence/preferences.test.ts`**, **`src/app/prefs.test.ts`**, **`src/app/runtime.test.ts`** -
+  tests for On defaults with reduce-motion on, the v1 -> v2 migration, and an explicit Reduced surviving a reload.
+- **`src/render/animation/data.ts`**, **`src/render/animation/logic.ts`**, **`src/render/animation/types.ts`** -
+  Reduced walks at half amplitude (`REDUCED_WALK_SCALE` 0.5) instead of 0, and a new `breathScale` keeps the idle
+  breathing off in Reduced and Off.
+- **`src/render/animation/gait.test.ts`**, **`src/render/animation/logic.test.ts`** - tests for the Reduced walk
+  and the breathing scale.
+- **`tests/e2e/run-all.mjs`**, **`tests/e2e/lib.mjs`**, **`tests/e2e/cdp.mjs`** - run-all defaults to 2 jobs, waits
+  for the CPU gate, and starts one shared dev server for the whole run; children use its port; budget lines print
+  wall minus gate wait.
+- **`tests/e2e/isoTap.e2e.mjs`**, **`tests/e2e/smoke.mjs`** - stale checks fixed: `place()` also clears the pending
+  tap, chop checks wait on the session or a log (60 ms ticks end before the swing line), and the reload check waits
+  for the new page before reading the store.
+- **`tests/e2e/axeSound.e2e.mjs`** - a hit sound counts only within 100 ms of a swing or log chat line, so the
+  ambient music note is no longer counted.
+- **`tests/e2e/nameplateClampPlay.e2e.mjs`** - the label check allows the designed keep-out shift near the HUD, and
+  the drag-pan scenario uses a static NPC.
+- **`vite.config.ts`** - Vitest also runs `tests/e2e/*.test.mjs`.
+- **`package.json`**, **`package-lock.json`** - version 0.1.4.
+- **`CLAUDE.md`**, **`.claude/agents/qa.md`**, **`.claude/agent-memory/animation/MEMORY.md`**, **`graphics/MEMORY.md`**,
+  **`hud/MEMORY.md`**, **`integrator/MEMORY.md`**, **`persistence/MEMORY.md`**, **`qa/MEMORY.md`** - project and agent
+  rules trimmed to size limits, plus new process rules (tasks and session file, trim long md first, 20% CPU free,
+  full run-all only on request, no loops, read only your own area).
+- **`docs/runbooks/2026-10-08-firemaking-cooking.md`**, **`docs/qa-coverage.md`**, **`docs/qa-log.md`**,
+  **`docs/agent-progress.md`**, **`docs/archive/`** - runbook and coverage trimmed, logs updated, pre-trim originals
+  archived.
+
+---
+
 ## 2026-10-08
 
 ### v0.1.3 · 2026-10-08 SGT

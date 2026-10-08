@@ -30,12 +30,14 @@
 import { dirname, resolve } from 'node:path';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
+import { budgetJudge } from './cpuGate.mjs';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import {
   activity,
+  getGateWaitedMs,
   hardTimeout,
   killChild,
   launchChrome,
@@ -129,17 +131,20 @@ export const loadMeter = {
   },
 };
 /** Load-scaled wall budget verdict: {ok, text}. The text always carries the load numbers. */
-export function budgetVerdict(tookMs, baseMs, what = 'script', cpuUnits = 1) {
+export function budgetVerdict(tookMs, baseMs, what = 'script', cpuUnits = 1, gateMs = 0) {
   const sd = loadMeter.slowdown();
-  const eff = Math.round(baseMs * sd);
   const cpu = loadMeter.cpuSec();
-  const cpuMax = (baseMs / 1000) * cpuUnits; // load-invariant: CPU-seconds of the whole process tree (node + vite + Chrome)
-  const wallOk = tookMs <= eff;
-  const cpuOk = cpu <= cpuMax;
-  const ok = wallOk && cpuOk;
+  const j = budgetJudge({ tookMs, gateMs, baseMs, slowdown: sd, cpuSec: cpu, cpuUnits });
+  const why = j.ok
+    ? ''
+    : j.wallOk
+      ? '(CPU over: genuinely heavy)'
+      : j.cpuOk
+        ? '(wall over at measured load: sleeps/waits)'
+        : '(both over)';
   return {
-    ok,
-    text: `BUDGET ${ok ? 'ok' : 'FAIL'}: ${what} wall ${tookMs} ms vs ${eff} ms (base ${baseMs} ms x slowdown ${sd.toFixed(1)}) cpu ${cpu.toFixed(1)} s vs ${cpuMax.toFixed(0)} s ${ok ? '' : wallOk ? '(CPU over: genuinely heavy)' : cpuOk ? '(wall over at measured load: sleeps/waits)' : '(both over)'} [${loadMeter.describe()}]`,
+    ok: j.ok,
+    text: `budget: wall ${(tookMs / 1000).toFixed(1)} s - gate wait ${(gateMs / 1000).toFixed(1)} s = ${(j.judgedMs / 1000).toFixed(1)} s vs limit ${(j.effMs / 1000).toFixed(1)} s (base ${baseMs / 1000} s x slowdown ${sd.toFixed(1)}); BUDGET ${j.ok ? 'ok' : 'FAIL'}: ${what} cpu ${cpu.toFixed(1)} s vs ${j.cpuMax.toFixed(0)} s ${why} [${loadMeter.describe()}]`,
   };
 }
 
@@ -779,7 +784,9 @@ export function withGame(opts, fn) {
           'budget',
           `script finished within ${opts.budgetMs / 1000} s (load-scaled)`,
           () => {
-            const v = budgetVerdict(took, opts.budgetMs);
+            const gate = getGateWaitedMs();
+            console.log(`[gate-wait] ${gate} ms`);
+            const v = budgetVerdict(took, opts.budgetMs, 'script', 1, gate);
             expect(v.ok, v.text);
             return v.text;
           },
@@ -900,7 +907,17 @@ export async function runParallel(
               E2E_COMBO: combo,
               E2E_VP: vp,
               E2E_RENDERER: r,
-              E2E_PORT: String(ownUrl ? base + i : base), // shared vite: every child's port = base (files that build their own URL from it)
+              // shared vite (own E2E_URL/E2E_SHARED, or E2E_SHARED_VITE): every child's port is that server's port, so files
+              // that build their own URL from E2E_PORT (mining, saves) hit it too; own vite per child: base + i
+              E2E_PORT: String(
+                process.env.E2E_URL
+                  ? new URL(process.env.E2E_URL).port || 80
+                  : process.env.E2E_SHARED
+                    ? 5300
+                    : ownUrl
+                      ? base + i
+                      : base,
+              ),
               ...(ownUrl ? {} : { E2E_URL: sharedOrigin }),
               ...(chrome ? { E2E_CHROME_PORT: String(chrome.port) } : {}),
             },
@@ -924,6 +941,8 @@ export async function runParallel(
                   const m = /(GAME_READY_TIMEOUT|VITE_START_TIMEOUT)/.exec(l);
                   if (m) sc.boot = m[1];
                   if (/^FAIL \[[^\]]*\] budget /.test(l)) sc.budget = true;
+                  const gw = /^\[gate-wait\] (\d+) ms/.exec(l);
+                  if (gw) sc.gate = Math.max(sc.gate ?? 0, +gw[1]);
                 }
               });
               stream.on('end', () => buf && sink.write(`[${combo}] ${buf}\n`));
@@ -950,7 +969,9 @@ export async function runParallel(
       );
   });
   if (budgetMs) {
-    const v = budgetVerdict(wall, budgetMs, 'parallel', all.length);
+    // Gate waits overlap across children (and the parent's own Chrome launch): subtract the longest one.
+    const gate = Math.max(getGateWaitedMs(), ...all.map((c) => seen[c]?.gate ?? 0));
+    const v = budgetVerdict(wall, budgetMs, 'parallel', all.length, gate);
     console.log(v.text);
     if (!v.ok) {
       code = Math.max(code, 1);

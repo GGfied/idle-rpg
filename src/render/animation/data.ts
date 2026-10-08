@@ -506,6 +506,9 @@ export const SWING_TOOLS: Readonly<
   },
 };
 
+/** Reduced motion walks with a gentler gait (half amplitude): less motion, not a character sliding on frozen legs. */
+export const REDUCED_WALK_SCALE = 0.5;
+
 /** Reduced mode fades are capped well under the 120 ms budget. */
 export const REDUCED_FADE_MS = 100;
 
@@ -513,6 +516,7 @@ export const REDUCED_FADE_MS = 100;
 export const MOTION: Readonly<Record<MotionMode, MotionParams>> = {
   on: {
     walkScale: 1,
+    breathScale: 1,
     chopStyle: 'swing',
     fallMs: 450,
     fallTiltDeg: 35,
@@ -523,7 +527,8 @@ export const MOTION: Readonly<Record<MotionMode, MotionParams>> = {
     gustDeg: 2.5,
   },
   reduced: {
-    walkScale: 0,
+    walkScale: REDUCED_WALK_SCALE,
+    breathScale: 0,
     chopStyle: 'tap',
     fallMs: REDUCED_FADE_MS,
     fallTiltDeg: 0,
@@ -535,6 +540,7 @@ export const MOTION: Readonly<Record<MotionMode, MotionParams>> = {
   },
   off: {
     walkScale: 0,
+    breathScale: 0,
     chopStyle: 'static',
     fallMs: 0,
     fallTiltDeg: 0,

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "prefs": {
+    "sound": {
+      "muted": true,
+      "volumes": { "master": 0.5, "sfx": 1, "ui": 1, "music": 0.6, "ambience": 0.8 }
+    },
+    "hud": {
+      "minimap": false,
+      "orbs": true,
+      "skillTracker": true,
+      "chatbox": true,
+      "hidden": false,
+      "sheetFold": "auto",
+      "chatFold": "auto"
+    },
+    "notifications": {
+      "levelUpPopup": true,
+      "xpDrops": true,
+      "achievementToasts": true,
+      "gameMessages": true,
+      "areaNames": true
+    },
+    "visuals": "__VISUALS__",
+    "playerLook": "player"
+  }
+}

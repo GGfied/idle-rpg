@@ -82,7 +82,7 @@ export const PREFS_KEY = 'prefs';
 export const PREFS_CORRUPT_KEY = 'prefs:corrupt';
 /** Legacy sound key `{ volume, muted }`; read once to seed prefs, never modified or removed. */
 export const LEGACY_AUDIO_KEY = 'audio';
-export const PREFS_VERSION = 1;
+export const PREFS_VERSION = 2;
 export const MAX_PREFS_BYTES = 16_000;
 
 /** Allowed values for string-enum preference fields, by dotted path. */
@@ -94,8 +94,23 @@ export const PREF_ENUMS: Readonly<Record<string, readonly string[]>> = {
   'hud.chatFold': ['auto', 'collapsed', 'expanded'],
 };
 
-/** `prefsMigrations[n]` upgrades the stored prefs object from version n to n + 1 (none yet). */
+/** `prefsMigrations[n]` upgrades the stored prefs object from version n to n + 1 (1 -> 2 below). */
 export const prefsMigrations: Record<
   number,
   (prefs: Record<string, unknown>) => Record<string, unknown>
-> = {};
+> = {
+  // v1 defaulted visuals to 'reduced' from the browser's reduce-motion flag, which some
+  // browsers report wrongly. A stored 'reduced' almost certainly was never chosen: -> 'on'.
+  // 'on' and 'off' are untouched.
+  1: (prefs) => {
+    const v = Object.hasOwn(prefs, 'visuals') ? prefs.visuals : undefined;
+    if (typeof v !== 'object' || v === null || Array.isArray(v)) return prefs;
+    const old = v as Record<string, unknown>;
+    const fix = (k: string): unknown => {
+      const val = Object.hasOwn(old, k) ? old[k] : undefined;
+      return val === 'reduced' ? 'on' : val;
+    };
+    // Only the two known keys are copied (never __proto__ etc.); normalize drops the rest anyway.
+    return { ...prefs, visuals: { vfx: fix('vfx'), animations: fix('animations') } };
+  },
+};

@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import { check, runParallel, withCombos } from './lib.mjs';
 
-const PORT = 9477; // combos use 9477..9478
+const PORT = Number(process.env.E2E_PORT ?? 9477); // combos use 9477..9478
 const BUDGET_MS = 60e3;
 const COMBOS = await runParallel(import.meta.url, PORT, {
   viewports: ['desktop', 'phone'],
@@ -22,7 +22,13 @@ const BRANCHES = {
   mining: ['Rocks', 'Pickaxes'],
   fishing: ['Fish', 'Tools'],
 };
-const NAME = { woodcutting: 'Woodcutting', mining: 'Mining', fishing: 'Fishing', attack: 'Attack' };
+const NAME = {
+  cooking: 'Cooking',
+  woodcutting: 'Woodcutting',
+  mining: 'Mining',
+  fishing: 'Fishing',
+  attack: 'Attack',
+};
 
 await withCombos({ port: PORT, budgetMs: BUDGET_MS }, COMBOS, async (g, vp) => {
   // Real taps: Skills tab, (phone: expand with the fold button first), then the skill cell.
@@ -102,6 +108,55 @@ await withCombos({ port: PORT, budgetMs: BUDGET_MS }, COMBOS, async (g, vp) => {
       return `${vp}: tree left ${t.tl} w ${t.tw} vs grid left ${t.gl} w ${t.gw}; sw ${t.sw} <= cw ${t.cw}`;
     });
   }
+
+  await check(
+    'u3-cooking',
+    'cooking: Food branch, cooked items at recipe levels, locked rule at level 1',
+    async () => {
+      await tapSkill('cooking');
+      const t = await tree();
+      g.expect(t, 'no cooking tree');
+      g.expect(JSON.stringify(t.heads) === JSON.stringify(['Food']), JSON.stringify(t.heads));
+      const want = {
+        Shrimp: 1,
+        Anchovies: 1,
+        Sardine: 1,
+        Chicken: 1,
+        Beef: 1,
+        Herring: 5,
+        Mackerel: 10,
+        Trout: 15,
+      };
+      const shown = [];
+      for (const [name, lv] of Object.entries(want)) {
+        const n =
+          t.nodes.find((x) => new RegExp(name, 'i').test(x.text) && !x.locked) ??
+          t.nodes.find((x) => x.locked && x.text.includes(`Requires Cooking ${lv} (you: 1)`));
+        g.expect(n, `no node for ${name}: ${t.nodes.map((x) => x.text).join(' ; ')}`);
+        if (lv === 1) {
+          g.expect(
+            !n.locked && new RegExp(name, 'i').test(n.text) && n.imgs > 0 && n.lv.includes('1'),
+            `${name}: ${n.text}`,
+          );
+        } else {
+          g.expect(
+            n.locked && n.text.includes('?') && n.text.includes('Unknown'),
+            `${name} not locked: ${n.text}`,
+          );
+          g.expect(
+            n.imgs === 0 && n.aria === 0 && !n.html.toLowerCase().includes(name.toLowerCase()),
+            `${name} leaks: ${n.html}`,
+          );
+        }
+        shown.push(`${name}@${lv}${n.locked ? 'L' : ''}`);
+      }
+      g.expect(t.nodes.length === 8, `node count ${t.nodes.length}`);
+      await g.eval('document.querySelector(".skill-tree").scrollIntoView({block:"start"})');
+      const shot = await g.cdp.send('Page.captureScreenshot', { format: 'png' });
+      writeFileSync(`${OUT}/skill-tree-cooking-${vp}.png`, Buffer.from(shot.data, 'base64'));
+      return `${vp}: ${shown.join(' ')}`;
+    },
+  );
 
   await check('u3-attack', 'unbuilt skill (Attack) shows detail but no tree', async () => {
     await tapSkill('attack');

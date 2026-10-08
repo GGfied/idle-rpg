@@ -25,7 +25,24 @@ const classify = (s) =>
       : s.wave === 'triangle' && s.f >= 105 && s.f <= 230
         ? 'hit'
         : null;
-const snd = async (g) => (await g.eval('window.__snd')).map((s) => ({ ...s, k: classify(s) }));
+// Swing recorder: the ambient music chord also has triangle ~220 Hz notes, so an oscillator is an axe hit only when it
+// starts within HIT_PAIR_MS of a swing chat line ('You swing your axe' on a miss, 'You get some ...' on a success;
+// WorldScene.swingImpact emits sound and line from the same call).
+const HIT_PAIR_MS = 100;
+const SWING_REC = `(() => { if (window.__swUnsub) window.__swUnsub(); window.__sw = [];
+  const st = window.__idleRpg.store; let last = (st.getState().game.chat.slice(-1)[0]?.id ?? 0);
+  window.__swUnsub = st.subscribe((n) => { for (const l of n.game.chat) if (l.id > last) { last = l.id;
+    if (/swing your axe|You get some/.test(l.text)) window.__sw.push(performance.now()); } }); })()`;
+const snd = async (g) => {
+  const [all, sw] = await Promise.all([g.eval('window.__snd'), g.eval('window.__sw || []')]);
+  return all.map((s) => {
+    const k = classify(s);
+    return {
+      ...s,
+      k: k === 'hit' && !sw.some((t) => Math.abs(t - s.at) <= HIT_PAIR_MS) ? 'music' : k,
+    };
+  });
+};
 const count = async (g, k) => (await snd(g)).filter((s) => s.k === k);
 const logCount = (g) =>
   g.eval(
@@ -68,6 +85,7 @@ await withCombos({ port: PORT, budgetMs: BUDGET_MS, initScripts: [SPY] }, COMBOS
     ]) {
       await g.teleportSettled(t.x + dx, t.y + dy);
       await g.eval('window.__snd.length = 0');
+      await g.eval(SWING_REC);
       try {
         await g.tapObject(t.id);
       } catch {

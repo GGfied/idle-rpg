@@ -131,6 +131,8 @@ export type MotionMode = 'on' | 'reduced' | 'off';
 export interface MotionParams {
   /** Multiplies walk bob, leg and arm swing. */
   walkScale: number;
+  /** Multiplies the idle breathing bob (0 = perfectly still when standing). */
+  breathScale: number;
   chopStyle: 'swing' | 'tap' | 'static';
   fallMs: number;
   /** Degrees the falling crown tilts. */

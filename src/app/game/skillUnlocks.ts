@@ -2,6 +2,7 @@ import type { Requirement } from '@core/contracts';
 import type { ToolTable } from '@core/equipment';
 import type { GatherDef } from '@core/skills';
 import { CONTENT } from '@app/registry';
+import { COOKING_RECIPES } from '@features/skills/cooking';
 import { FISHING_SPOTS, FISHING_TOOLS } from '@features/skills/fishing';
 import { MINING_NODES, MINING_TOOLS } from '@features/skills/mining';
 import { WOODCUTTING_NODES, WOODCUTTING_TOOLS } from '@features/skills/woodcutting';
@@ -9,7 +10,7 @@ import { WOODCUTTING_NODES, WOODCUTTING_TOOLS } from '@features/skills/woodcutti
 /** One thing a skill unlocks at a level. `itemId` is the item the player sees (for the shared ItemSlot icon). */
 export interface SkillUnlock {
   level: number;
-  kind: 'tree' | 'rock' | 'fish' | 'tool';
+  kind: 'tree' | 'rock' | 'fish' | 'tool' | 'food';
   label: string;
   itemId: string;
 }
@@ -41,6 +42,8 @@ const SOURCES: Readonly<Record<string, () => Raw[]>> = {
   woodcutting: () => [...fromNodes(WOODCUTTING_NODES, 'tree'), ...fromTools(WOODCUTTING_TOOLS)],
   mining: () => [...fromNodes(MINING_NODES, 'rock'), ...fromTools(MINING_TOOLS)],
   fishing: () => [...fromSpots(), ...fromTools(FISHING_TOOLS)],
+  cooking: () =>
+    COOKING_RECIPES.map((r): Raw => ({ level: r.levelRequired, kind: 'food', itemId: r.cookedId })),
 };
 
 /** What a skill unlocks, sorted by level then label; deduplicated at the lowest level. Unbuilt skills: []. */

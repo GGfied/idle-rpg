@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   PREFS_CORRUPT_KEY,
   PREFS_KEY,
+  PREFS_VERSION,
   createMemoryStorage,
   createPreferencesStore,
   defaultPreferences,
 } from './index';
+import fixturePrefsV1 from './fixtures/prefs-v1.json?raw';
 
 const make = (reduced = false, seed?: Record<string, string>) => {
   const storage = createMemoryStorage();
@@ -42,9 +44,9 @@ describe('preferences defaults', () => {
     });
     expect(p.visuals).toEqual({ vfx: 'on', animations: 'on' });
   });
-  it('defaults visuals to reduced when the caller prefers reduced motion', () => {
-    expect(make(true).store.get().visuals).toEqual({ vfx: 'reduced', animations: 'reduced' });
-    expect(defaultPreferences(true).visuals.vfx).toBe('reduced');
+  it('defaults visuals to on even when the caller reports reduced motion', () => {
+    expect(make(true).store.get().visuals).toEqual({ vfx: 'on', animations: 'on' });
+    expect(defaultPreferences(true).visuals).toEqual({ vfx: 'on', animations: 'on' });
   });
   it('get returns a copy', () => {
     const { store } = make();
@@ -68,7 +70,7 @@ describe('preferences set', () => {
       chatFold: 'auto',
     });
     expect(p.sound.volumes).toEqual({ master: 0.7, sfx: 0.2, ui: 1, music: 0.6, ambience: 0.8 });
-    expect(stored(storage).version).toBe(1);
+    expect(stored(storage).version).toBe(PREFS_VERSION);
     expect(createPreferencesStore({ storage, prefersReducedMotion: false }).get()).toEqual(p);
   });
   it.each([
@@ -131,12 +133,12 @@ describe('preferences subscribe / reset', () => {
     store.reset();
     expect(cb).toHaveBeenCalledTimes(1);
     expect(store.get()).toEqual(defaultPreferences(true));
-    expect(stored(storage).prefs.visuals.vfx).toBe('reduced');
+    expect(stored(storage).prefs.visuals.vfx).toBe('on');
   });
 });
 
 describe('preferences loading', () => {
-  const env = (prefs: unknown, version = 1) => JSON.stringify({ version, prefs });
+  const env = (prefs: unknown, version = PREFS_VERSION) => JSON.stringify({ version, prefs });
   it('replaces wrong types with field defaults, drops unknown keys, clamps', () => {
     const { store } = make(false, {
       [PREFS_KEY]: env({
@@ -242,7 +244,7 @@ describe('preferences loading', () => {
   });
   it.each([false, true])('unknown animations value falls back to the default (reduced=%s)', (r) => {
     const { store } = make(r, { [PREFS_KEY]: env({ visuals: { animations: 'bogus' } }) });
-    expect(store.get().visuals.animations).toBe(r ? 'reduced' : 'on');
+    expect(store.get().visuals.animations).toBe('on');
   });
   it.each([
     ['not json', '{oops'],
@@ -320,5 +322,57 @@ describe('preferences additive fields (no version bump)', () => {
     const { store } = make();
     store.set({ sound: { volumes: { music: 9, ambience: -1 } } });
     expect(store.get().sound.volumes).toMatchObject({ music: 1, ambience: 0 });
+  });
+});
+
+describe('prefs migration v1 -> v2 (reduced came from the auto-default)', () => {
+  const v1 = (visuals: unknown) => fixturePrefsV1.replace('"__VISUALS__"', JSON.stringify(visuals));
+  it('PREFS_VERSION is 2', () => expect(PREFS_VERSION).toBe(2));
+  it.each([
+    [
+      { vfx: 'reduced', animations: 'reduced' },
+      { vfx: 'on', animations: 'on' },
+    ],
+    [
+      { vfx: 'off', animations: 'reduced' },
+      { vfx: 'off', animations: 'on' },
+    ],
+    [
+      { vfx: 'reduced', animations: 'off' },
+      { vfx: 'on', animations: 'off' },
+    ],
+    [
+      { vfx: 'on', animations: 'off' },
+      { vfx: 'on', animations: 'off' },
+    ],
+    [
+      { vfx: 'on', animations: 'on' },
+      { vfx: 'on', animations: 'on' },
+    ],
+  ])('v1 visuals %j loads as %j', (from, to) => {
+    const { store, storage } = make(false, { [PREFS_KEY]: v1(from) });
+    const p = store.get();
+    expect(p.visuals).toEqual(to);
+    expect(p.hud.minimap).toBe(false); // rest of the fixture survives
+    expect(p.sound.muted).toBe(true);
+    expect(stored(storage).version).toBe(1); // loading alone does not rewrite storage
+  });
+  it('a v2 stored reduced (a real choice) is kept', () => {
+    const { store } = make(false, {
+      [PREFS_KEY]: JSON.stringify({ version: 2, prefs: { visuals: { animations: 'reduced' } } }),
+    });
+    expect(store.get().visuals.animations).toBe('reduced');
+  });
+  it.each([[undefined], [null], ['x'], [[]]])('v1 with visuals=%j still loads defaults', (v) => {
+    const { store } = make(false, {
+      [PREFS_KEY]: JSON.stringify({ version: 1, prefs: { visuals: v } }),
+    });
+    expect(store.get().visuals).toEqual({ vfx: 'on', animations: 'on' });
+  });
+  it('v1 visuals with a __proto__ key does not pollute', () => {
+    const raw = '{"version":1,"prefs":{"visuals":{"__proto__":{"x":1},"animations":"reduced"}}}';
+    const { store } = make(false, { [PREFS_KEY]: raw });
+    expect(store.get().visuals).toEqual({ vfx: 'on', animations: 'on' });
+    expect(({} as Record<string, unknown>).x).toBeUndefined();
   });
 });

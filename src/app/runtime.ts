@@ -47,15 +47,11 @@ export const LEASE_KEY = 'session';
 export interface RuntimeEnv {
   onHidden(cb: () => void): () => void;
   onVisible(cb: () => void): () => void;
-  /** Whether the device asks for reduced motion (the default for the visual preferences). */
-  prefersReducedMotion?(): boolean;
 }
 
 const browserEnv: RuntimeEnv = {
   onHidden: onAppHidden,
   onVisible: onAppVisible,
-  prefersReducedMotion: () =>
-    typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches,
 };
 
 /** globalThis key holding the disposer of the page's live audio system. */
@@ -72,10 +68,8 @@ export function createRuntime(
   let game = newGame(CONTENT);
   if (loaded.ok && loaded.value) game = addChat(fromSave(loaded.value, CONTENT), 'Welcome back.');
   // Preferences load before the first render, from the same storage as the save.
-  const prefs = createPreferencesStore({
-    storage,
-    prefersReducedMotion: env.prefersReducedMotion?.() ?? false,
-  });
+  // Visual defaults come only from preferences: the device's reduced-motion setting is never auto-picked.
+  const prefs = createPreferencesStore({ storage, prefersReducedMotion: false });
   const store = createAppStore(game, CONTENT, prefs);
   if (!loaded.ok) {
     store.getState().setBanner({

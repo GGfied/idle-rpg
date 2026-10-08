@@ -11,6 +11,9 @@ import { URL } from 'node:url';
 import process from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Buffer } from 'node:buffer';
+import { waitForCpu } from './cpuGate.mjs';
+/** Total ms this process has waited in the CPU gate (budget checks subtract it from wall time). */
+export const getGateWaitedMs = () => gateWaitedMs;
 
 export { sleep };
 
@@ -48,11 +51,18 @@ export function activity(what) {
 }
 const MAX_MS = Number(process.env.E2E_MAX_MS ?? 6 * 60e3);
 const IDLE_MS = Number(process.env.E2E_IDLE_MS ?? 120e3);
-setTimeout(() => {
-  console.error(`E2E TIMEOUT: global deadline ${MAX_MS} ms (last action: ${lastAction})`);
-  killTracked();
-  process.exit(3);
-}, MAX_MS).unref();
+// Time spent waiting in the CPU gate (cpuGate.mjs) does not count against the global deadline.
+const START_AT = Date.now();
+let gateWaitedMs = 0;
+const armGlobalDeadline = (ms) =>
+  setTimeout(() => {
+    const left = START_AT + MAX_MS + gateWaitedMs - Date.now();
+    if (left > 0) return armGlobalDeadline(left);
+    console.error(`E2E TIMEOUT: global deadline ${MAX_MS} ms (last action: ${lastAction})`);
+    killTracked();
+    process.exit(3);
+  }, ms).unref();
+armGlobalDeadline(MAX_MS);
 setInterval(
   () => {
     if (Date.now() - lastActionAt < IDLE_MS) return;
@@ -266,6 +276,9 @@ function openSocket(url) {
  * Shared by launchChrome and by runParallel's parent (one Chrome for all children, see attach below).
  */
 export async function startChrome({ width = 1280, height = 800 } = {}) {
+  // CPU gate first: waiting here never counts against the launch timeouts below.
+  gateWaitedMs += await waitForCpu({ onWait: () => activity('cpu-gate waiting') });
+  activity('chrome launch');
   const profile = mkdtempSync(join(tmpdir(), `idle-rpg-e2e-${process.pid}-`));
   const proc = spawnTracked(
     findChrome(),

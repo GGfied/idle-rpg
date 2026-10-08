@@ -64,8 +64,15 @@ describe('motion modes', () => {
     );
     expect(Math.max(...angles) - Math.min(...angles)).toBeGreaterThan(1.5);
   });
-  it('reduced: walk is still', () => {
+  it('reduced: walk is a visible but gentler gait (half the amplitude of on)', () => {
+    const on = computePose('walk', 130, makePose(), 1, P, 'on');
     const w = computePose('walk', 130, makePose(), 1, P, 'reduced');
+    expect(Math.abs(w.thighFront)).toBeGreaterThan(0.05);
+    expect(w.thighFront).toBeCloseTo(on.thighFront * 0.5, 9);
+    expect(MOTION.reduced.walkScale).toBe(0.5);
+  });
+  it('off: walk is still', () => {
+    const w = computePose('walk', 130, makePose(), 1, P, 'off');
     expect(
       [w.bodyBobY, w.thighFront, w.kneeBack, w.armAngle].every((v) => Math.abs(v) < 1e-9),
     ).toBe(true);

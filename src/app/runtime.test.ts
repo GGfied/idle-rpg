@@ -134,25 +134,22 @@ describe('runtime sound', () => {
     });
   });
 
-  it('defaults visuals to reduced when the device prefers reduced motion', () => {
-    const reduced = createRuntime(createMemoryStorage(), {
-      ...fakeEnv(),
-      prefersReducedMotion: () => true,
-    });
-    expect(reduced.store.getState().prefs.visuals).toEqual({
-      vfx: 'reduced',
-      animations: 'reduced',
-    });
-    const normal = createRuntime(createMemoryStorage(), fakeEnv());
-    expect(normal.store.getState().prefs.visuals).toEqual({ vfx: 'on', animations: 'on' });
+  it('never auto-picks reduced visuals, even when the device prefers reduced motion', () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    try {
+      const rt = createRuntime(createMemoryStorage(), fakeEnv());
+      expect(rt.store.getState().prefs.visuals).toEqual({ vfx: 'on', animations: 'on' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
-  it('a stored choice beats the reduced-motion default', () => {
+  it('a saved explicit choice (reduced or off) is respected on reload', () => {
     const storage = createMemoryStorage();
-    const first = createRuntime(storage, { ...fakeEnv(), prefersReducedMotion: () => true });
-    first.store.getState().setPref({ visuals: { vfx: 'off', animations: 'off' } });
-    const again = createRuntime(storage, { ...fakeEnv(), prefersReducedMotion: () => true });
-    expect(again.store.getState().prefs.visuals).toEqual({ vfx: 'off', animations: 'off' });
+    const first = createRuntime(storage, fakeEnv());
+    first.store.getState().setPref({ visuals: { vfx: 'reduced', animations: 'off' } });
+    const again = createRuntime(storage, fakeEnv());
+    expect(again.store.getState().prefs.visuals).toEqual({ vfx: 'reduced', animations: 'off' });
   });
 
   it('forwards tick events to subscribers', () => {

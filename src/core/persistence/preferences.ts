@@ -12,8 +12,13 @@ import {
 } from './data';
 import type { DeepPartial, Preferences, PreferencesStore, StorageAdapter } from './types';
 
-export function defaultPreferences(prefersReducedMotion: boolean): Preferences {
-  const mode = prefersReducedMotion ? 'reduced' : 'on';
+/**
+ * The game never picks a reduced mode on its own (a browser reported reduce-motion
+ * wrongly and the player never chose it), so visuals default to 'on'.
+ * `prefersReducedMotion` is ignored; kept only so existing callers compile.
+ */
+export function defaultPreferences(_prefersReducedMotion?: boolean): Preferences {
+  const mode = 'on';
   return {
     sound: { muted: false, volumes: { master: 0.7, sfx: 1, ui: 1, music: 0.6, ambience: 0.8 } },
     hud: {

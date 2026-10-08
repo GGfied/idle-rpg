@@ -282,7 +282,9 @@ export function computePose(
     );
   } else {
     out.bodyBobY =
-      -BREATH_PX * (0.5 + 0.5 * Math.sin((elapsedMs / BREATH_PERIOD_MS) * TWO_PI_)) * motionScale;
+      -BREATH_PX *
+      (0.5 + 0.5 * Math.sin((elapsedMs / BREATH_PERIOD_MS) * TWO_PI_)) *
+      Math.min(motionScale, params.breathScale);
   }
   return out;
 }

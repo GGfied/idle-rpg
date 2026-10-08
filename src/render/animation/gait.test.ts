@@ -168,8 +168,15 @@ describe('run vs walk and other states', () => {
     const p = computePose('chop', 0, makePose());
     expect([p.thighFront, p.thighBack, p.kneeFront, p.kneeBack]).toEqual([0, 0, 0, 0]);
   });
-  it('reduced and off mode: everything still, including breathing', () => {
+  it('reduced walks gently (half amplitude); reduced and off idle perfectly still', () => {
+    const on = computePose('walk', 130, makePose(), 1, P, 'on', 'run');
+    const red = computePose('walk', 130, makePose(), 1, P, 'reduced', 'run');
+    expect(red.thighFront).toBeCloseTo(on.thighFront * 0.5, 9);
+    expect(Math.abs(red.thighFront)).toBeGreaterThan(0.05);
     for (const mode of ['reduced', 'off'] as const) {
+      expect(Math.abs(computePose('idle', 700, makePose(), 1, P, mode).bodyBobY)).toBe(0);
+    }
+    for (const mode of ['off'] as const) {
       const p = computePose('walk', 130, makePose(), 1, P, mode, 'run');
       expect(
         Object.values(p)

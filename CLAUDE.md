@@ -1,406 +1,192 @@
 # CLAUDE.md
 
-Small single-player browser RPG inspired by Old School RuneScape, playable on desktop and on
-mobile (browser + installable PWA): a tile world, click/tap-to-move,
-gathering and production skills, NPCs with dialogue and a few quests, and tick-based combat
-against simple monsters. There is no server; progress is saved to `localStorage`.
+Small single-player browser RPG inspired by Old School RuneScape, for desktop and mobile (browser + PWA): tile world,
+tap/click-to-move, gathering and production skills, NPCs, dialogue, quests, tick-based combat. No server; saves go to
+`localStorage`. The old idle version (`b1f8068`) is reference only. Full pre-trim text and history: `docs/archive/`.
 
-The old idle version is in git history at `b1f8068` and is reference only.
+## Runbooks (every session)
 
-## Runbooks (do this every session)
+1. **Session start:** read every `docs/runbooks/` file with status `in progress`; resume from its **Next step**.
+2. **Before a task:** add it to the open runbook it belongs to, or create `docs/runbooks/YYYY-MM-DD-<slug>.md` from the
+   template. Runbook first, then code.
+3. **When a task completes:** tick it, update Next step, Last updated and Log in the same response. Record every
+   decision and its reason, including the user's.
+4. New requests mid-task go into the runbook at once. Subagents never edit runbooks; they report, the main session writes.
+5. **Done:** status `done`, move to `docs/runbooks/done/`. Keep the Log short: archive old log lines to `docs/archive/`.
 
-Work must be resumable by a fresh session at any point.
+Template: `# Runbook: <title>` · Status / Started / Last updated / Owner · `## Goal` · `## Decisions` (what + why) ·
+`## Tasks` (`- [ ] <task> — agent: <name>`, user's order) · `## Next step` · `## Open questions / blockers` ·
+`## Log` (dated one-liners: what changed, which agent, what was verified, dispatch→done minutes).
 
-1. **Session start:** open every file in `docs/runbooks/` whose status is `in progress`. Resume
-   from its **Next step**. Don't start new work before reading it.
-2. **Before starting any task:** create `docs/runbooks/YYYY-MM-DD-<slug>.md` from the template
-   below, or add the task to the open runbook it belongs to. Write the runbook first, then the code.
-3. **Every time a task completes:** tick it, update **Next step**, **Last updated** and the **Log**
-   in the same response, before starting the next task. Record decisions and their reasons as
-   they're made, including anything the user decided.
-4. **New requests mid-task** go into the runbook as tasks straight away, so nothing is lost if
-   the session ends.
-5. **When everything is done:** set the status to `done` and move the file to `docs/runbooks/done/` as history.
-   Old tracking history lives in `docs/archive/` (qa-coverage, qa-log, agent-progress as of 2026-10-08).
-6. Subagents don't edit runbooks. They report back, and the main session updates the runbook.
+## Tasks + session file (HARD RULE)
+1. Always create tasks. 2. Update them in real time (tick when done; partial = note done/pending).
+3. Session start (new or after /clear): check `docs/runbooks/` for in-progress runbooks (this project's continuation mds);
+   if any, ask the user: continue which one, or new. Create/continue it at once and update it all through the session automatically, never waiting to be asked.
+4. Every task goes in it.
+5. Trim it and all config mds when they get too big.
 
-```markdown
-# Runbook: <title>
-- **Status:** in progress | blocked | done
-- **Started:** YYYY-MM-DD
-- **Last updated:** YYYY-MM-DD
-- **Owner:** main session
+## Trim long markdown first (HARD RULE, user 2026-10-09)
 
-## Goal
-## Decisions          (what was decided, and why)
-## Tasks              (- [ ] / - [x] <task> — agent: `<name>`, in the user's order)
-## Next step          (exact next action a new session should take)
-## Open questions / blockers
-## Log                (dated one-liners: what changed, which agent did it, what was verified)
-```
+Before starting any task, check the size of every md you will read (`wc -c`). If one is over its limit, trim it FIRST:
+copy the original to `docs/archive/<name>-YYYY-MM-DD.md`, then keep only what still guides work (merge duplicates,
+drop superseded entries and narrative, one line per lesson). Limits: `CLAUDE.md` 16 KB · `.claude/agents/*.md` 6 KB ·
+`.claude/agent-memory/*/MEMORY.md` 6 KB · a runbook 8 KB · `docs/qa-coverage.md` 10 KB · `docs/agent-progress.md` and
+`docs/qa-log.md` 6 KB (move older lines to the archive). Agents trim their own memory; the main session trims the rest.
 
 ## Agentic workflow (the main session writes no code)
 
-- The main session **plans, dispatches, reviews agent reports and updates runbooks**. It owns no
-  code. Every file under `src/`, `public/`, `.github/`, `index.html` and the tooling configs is
-  owned by an agent in the table below and is changed only by that agent. A PreToolUse hook
-  (`.claude/hooks/agents-only.sh`) blocks main-session edits outside `CLAUDE.md`, `CHANGELOG*.md`, `docs/` and `.claude/`.
-- **Changelog + versioning (user, 2026-10-08).** Semver (`package.json` `version`, shown in Settings via the build-time
-  `__APP_VERSION__`). The main session keeps `CHANGELOG.md` (year index) + `CHANGELOG-YYYY.md` with the `changelog` skill:
-  each release bumps the version and gets an entry; the `vX.Y.Z` tag is created by the GitHub pipeline from
-  `package.json` on push to `main` (user, 2026-10-08: never tag by hand). Entry headers use the VERSION, not `latest` or a
-  commit hash (user, 2026-10-08): `### v0.1.1 · YYYY-MM-DD SGT`; unreleased work goes into the entry for the next version.
-- Run independent agents in parallel (a Workflow or parallel Agent calls), then have `qa` verify.
-  The owner fixes `qa`'s findings, and `integrator` wires the result into `app/`.
-- Agent files added mid-session are picked up automatically (seen 2026-10-08). If a new agent doesn't
-  appear in the agent list, dispatch a general-purpose agent told to act as `.claude/agents/<name>.md`.
+- The main session plans, dispatches, reviews reports and updates runbooks. Every file under `src/`, `public/`,
+  `.github/`, `tests/`, `index.html` and tooling configs is changed only by its owning agent (table below). A hook
+  (`.claude/hooks/agents-only.sh`) blocks main-session edits outside `CLAUDE.md`, `CHANGELOG*.md`, `docs/`, `.claude/`.
+- **Changelog + versions (user):** semver in `package.json` (shown in Settings via `__APP_VERSION__`). The main session
+  keeps `CHANGELOG.md` (year index) + `CHANGELOG-YYYY.md` with the `changelog` skill; header `### v0.1.1 · YYYY-MM-DD SGT`
+  (version, never `latest`/hash); unreleased work goes under the next version. Tags `vX.Y.Z` come from the pipeline on
+  push to `main`; never tag by hand.
+- Feedback reaches the owner: qa/security/performance findings and every user correction go to the owning agent, which
+  fixes it and records the lesson in `.claude/agent-memory/<name>/MEMORY.md` ("Lessons recorded" closes it). A lesson
+  seen twice is promoted into that agent's `.claude/agents/<name>.md`, or here if it applies to all.
+- New agent files are picked up mid-session; if one isn't listed, use a general-purpose agent told to act as it.
 
-## Self-improvement (every agent learns)
+## Rules for every agent and the main session (user rules unless noted)
 
-- Every agent has `memory: project`, so its lessons live in `.claude/agent-memory/<name>/MEMORY.md`.
-  It reads them before each task and records new ones after (see each agent's "Learning loop").
-- **Feedback reaches the owner.** `qa`, `security` and `performance` findings, and every correction
-  from the user, are passed by the main session to the owning agent, which fixes the issue *and*
-  records the lesson. A finding is not closed until its owner reports "Lessons recorded".
-- **Promotion.** When an agent proposes a rule change (a lesson seen twice), the main session adds
-  it to that agent's `.claude/agents/<name>.md` and notes it in the runbook log. Lessons that apply
-  to everyone go into this file instead.
-- **Retro.** At the end of each runbook, the main session asks each agent involved for its top lesson,
-  and records any promotions in the runbook's Log.
+**Delivery**
+- **Playable first.** Every runbook starts with a crude playable build within minutes; each step keeps it playable and
+  every report says how to see the change.
+- **Wire as you go.** A module isn't done until `integrator` wires it in and it's visible.
+- **Build the shared base first** (test harness, shared component, core machinery), then the many instances on top.
+- **Complete beats fast.** Never cut an agent short or have it report partial work. Speed comes from slicing up front.
+- **Small slices.** One concern, a few files, about 10 minutes per agent run. Different files run in parallel; the same
+  file runs in sequence. Never queue follow-ups onto a long-running agent. Every integrator slice gets its own qa slice.
+- **Exact targets in every prompt:** files, lines, repro and test file, checks in priority order, a time target.
+- **Read only your own area.** An agent reads its owned directories (Agents table), the `index.ts` public API of any
+  module it imports, and files its prompt names. No repo-wide reading or grep sweeps. If it needs something
+  elsewhere, it asks in its report or reads just that one file.
+- **No polish or extra rounds** after a feature passes qa unless the user asks; park ideas and tell the user.
 
-### Promoted lessons (all agents)
+**Running agents**
+- **Chase, don't kill.** Every dispatch has a time target. At the target and every ~5 min after, the main session reads
+  the agent's progress and pushes it to finish. Never stop, kill or time-box an agent; if one seems stuck, tell the user.
+- **No endless loops.** The same run, repro or fix at most twice with nothing changed. A failure not reproduced in 2
+  runs is reported as "not reproduced" with evidence. A fix that fails twice → stop and report cause + blocker. Same
+  "next" twice in the progress lines = loop → redirect with a concrete next step.
+- **Progress in real time.** Agents append `- HH:MM <agent> <item>: <what> — next: <next>` to `docs/agent-progress.md`
+  (single `>>`) at start, first compiling save, tests green, mutant result, blocked, done. qa/balance/performance runs
+  append one line to `docs/qa-log.md` before reporting. With every report, dispatch and user request the main session
+  updates `docs/qa-coverage.md` "Open now" (🔧 code done / ⏳ running / ✅ passed + mutant red / ❌ open) and the task list.
+- **Leave 20% CPU for the user.** Test launchers (`tests/e2e/cpuGate.mjs`, used by `cdp.mjs` and `run-all.mjs`) start
+  a Chrome/file only if load1 + 1 ≤ cores × 0.8 and < 4 headless Chromes run machine-wide. The main session checks
+  `uptime` before dispatching browser agents.
+- **Clean up.** Kill your own servers/browsers by PID when done (also on failure), never `pkill`/`killall` by pattern.
+  Headless Chrome always `--mute-audio`.
 
-- **Playable first (user rule).** Every runbook starts with a crude playable build the user can open in
-  the browser within minutes (stub data is fine). Each later step keeps it playable, and every report to
-  the user says how to see the change. Building modules and tests for a long time with nothing visible is
-  a failure, however good the tests are. (User, 2026-10-08.)
-- **Every save slice ships with a `defaultValue`** (unless it genuinely can't have one), and when
-  `persistence` bumps the save version, `integrator` adds the matching slices to `SAVE_SCHEMA` in the same
-  round. Otherwise the running game writes current-version saves missing a slice, which later fail to load.
-  (Seen twice, v2 and v3, 2026-10-08; it cost the user their progress once.)
-- **QA gate (user rule, always).** No change counts as done, and nothing is reported to the user as
-  working, until `qa` has checked it in the browser and reported. **One qa agent per feature** (user: "always 1 slice
-  each"), all in parallel on their own ports; a qa agent that finds its feature too big reports a split at once and
-  the main session dispatches the parts. Lint/test/build + `npm run e2e` + core smoke run once per round as their own
-  **gate** slice, not inside every feature slice. Never cut a qa run short; a run with no progress for 7 minutes is
-  stuck, so kill it and fix the cause. (User, 2026-10-08: "7mins is the given duration not 2".) Every integrator round is followed by
-  a `qa` round; its findings go to the owners, and the fix gets another `qa` round. The main session's own
-  browser checks add to qa; they don't replace it. (User, 2026-10-08: "we need enforce qa always".)
-- **Money is not an item (user rule).** Coins/currency are a player balance (a "wallet" save slice owned by `economy`:
-  balance, `add`, `spend → Result<'insufficientFunds'>`), shown in the player's info panel; never an ItemDef, never in an
-  inventory or bank slot. Shops, loot tables (a `coins` drop entry credits the wallet), quests and fees all go through
-  the wallet API. Not built yet. (User, 2026-10-08.)
-- **One item image everywhere (user rule).** "inventory view === bank view === dropped view === shop view": an item
-  looks identical in the inventory, bank, ground drops, shops, tooltips and anywhere else, because every view reads ONE icon
-  source per item id (render's icon function/texture key via the shared `ItemSlot`). No panel or view draws its own
-  item art. A test asserts every item id resolves to the same source on every path. (User, 2026-10-08.)
-- **Small slices for every agent (user rule).** Not only qa: integrator, animation and every other agent get ONE small,
-  focused task per run (a few files, one concern), not a bundle. Independent slices that touch different files run in
-  parallel as separate agents. Slices that touch the same file run in sequence. Never queue several follow-ups onto one
-  long-running agent. Reason: big bundles take very long, and one stuck part blocks everything. (User, 2026-10-08:
-  "same as integrator i think it will take very long if not sliced".) Each integrator slice is followed at once by
-  its OWN small qa slice that checks just that wiring in the browser. Don't batch them into a later qa round. (User,
-  2026-10-08: "integrator qa too".)
-- **Look at the game, not just the numbers (user rule).** Every qa report and every main-session check includes
-  looking at screenshots of the world as a player would: black, blank, magenta or missing areas are bugs until
-  proven otherwise, never "off-screen" or "still valid". `tests/e2e/visualSmoke.e2e.mjs` (colour sanity at key
-  spots) runs every round and the main session views its shots. (User, 2026-10-08: "all that qa but i need to spot
-  issues for you" — black water shipped while water.e2e passed 15/15.)
-- **Build the shared base first (user rule).** Before writing many of anything (tests, panels, skills, effects), the
-  owner first builds the shared base that makes each one right by default (fast test harness, shared component,
-  machinery in core/), then writes the instances on top. Fixing 40 slow tests afterwards is the cost of skipping this.
-  (User, 2026-10-08: "qa should have done this base before even designing the slow browser/e2e tests".)
-- **Complete beats fast (user rule).** Never cut an agent short, time-limit it, or have it report partial work.
-  Speed comes from slicing and parallel agents up front. (User, 2026-10-08: "i hate incomplete work more than slow
-  work".)
-- **Toggles are positive (user rule).** A setting's label names the thing, and On means it's active or shown
-  ("Sound", "Show HUD", "Minimap"); never negative labels like "Mute", "Hide" or "Disable". (User, 2026-10-08.)
-- **Locked things stay visible (user rule).** Unlock lists, achievements, quests and perk nodes show
-  locked entries greyed with their exact requirements and the player's current value ("Requires
-  Woodcutting 15 (you: 5)"); secrets show as "???" (optional hint) until revealed. Requirement status
-  comes only from `core`'s generic Requirement evaluator (met/unmet, reason, current value).
-  Skill unlock tree: a locked node never reveals what it is; it shows "Unknown" + a "?" glyph and its requirement.
-  (User, 2026-10-08: "we should not show if user hasn't unlocked … unknown".)
-- **Never break the live dev server.** The user plays on the dev server while agents work, and Vite hot-reloads
-  every saved file. Only save edits that compile (`npx tsc --noEmit` after each save). Do break-and-restore
-  "prove the test fails" checks in a copy, never in the live tree. Recipe (seconds, works with uncommitted
-  files): `rsync -a --exclude node_modules --exclude dist /Users/Derrick/Projects/idle-rpg/ "$SCRATCH/mut/" &&
-  ln -s /Users/Derrick/Projects/idle-rpg/node_modules "$SCRATCH/mut/node_modules"`, mutate there, then
-  `npx vitest run --root "$SCRATCH/mut" <file>`. "A copy is too much work" is not a reason to mutate live files.
-  Every e2e or mutant vite server must use its own `cacheDir`, never the default `node_modules/.vite`. Because the
-  scratch copy symlinks node_modules, that cache is shared with the user's :5173 server. When a test server
-  re-optimizes deps, it breaks the live game on fresh loads (HUD crash "null reading useContext"; seen 2026-10-08).
-  Start test servers only through `tests/e2e/vite.frozen.config.mjs`. Name every scratch mutant copy uniquely
-  (`$SCRATCH/mut_<slice>`, never plain `mut`) and grep that the mutation is still there right before and after the
-  run: parallel agents share the session scratchpad and a shared `mut` was overwritten mid-run (2026-10-08). Use
-  absolute paths in generated edit scripts. (Seen 3×, 2026-10-08: integrator's stray CSS file, the half-built
-  sidebar, animation's mangled data.ts.)
-- **Every agent runs e2e scripts in the FOREGROUND** (`node tests/e2e/<x>.e2e.mjs`, Bash timeout 420000) and reads the
-  output directly. Never background a test and poll a log for a word (a `until grep -q SUMMARY` loop waited forever on a
-  finished run that printed "13/15 checks passed"; 2026-10-08). The harness exits by itself.
-- **Clean up background processes.** Any agent that starts a dev server or headless browser kills it when done (also on
-  failure), by its own PID only, never `pkill`/`killall` by pattern (other agents' browsers die too); headless Chrome
-  always runs with `--mute-audio`. (2026-10-08: orphaned test browsers played game audio on the user's speakers; the
-  main session had to kill 7.)
-- **Wire as you go.** A finished module isn't done until `integrator` has wired it into the running game
-  and it's visible. Don't queue several finished modules for one big integration round later. (User,
-  2026-10-08: "sound, graphics, vfx, animations require integrator too? because i don't see it".)
-- **Absolute paths, never `cd`-then-write.** Create folders with `mkdir -p <absolute path>` and write
-  files by absolute path. A failed `cd X && …` silently runs the rest in the project root, where
-  parallel agents overwrite each other's files. (Seen by `items` and `equipment`, 2026-10-08.)
-- **Record QA results and status in real time (user rules).** Every qa/balance/performance run appends one line to
-  `docs/qa-log.md` (single `>>`, append-only) the moment it finishes, before its report. In the same response as EVERY
-  agent report (code-only too), every dispatch and every new user request, the main session updates both
-  `docs/qa-coverage.md` (the feature's row: 🔧 = code done but browser check owed, ⏳ + port = running, ✅ = qa passed +
-  mutant red, ❌ = queued; keep the "Open now" table current, move closed rows to `docs/archive/`) and the task list
-  (TaskCreate/TaskUpdate: a task per new item, flipped the moment it changes). Never batch these or let them go stale.
-  Reason: when the session hits its usage limit, results only in an agent's head are lost and must be re-run. (User,
-  2026-10-08: after the 04:55 restart; "please always remember to update these 2".)
-- **Small slices, watched from dispatch (user rule).** Keep each slice small enough to finish in about 10 minutes, and split
-  bigger work into more slices up front. Never time-box or cut an agent short ("Complete beats fast" still holds). Every Agent prompt
-  lists its checks in priority order and asks for a progress line every 5 min. The main session starts a stall watcher at
-  dispatch, acts only on its alarms (it doesn't relay every tick to the user), and keeps about 3 agents running at once, since load
-  over 100 made e2e and lint crawl. (User, 2026-10-08: "why do i need to chase and give deadlines…"; then "this is not right" when
-  a time box cut a slice short.)
-- **Agents report progress as they go (user rule).** Every agent appends one dated line to `docs/agent-progress.md`
-  (single `>>`, append-only, format `- HH:MM <agent> <item#>: <what happened> — next: <next step>`) at each milestone:
-  started, first compiling save, tests green, mutant result, blocked, done. Also send these as interim notes rather
-  than waiting for one final report. Reason: when quota runs out mid-task, another account or agent resumes from this
-  file plus the runbook, without redoing the work. (User, 2026-10-08.)
+**Testing and QA**
+- **QA gate.** Nothing is done or reported as working until `qa` checked it in the browser. One qa agent per feature;
+  a too-big feature is split at once. The main session's own checks add to qa, never replace it.
+- **Slice checks:** its own e2e file(s) + smoke + full unit suite; lint/test/build pass. Every new or changed test is
+  proven red by a mutant. Proof = ONE run of a test that asserts the behaviour + its red mutant; repeat runs ("3× green")
+  are never evidence.
+- **Full e2e run-all ONLY when the user asks.** Never per slice, runbook or release; never proposed or put in a Next step.
+- **Look at the game.** Every qa report and main-session check views screenshots: black, blank, magenta or missing areas
+  are bugs until proven otherwise.
+- **No speed claims without measurement.** Report measured before/after totals only.
+- e2e scripts run in the FOREGROUND (`node tests/e2e/<x>.e2e.mjs`, Bash timeout 420000); never poll a log for a word.
 
-## Stack
+**Never break the live dev server** (the user plays on :5173 while agents work; Vite hot-reloads every save)
+- Only save edits that compile (`npx tsc --noEmit` after each save).
+- Mutants and break-and-restore checks run in a copy: `rsync -a --exclude node_modules --exclude dist
+  /Users/Derrick/Projects/idle-rpg/ "$SCRATCH/mut_<slice>/" && ln -s /Users/Derrick/Projects/idle-rpg/node_modules
+  "$SCRATCH/mut_<slice>/node_modules"`, then `npx vitest run --root "$SCRATCH/mut_<slice>" <file>`. Unique name per
+  slice; grep the mutation right before and after the run.
+- Test servers start only via `tests/e2e/vite.frozen.config.mjs`, each with its own `cacheDir` (a shared
+  `node_modules/.vite` re-optimize crashes the live game).
+- Absolute paths only; `mkdir -p <abs>`; never `cd X && write` (a failed cd writes into the project root).
 
-Vite + TypeScript (strict) · Phaser 3 for the world · React 18 for the HUD panels · Zustand for
-shared state · vite-plugin-pwa for install/offline · Vitest for tests · ESLint + Prettier.
+**Game rules**
+- **Every save slice has a `defaultValue`**; when `persistence` bumps the save version, `integrator` adds the slices to
+  `SAVE_SCHEMA` in the same round (missing slices once cost the user their progress).
+- **Money is not an item.** Coins are a wallet balance (`economy`: `add`, `spend → Result<'insufficientFunds'>`), shown
+  in the player panel; shops, loot (`coins` drop), quests and fees use the wallet. Never an ItemDef or inventory slot.
+- **One item image everywhere.** Inventory, bank, ground, shop, tooltip all read ONE icon source per item id via the
+  shared `ItemSlot`; a test asserts it.
+- **Toggles are positive:** "Sound", "Show HUD", "Minimap"; never "Mute"/"Hide"/"Disable".
+- **Locked things stay visible:** greyed with exact requirement and current value ("Requires Woodcutting 15 (you: 5)"),
+  from `core`'s Requirement evaluator; secrets "???". Skill-tree locked nodes show "Unknown" + "?" + the requirement.
 
-**Hosting:** a static site (`dist/`) on **Cloudflare Workers Builds (static assets)**, connected by the user
-(2026-10-08) to the personal repo `GGfied/idle-rpg`. Live: https://idle-rpg.chunyuan90.workers.dev (previews:
-`*-idle-rpg.chunyuan90.workers.dev`; `curl` checks need a browser `-A` user-agent or Cloudflare returns error 1042): every push to `main` builds (`npm run build`) and deploys
-(`npx wrangler deploy`, config `wrangler.jsonc`: assets ./dist, SPA fallback); other branches upload preview
-versions (`npx wrangler versions upload`). `NODE_VERSION=20.18.1`, Vite `base: '/'`, headers in `public/_headers`.
-No deploy workflow; no backend yet. GitHub Actions runs CI (lint/test/build) on pushes/PRs. **A push deploys**, so never commit or push
-without the user's OK. Full deploy setup (headers, CI, first push of the new game) is scheduled after the 2.5D
-runbook (user decision).
+## Stack, hosting, commands
 
-## Commands
+Vite + TypeScript (strict) · Phaser 3 (world) · React 18 (HUD) · Zustand · vite-plugin-pwa · Vitest · ESLint + Prettier.
 
-```bash
-npm install
-npm run dev     # dev server
-npm run lint    # eslint (includes import-boundary rules) + prettier --check
-npm run test    # vitest run
-npm run build   # tsc --noEmit && vite build
-```
+Hosting: Cloudflare Workers Builds (static assets), repo `GGfied/idle-rpg`, live https://idle-rpg.chunyuan90.workers.dev
+(previews `*-idle-rpg.chunyuan90.workers.dev`; `curl` needs a browser `-A` or Cloudflare returns 1042). Push to `main`
+builds + deploys (`wrangler.jsonc`: assets ./dist, SPA fallback); other branches upload previews. `NODE_VERSION=20.18.1`,
+headers in `public/_headers`. GitHub Actions runs CI (lint/test/build). **A push deploys: never commit or push without
+the user's OK.**
 
-A change is done only when `npm run lint && npm run test && npm run build` pass and you have
-checked it in the running dev server, on desktop and in a phone viewport if it touches UI or input.
-Use `npm run dev -- --host` to open it on a real phone on the same Wi-Fi.
+`npm run dev` · `npm run lint` (eslint incl. import boundaries + prettier) · `npm run test` · `npm run build`
+(tsc + vite build) · `npm run e2e` (smoke). Done = lint + test + build pass and checked in the dev server on desktop and
+a phone viewport if it touches UI or input (`npm run dev -- --host` for a real phone).
 
-## Folder structure
+## Code structure
 
 ```
-docs/runbooks/             One runbook per task: resumable state (see above)   (main session)
-src/
-  core/                    Shared foundations. No game content, no Phaser/React.
-    engine/                tick.ts (600 ms loop), rng.ts (seeded), events.ts (typed bus) (core)
-    persistence/           Save schema + versions, migrations, validation, storage
-                           adapter, autosave, slots, export/import, session resume (persistence)
-    contracts/             Interfaces between features: AttackStyle, CombatModifier,
-                           CollisionGrid, Requirement, ...                     (core)
-    items/                 ItemDef schema, defineItems(), registry, ref checks,
-                           ground items, value rules                          (items)
-    inventory/             28-slot inventory, stacking, use-on intents, bank   (inventory)
-    skills/                Shared skill machinery: action loop, successChance(),
-                           recipe/"make X" runner, depleting/respawning nodes  (core)
-    progression/           XP curve, levels, skill registry, requirements      (xp)
-    equipment/             Gear + tool types, equip/unequip, bonuses, bestTool  (equipment)
-    utils/                 Generic pure helpers: weighted tables, math, Result,
-                           tick timers, id helpers                             (core; any agent may add)
-  features/                Gameplay modules. Every one follows the module template below.
-    world/                 Regions, collision grid, locations, spawns, doors   (map)
-    movement/              Pathfinding, click-to-move, adjacency               (movement)
-    npc/                   Friendly NPC definitions, behaviour, spawning, shops (npc)
-    monsters/              Monster definitions, aggression AI, spawn tables, respawn (monsters)
-    story/                 Dialogue trees, quests, quest flags                 (story)
-    combat/                Combat loop, melee, monster combat profiles, loot   (combat)
-    skills/
-      woodcutting/  mining/  fishing/  cooking/  smithing/  crafting/          (one agent each)
-      ranged/  magic/  prayer/                                                 (one agent each)
-  render/                  Phaser drawing: map/tiles, entity views, camera, depth
-                           layers, pointer → tile, shared render helpers       (graphics)
-    animation/             Anim definitions, entity anim state machine, facing,
-                           tick interpolation, object state anims             (animation)
-    vfx/                   Event-driven one-off effects: hit splats, XP drops,
-                           projectiles, particles, markers, shake (pooled)    (vfx)
-  audio/                   Event → sound dispatcher, music/ambience, volume,
-                           mobile audio unlock                                (sound)
-  platform/                Device layer: unified mouse/touch gestures, viewport
-                           scaling, safe areas, PWA lifecycle               (mobile)
-  app/                     Integration layer.                                  (integrator)
-    registry.ts            The one list of features, attack styles and modifiers to load
-    store.ts               Zustand store that joins feature state
-    scenes/                Phaser scenes: wire features + render together
-    ui/                    React HUD (hud). components/ (shared Panel, ItemSlot, Tooltip, ProgressBar,
-                           ContextMenu) + panels/ (inventory, skills, equipment, chat, dialogue, ...)
-  assets/                  sprites/ tilesets/ (graphics) · vfx/ (vfx) · audio/ (sound) · maps/*.tmj (map)
-public/                    PWA manifest + icons (mobile) · _headers, _redirects (infra)
-.github/workflows/         CI + deploy pipelines                               (infra)
-  test-utils/              Shared builders: makeState(), seededRng(), withInventory(),
-                           withLevels(), runTicks(), contentRefs()            (qa; any agent may add)
-tests/e2e/                 Browser smoke tests                                 (qa)
+src/core/       engine/ (tick 600 ms, seeded rng, events) · contracts/ · skills/ (action loop, successChance, runRecipe,
+                nodeState) · utils/ · persistence/ · items/ · inventory/ · progression/ · equipment/
+src/features/   world/ movement/ npc/ monsters/ story/ combat/ facilities/ economy/ achievements/ tutorial/
+                skills/{woodcutting,mining,fishing,cooking,smithing,crafting,ranged,magic,prayer}/
+src/render/     Phaser drawing, camera, picking · animation/ · vfx/
+src/audio/  src/platform/ (input, viewport, PWA)  src/app/ (registry.ts, store.ts, scenes/, ui/ = React HUD)
+src/assets/  public/  .github/workflows/  src/test-utils/  tests/e2e/
 ```
 
-### Module template (every folder in `features/` and `features/skills/`)
+**Module template** (every `features/*` and `features/skills/*`): `index.ts` (public API only; import a module only
+through it) · `types.ts` · `data.ts` (content as typed constants; split to `data/` past ~200 lines) · `logic.ts` (pure
+functions; split by concern past ~300 lines) · colocated `*.test.ts`. No `helpers.ts`/`misc.ts`/`utils.ts` in a feature.
 
-```
-<module>/
-  index.ts        Public API only: re-exports. Other code imports from here and never deeper.
-  types.ts        Types for this module's data and state.
-  data.ts         Content (nodes, recipes, items, monsters, dialogue) as typed constants.
-                  Becomes data/ with one file per category when it grows past ~200 lines.
-  logic.ts        Pure functions over state. Split by concern (e.g. ai.ts, shops.ts) past ~300 lines.
-  *.test.ts       Colocated tests: logic.test.ts, data.test.ts.
-```
+**Dependencies** (ESLint-enforced; aliases `@core @features @render @audio @platform @app @test-utils`):
+app → features, render, audio, platform, core · platform/audio → core (+ Phaser types) · render → core types only,
+never game logic · features → core only, never another feature · core → core/utils + core/contracts only. Features talk
+via string ids, events (`core/engine/events.ts`) and interfaces (`core/contracts/`); `app/registry.ts` connects them.
 
-Same names in every module, so anyone can find the content, the rules and the API without
-reading the code. Don't create `helpers.ts`, `misc.ts` or `utils.ts` inside a feature.
-Something general enough to need that name belongs in `core/utils`.
+**DRY:** search `core/utils`, `core/skills`, `test-utils` first. Rule of two: a second user moves the logic to `core/` in
+the same change. Shared machinery: `successChance(level, low, high)`, `rollTable(rng, table)`, `runRecipe`,
+`nodeState` depletion/respawn, `defineItems()`/`defineRecipes()`. Data over code: new content is a `data.ts` entry,
+never an `if (id === …)` branch. One source of truth per fact (XP curve in `core/progression`, inventory rules in
+`core/inventory`, bonuses in `core/equipment`). HUD panels use `app/ui/components/` (Panel, ItemSlot, Tooltip,
+ProgressBar, ContextMenu). Tests use `test-utils` builders (`makeState`, `withInventory`, `withLevels`, `runTicks`,
+`seededRng`, `contentRefs`). Don't over-abstract: extract on the second real use; files < ~300 lines.
 
-## Dependency rules (enforced by ESLint `no-restricted-imports` and path aliases)
+**Architecture:** game logic is pure TS in `core/` + `features/`; only `render/` and `app/scenes/` import Phaser, only
+`app/ui/` imports React. One 600 ms tick drives everything; rendering interpolates. Tickable features expose
+`tick(state, ctx) → { state, events }`. All randomness via `core/engine/rng.ts`. `combat` owns the loop + melee;
+`ranged`/`magic` provide an `AttackStyle`, `prayer` `CombatModifier`s. Item ids are global snake_case via
+`defineItems()`; duplicates fail a test. Saves only via `core/persistence`; any persisted change bumps the version +
+migration + test against the previous fixture; loaded saves are untrusted (validate, never eval/spread). Plain-text game
+text only. Mobile-first: tap = click, long-press = menu, pinch = zoom, no hover-only info, targets ≥ 44 px, input only via
+`platform/input`, responsive CSS on shared components. Keep logic deterministic and input as intents (future
+multiplayer, server-authoritative; no backend yet). Original names and art only, no Jagex assets. Don't add libraries
+or features nobody asked for.
 
-```
-app         →  features, render, audio, platform, core
-platform    →  core only (plus Phaser types for scale config)
-render      →  core (types only); reads state, never game logic
-               (render/animation and render/vfx may also use shared render/ helpers)
-audio       →  core only (plus Phaser sound types); reacts to events, never game logic
-features/*  →  core only. Never another feature, render or app.
-core/*      →  core/utils and core/contracts only; never features, render or app
-```
+**Naming:** files `camelCase.ts`, components `PascalCase.tsx`; content ids `snake_case`; events past-tense camelCase
+(`treeDepleted`); types `PascalCase`, content definitions end in `Def`.
 
-Path aliases: `@core/*`, `@features/*`, `@render/*`, `@audio/*`, `@platform/*`, `@app/*`, `@test-utils/*`. Use them instead
-of `../../..`. Import a module only through its `index.ts`.
+## Agents (`.claude/agents/`; paths under `src/`; each file's description says what it's for)
 
-Features talk to each other through **string ids** (items, npcs, locations, skills), **events** on
-`core/engine/events.ts`, and **interfaces** in `core/contracts/`. `app/registry.ts` connects them.
+| Agent | Owns |
+|---|---|
+| `core` | `core/` engine, contracts, skills, utils; tooling configs (package.json, tsconfig, vite/vitest, eslint) |
+| `items` · `inventory` · `xp` · `equipment` · `persistence` | `core/items` · `core/inventory` · `core/progression` · `core/equipment` · `core/persistence` |
+| `integrator` | `app/` except `app/ui`, `index.html` (registry, store, runtime, scenes, wiring) |
+| `hud` | `app/ui` (shared components, panels, HUD layout) |
+| `mobile` | `platform/`, `public/`, mobile layout in `app/ui` |
+| `map` · `movement` · `npc` · `monsters` · `story` · `combat` | `features/world` + `assets/maps` · `features/movement` · `features/npc` · `features/monsters` · `features/story` · `features/combat` |
+| `facilities` · `economy` · `achievements` · `tutorial` | `features/facilities` · `features/economy` · `features/achievements` · `features/tutorial` |
+| `woodcutting` `mining` `fishing` `cooking` `smithing` `crafting` `ranged` `magic` `prayer` | `features/skills/<skill>` |
+| `graphics` | `render/` except animation/vfx, `assets/sprites`, `assets/tilesets` |
+| `animation` · `vfx` · `sound` | `render/animation` · `render/vfx` + `assets/vfx` · `audio/` + `assets/audio` |
+| `qa` | `test-utils/`, `tests/`, all `*.test.ts`; never fixes production code |
+| `infra` | `.github/workflows/`, `public/_headers`, hosting config; asks before anything outward-facing or costly |
+| `netcode` · `backend` | `net/` · `server/` (future) |
+| `balance` · `performance` · `security` | read-only (balance may write `tests/balance`); report with numbers |
 
-## DRY and reuse rules
-
-1. **Check `core/` before writing a helper.** Search `core/utils`, `core/skills` and `test-utils`
-   first. If something close exists, extend it instead of writing a second version.
-2. **Rule of two.** If a second module needs the same logic, move it to `core/` (`core/utils` if
-   it's generic, the matching `core/<system>` if it's game machinery) in the same change, and point
-   both callers at it. Never copy-paste between features.
-3. **Shared game machinery lives in `core/skills`.** The intended reuse:
-   - `successChance(level, low, high)`: the OSRS-style interpolated roll used for chopping, mining,
-     catching fish and cooking burn rates.
-   - `rollTable(rng, table)` (in `core/utils`): one weighted-table roller for loot drops, fish
-     catches and gem rolls.
-   - `runRecipe(state, recipe)` / "make X": consumes inputs, checks tools and levels, grants XP and
-     outputs. Used by cooking, smithing, crafting and smelting.
-   - `nodeState` helpers: depletion and respawn-after-N-ticks, shared by trees, rocks, fishing-spot
-     moves and NPC respawns.
-   - `defineItems()` / `defineRecipes()`: typed builders that validate ids at load time.
-   A skill module then contains only data plus truly skill-specific rules (bait use, spot moving,
-   burn levels).
-4. **Data over code.** New trees, rocks, fish, recipes, monsters, spells or quests are new entries
-   in a `data.ts`, never new functions or `if (id === ...)` branches. Needing a branch means the
-   machinery is missing a generic option. Add the option to `core/` instead.
-5. **One source of truth per fact.** The XP curve is only in `core/progression`, the inventory
-   rules only in `core/inventory`, and gear bonuses only in `core/equipment`. Item ids are declared
-   once by the owning module and referenced everywhere else as string ids, never redefined.
-6. **Shared UI pieces.** HUD panels use `app/ui/components/`. A panel never hand-rolls its own
-   slot grid, tooltip or progress bar.
-7. **Shared test builders.** Tests build state with `test-utils/` (`makeState`, `withInventory`,
-   `withLevels`, `runTicks`, `seededRng`) instead of writing state literals in each test.
-   Content-reference checks use one generic `contentRefs()` validator.
-8. **Don't over-abstract either.** Extract on the second real use, not in anticipation. Prefer a
-   plain function to a class or framework. Keep files under ~300 lines and functions short.
-
-## Architecture rules
-
-- **Game logic is pure TS** in `core/` and `features/`. Only `render/` and `app/scenes/` import
-  Phaser; only `app/ui/` imports React.
-- **One 600 ms game tick** (`core/engine/tick.ts`) drives skills, combat, movement and NPCs.
-  Rendering interpolates between ticks. Game logic never runs on frame time.
-- **Every tickable feature** exposes `tick(state, ctx) → { state, events }` with the same signature,
-  so `app/registry.ts` can loop over them.
-- **All randomness** goes through `core/engine/rng.ts` (seeded), so tests can replay results.
-- **Combat plug-ins**: `combat` owns the loop and melee. `ranged` and `magic` provide an
-  `AttackStyle`; `prayer` provides `CombatModifier`s (both from `core/contracts/`).
-- **Item ids are global snake_case strings** (`"oak_logs"`, `"raw_shrimp"`), registered through
-  `defineItems()`. Duplicate ids fail a test.
-- **Saves** go only through `core/persistence`. Each feature exposes `serialize`/`deserialize` for
-  its own slice. Any change to persisted state bumps the version and adds a migration plus a test
-  against the previous version's fixture, in the same change. Loaded saves are untrusted: validate their
-  shape and never `eval` them or spread them into prototypes. Render all game text as plain text
-  (no `dangerouslySetInnerHTML`).
-- **Mobile-first input.** Every interaction works with touch: tap = left-click, long-press =
-  right-click menu, pinch = zoom. No hover-only information. Tap targets ≥44px. Input goes only
-  through `platform/input`, so there's one code path for every device. The HUD uses responsive
-  CSS on shared components, never separate mobile components.
-- **Future: multiplayer + server persistence (user's stated direction, 2026-10-08).** Don't block it: game logic
-  stays pure, deterministic (seeded RNG, the tick drives everything, no wall-clock in rules) and serializable, so it
-  can later run server-authoritative (e.g. Cloudflare Workers + Durable Objects, D1). Player input stays as
-  intents (walkTo, interact, …), never direct state mutation from the UI; save slices stay the unit of
-  persistence. Not built yet: no backend until its own runbook.
-- Use original names and art only. No Jagex assets.
-- Keep it small. Don't add libraries or features nobody asked for.
-
-## Naming
-
-- Files and folders: `camelCase.ts`, with React components as `PascalCase.tsx`. Module files use
-  the fixed template names.
-- Content ids: `snake_case` strings. Events: `camelCase` past tense (`treeDepleted`, `levelUp`).
-- Types: `PascalCase`; content definitions end in `Def` (`ItemDef`, `ToolDef`, `MonsterDef`).
-
-## Subagents (`.claude/agents/`)
-
-| Agent | Owns | Use for |
-|---|---|---|
-| `core` | `core/` (engine, contracts, skills, utils), tooling configs | Project setup, tick/RNG/events, contracts between features (incl. the one generic `Requirement` evaluator), skill machinery, shared helpers, lint/test/build config |
-| `items` | `core/items` | ItemDef schema, item registry and reference checks, ground items (drops, despawn, pick-up), item values, drop tables (one shared format + roll, referenced by id from monsters/chests/rewards) |
-| `inventory` | `core/inventory` | 28-slot inventory, stacking, move/drop, use-item-on intents, bank, item-count queries |
-| `integrator` | `app/` (not `app/ui`), `index.html` | Registry, store + actions, runtime/tick/save wiring, Phaser scenes; wires finished features into the game |
-| `hud` | `app/ui` | React HUD: shared components, panels (inventory, bank, skills, chatbox, tracker, popups, settings), HUD layout desktop + phone |
-| `facilities` | `features/facilities` | Interactive world objects (bank chest, loot chests, furnace, range, anvil, altar, fires) as data: options, interaction rules, object state |
-| `netcode` | `net/` (future) | Multiplayer: shared protocol, server-authoritative tick, snapshot/delta sync, prediction/interpolation for latency, reconnect, cheat-resistant intent validation |
-| `backend` | `server/` (future, repo root) | Cloud: Cloudflare Workers + Durable Objects (rooms), D1/KV/R2 (accounts, cloud saves), auth, rate limits, server migrations, cost |
-| `achievements` | `features/achievements` | Achievements as data (counts, level goals, one-offs), progress from events, completion + rewards by id, titles/unlocks; perk trees only if adopted |
-| `tutorial` | `features/tutorial` | First-time onboarding steps, hint targets, step completion from events, skip/replay, progress flags |
-| `balance` | read-only (+ `tests/balance`) | Simulates XP/hour, time-to-level and rates against targets; proposes data changes to owners with numbers |
-| `story` | `features/story` | Dialogue, quests (stages, requirements, rewards as data), quest flags, story text |
-| `npc` | `features/npc` | Friendly NPCs (villagers, shopkeepers, quest givers): definitions, options (a shopkeeper's "Trade" points to a shop id), simple behaviour, spawning |
-| `economy` | `features/economy` | Wallet (coins are a balance, not an item), shops (stock, restock, buy/sell, pricing), coin rewards, later trading/market |
-| `monsters` | `features/monsters` | Hostile creatures: definitions, aggression/wander/flee/leash AI, spawn tables per area, death + respawn |
-| `map` | `features/world`, `assets/maps` | Regions, Tiled maps, collision grid, named locations, spawn points, doors and stairs, teleport destinations |
-| `combat` | `features/combat` | Combat loop, melee, combat profiles for monsters, damage, rolling a monster's drop table on death, player HP + death |
-| `movement` | `features/movement` | Pathfinding on `map`'s collision grid, click-to-move, walk/run, adjacency |
-| `woodcutting` | `features/skills/woodcutting` | Trees, axes, logs, chop rates |
-| `mining` | `features/skills/mining` | Rocks, pickaxes, ores, depletion/respawn |
-| `fishing` | `features/skills/fishing` | Fishing spots, rods/nets/bait, catch rates |
-| `cooking` | `features/skills/cooking` | Recipes, burn chance, fire vs range, healing values |
-| `smithing` | `features/skills/smithing` | Smelting, smithing at an anvil, metal tiers, gear stats it produces |
-| `crafting` | `features/skills/crafting` | Leather armour, gem cutting, jewellery |
-| `ranged` | `features/skills/ranged` | Bows, ammo, ranged `AttackStyle`, ammo recovery |
-| `magic` | `features/skills/magic` | Runes, spellbook, combat spells (`AttackStyle`), utility spells |
-| `prayer` | `features/skills/prayer` | Burying bones, prayer points, prayers as `CombatModifier`s |
-| `xp` | `core/progression` | XP curve, levels, skill registry, requirements, combat level, level-up events, XP tuning |
-| `equipment` | `core/equipment` | Combat and skilling gear: slots, `EquipmentDef`/`ToolDef` types, equip/unequip rules, bonus totals, `bestTool`/`hasTool` |
-| `graphics` | `render/` (not animation/vfx), `assets/sprites`, `assets/tilesets` | Sprites, tilesets, drawing maps, entity views, camera, depth layers, pointer → tile, visual polish |
-| `animation` | `render/animation` | Animation definitions, entity animation state machine, facing, tick interpolation, object state animations |
-| `vfx` | `render/vfx`, `assets/vfx` | Hit splats, XP drops, projectiles, particles, click markers, level-up effects, screen shake |
-| `sound` | `audio/`, `assets/audio` | Event-driven sound effects, region music and ambience, volume settings, mobile audio unlock |
-| `qa` | `test-utils/`, `tests/`, all `*.test.ts` | Writes and runs tests, plays the game in the browser, reports bugs. Doesn't fix production code. |
-| `performance` | read-only by default | Measures FPS, tick cost, memory, bundle size and save size; proposes or makes fixes backed by before/after numbers |
-| `mobile` | `platform/`, `public/`, mobile layout in `app/ui` | Touch gestures, responsive HUD, scaling/safe areas, PWA install + offline, mobile verification |
-| `infra` | `.github/workflows/`, `public/_headers`, hosting config | Cloudflare Pages hosting (Git-connected), CI/CD, security/cache headers, releases. Asks before anything outward-facing or costly. |
-| `persistence` | `core/persistence` | Save schema, versions and migrations, save validation, storage adapter, autosave, save slots, export/import, session resume, offline progress |
-| `security` | read-only | Dependency audit, save/import validation, XSS in rendered text, CSP, secrets in the bundle. Reports findings. |
-
-Paths in this table are relative to `src/`. Give each agent one clear task, and name the
-interface, item ids or event it must produce. Every agent follows the module template, the
-dependency rules and the DRY rules above. When an agent adds a helper to `core/utils` or
-`test-utils`, it lists it in its report. When it's done, `integrator` wires the result into
-`app/` (registry, store, scenes, UI), `qa` verifies, and the main session updates the runbook. Use
-`performance` after big features or when something feels slow.
+Give each agent one clear task naming the interface, ids or event it must produce. Agents list any helper they add to
+`core/utils` or `test-utils`. Flow: owner → `integrator` wires → `qa` verifies → main session updates the runbook.

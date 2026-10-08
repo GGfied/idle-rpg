@@ -3,6 +3,7 @@
 // Fast base: runParallel phone + landscape + desktop x webgl + canvas (6 children, own port each), wait-on-state
 // (arrival, camera still, frame counts) instead of sleeps/polling loops, budget 60 s.
 // Run: node tests/e2e/nameplateClampPlay.e2e.mjs   (E2E_PORT=base, SHOTS_DIR=..., VPS=phone,landscape,desktop)
+import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import { check, expect, forEachCombo, runParallel, withGame } from './lib.mjs';
 
@@ -10,6 +11,10 @@ import { check, expect, forEachCombo, runParallel, withGame } from './lib.mjs';
 // SHOTS_DIR as before; one end-of-run shot per combo (outside recording) is always written for a look at the game.
 const SHOTS_IN_RECORDING = !!process.env.SHOTS_DIR;
 process.env.SHOTS_DIR ??= new URL('./.shots-nameplate-play/', import.meta.url).pathname;
+// One source: parse the designed keep-out cap (CSS px) from the render code instead of copying the number.
+const MAX_SIDE_SHIFT = +/MAX_SIDE_SHIFT\s*=\s*(\d+)/.exec(
+  readFileSync(new URL('../../src/render/labelKeepOut.ts', import.meta.url), 'utf8'),
+)[1];
 const PORT = 9170; // combos use 9170..9175
 const BUDGET_MS = 60e3;
 const COMBOS = await runParallel(import.meta.url, PORT, {
@@ -21,17 +26,23 @@ const COMBOS = await runParallel(import.meta.url, PORT, {
 const SAMPLER = `(() => { const sc = window.__idleRpg.scene().camera.scene; const cam = sc.cameras.main;
   const L = (window.__lp = window.__lp || { on: false, frames: [], hooked: false }); let nid = window.__lpn || 0;
   if (L.hooked) return; L.hooked = true;
+  // entity-anchored label box (before any sideways keep-out shift) touches a HUD keep-out rect (+8 px): the designed shift applies
+  const nearKeepOut = (c, m, t, v, r) => { const z = r.width / v.width; const x0 = r.left + ((c.x - v.x) * z) - t.width * z / 2 - 8; const x1 = x0 + t.width * z + 16;
+    const y = r.top + (m.ty - v.y) * z; const y0 = y - 20, y1 = y + 20;
+    return [...document.querySelectorAll('.topright, .tabs, .chatbox')].some((e) => { const b = e.getBoundingClientRect();
+      return b.width > 0 && b.height > 0 && x0 < b.right && x1 > b.left && y0 < b.bottom && y1 > b.top; }); };
   sc.events.on('render', () => { if (!L.on) return; const v = cam.worldView; const r = sc.game.canvas.getBoundingClientRect(); const rows = [];
     sc.children.list.forEach((c) => { if (!c.list) return; const t = c.list.find((o) => o.type === 'Text' && o.visible && o.text); if (!t) return;
       if (!c.visible || c.alpha < 0.01) return; if (c.__lid == null) c.__lid = ++nid; const m = t.getWorldTransformMatrix(); const hw = t.width / 2;
       rows.push({ id: c.__lid, text: t.text, cx: c.x, lx: m.tx, hw, L: m.tx - hw - v.left, R: v.right - (m.tx + hw), vl: v.left, vr: v.right,
-        sx: r.left + ((m.tx - v.x) / v.width) * r.width, off: t.x, cy: c.y }); });
+        sx: r.left + ((m.tx - v.x) / v.width) * r.width, off: t.x, cy: c.y, zoom: r.width / v.width, near: nearKeepOut(c, m, t, v, r) }); });
     L.frames.push({ t: performance.now(), vl: v.left, vr: v.right, rows }); }); })()`;
 
 function analyse(frames) {
   let minMargin = 1e9,
     clipped = 0,
     maxDetach = 0,
+    maxDetachNear = -1e9,
     ghost = 0,
     reversals = 0,
     atEdge = 0,
@@ -50,7 +61,10 @@ function analyse(frames) {
       if (m < 6) atEdge++;
       // entity comfortably inside the clamp zone (6 px buffer for the 1-frame camera lag) -> label must sit on it
       if (r.cx - r.hw - 10 > r.vl && r.cx + r.hw + 10 < r.vr)
-        maxDetach = Math.max(maxDetach, Math.abs(r.lx - r.cx));
+        // a label near a HUD keep-out rect may be shifted sideways by up to MAX_SIDE_SHIFT css px (design); track it apart
+        if (r.near)
+          maxDetachNear = Math.max(maxDetachNear, Math.abs(r.lx - r.cx) - MAX_SIDE_SHIFT / r.zoom);
+        else maxDetach = Math.max(maxDetach, Math.abs(r.lx - r.cx));
       // label drawn inside the view for an entity beyond the cull margin (96 px + 14): culling/hide must have removed it
       if (m >= -0.5 && (r.cx < r.vl - 110 || r.cx > r.vr + 110)) ghost++;
       else if (m >= -0.5 && (r.cx < r.vl - 2 * r.hw || r.cx > r.vr + 2 * r.hw)) nearFloat++; // inside cull margin: info
@@ -86,6 +100,7 @@ function analyse(frames) {
     clipped,
     atEdge,
     maxDetach: +maxDetach.toFixed(2),
+    maxDetachNear: +Math.max(maxDetachNear, -99).toFixed(2),
     ghost,
     nearFloat,
     reversals,
@@ -159,7 +174,7 @@ await withGame(
       // the DEV hook clamps tickMs to 30..600, so ticks cannot freeze (the old 3600000 was clamped to 600 too); the
       // player is idle after the teleport, so only the drag moves the camera
       await g.setTickMs(600);
-      await g.teleportSettled(94, 64);
+      await g.teleportSettled(12, 9); // beside the static Banker: the pan always has a named entity (no wandering NPC needed)
       const view0 = await g.eval(
         '(() => { const v = window.__idleRpg.scene().camera.scene.cameras.main.worldView; return { x: v.x, y: v.y }; })()',
       );
@@ -219,10 +234,12 @@ await withGame(
       );
       await check('p3', `${vp}: label stays on its entity when not at an edge`, async () => {
         expect(
-          sc.every(([, s]) => s.a.maxDetach < 2 + s.a.camStep),
-          `detach world px ${all('maxDetach')} camStep ${all('camStep')}`,
+          sc.every(
+            ([, s]) => s.a.maxDetach < 2 + s.a.camStep && s.a.maxDetachNear < 2 + s.a.camStep,
+          ),
+          `detach world px ${all('maxDetach')} beyond-keep-out ${all('maxDetachNear')} camStep ${all('camStep')}`,
         );
-        return `max detach ${all('maxDetach')} (allowed 2 + camera step ${all('camStep')})`;
+        return `max detach ${all('maxDetach')} (allowed 2 + camera step ${all('camStep')}; labels near a HUD rect: allowed + ${MAX_SIDE_SHIFT} css px keep-out shift, excess ${all('maxDetachNear')})`;
       });
       await check('p4', `${vp}: pan really moved the camera`, async () => {
         expect(panned > 40, `pan only ${panned}`);

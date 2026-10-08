@@ -12,9 +12,11 @@ Legend: ✅ verified (pass + test proven to fail when broken) · 🔧 code done,
 | Item | Status |
 |---|---|
 | Closed today (fire/cooking, lighting polish, black water/CANVAS, roofs, nameplates, fish art, world-edge seam, Show HUD, camera inset, cook pose, M1-M3 elbows, e2e speed + #39 fast-base sweep, Q4/Q4b harness, chat flake, fireArt ground, phone label keep-out + banner, lint speed, g.settle conversion) | ✅ — rows archived in docs/archive/qa-coverage-2026-10-08.md |
-| Smoke flakes c (swing msg), d (canopy tap → neighbour; `graphics`), h (2-frame jitter) | 🔧 12:08: c now latches swing lines via store.subscribe (chat cap scrolled them out); d failure now prints pending/session tree ids (graphics bug if they differ); h load-induced, no change (0 frames > 15%). Only 1 live run since — flake fix not proven |
-| Full e2e suite health | 🔧 every file green in its own slice since the 12:05 full run (28/86 red then). Full run-all CANCELLED by user 23:1x, so the suite total, worldEdge seam and bigWorld phone (73 s) recheck ride on each file's next qa run. Known flakes under load: isoTap, fishChat, camJerk, roofs canvas ridge px |
-| Cook pose rear hand (M4) + elbow loose ends (M5) | ❌ M4 parked (qa stopped before any browser ran; not requested, over the ~4 browser cap): rear hand attach/clamp/visibility never checked. ❌ M5 in the #39 sweep: lint newfish + chatUi, cookPose > 60 s budget, add M4's rear-hand check to cookPose |
+| B1 Brave: no walking animation | ✅ reduced mode walks at half amplitude; animReduced.e2e 10/10 desktop + phone in Brave, mutant red. User to confirm on their profile |
+| B2 Animations auto-defaulted to Reduced | ✅ default On, v1 reduced→on, explicit Reduced kept; animDefault.e2e in Brave desktop + phone, mutant red |
+| Full run-all R2 (2026-10-09, user ask) | 93/103. Fixed since: isoTap + smoke c/d (stale tests ✅), nameplate p3 (stale oracle ✅). ⏳ axeSound first hit gap (T-9 integrator). Flakes that passed alone: fishing, newfish, depositChest, playerLook, camJerk, ground |
+| e2e harness: CPU gate (80%, ≤4 Chromes) ✅; S1 shared server ⏳ (post-swap: smoke, isoTap, nameplateClampPlay, skillTags) | |
+| Cook pose rear hand (M4) | ❌ parked, only on the user's ask |
 | Locked dialogue: amber "important" chat lines | ➖ no important lines exist yet |
 | Not covered by choice: landscape phone for most rows; GATE of every e2e on one build (user skipped) | — |
 
