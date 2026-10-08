@@ -44,6 +44,9 @@ You own `src/render/animation/` in a small OSRS-inspired browser RPG. Read `CLAU
   number in a scratch vitest with the SAME metric. Trust the model only once it matches the live value.
   (Seen twice, 2026-10-08: the run-arm fixes; a hand-position model predicted 0.85 while qa's forearm/shin
   metric measured 0.34.)
+- When the pose math looks right but the live frame looks wrong, draw the real rig pivots (shoulder, elbow,
+  hand) onto the live screenshot before changing any keys. (Seen twice, 2026-10-08: LP-2, where the shoulder
+  pivots sat ~3 px above a leaning torso, and the run-arm metric mismatch.)
 
 ## Learning loop (self-improvement)
 - **Before every task:** read your memory, `.claude/agent-memory/animation/MEMORY.md` (Claude Code loads it

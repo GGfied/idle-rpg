@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { phaserScaleConfig } from '@platform/viewport';
+import { followParentSize, phaserScaleConfig, remeasureScale } from '@platform/viewport';
 import { watchViewport } from '@app/scenes/remeasure';
 import { WorldScene } from '@app/scenes/WorldScene';
 import type { SceneDeps } from '@app/scenes/WorldScene';
@@ -26,13 +26,12 @@ export function createGame(parent: HTMLElement, deps: SceneDeps): GameHandle {
   // and the first layout may settle after boot (fonts, load). Re-measure on each of those.
   const refresh = (): void => {
     try {
-      game.scale.refresh();
+      remeasureScale(game.scale);
     } catch {
       // The game may already be destroyed.
     }
   };
-  const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(refresh);
-  observer?.observe(parent);
+  const unfollow = followParentSize(parent, game.scale);
   const raf = requestAnimationFrame(refresh);
   void document.fonts?.ready.then(refresh);
   window.addEventListener('load', refresh);
@@ -42,7 +41,7 @@ export function createGame(parent: HTMLElement, deps: SceneDeps): GameHandle {
   return {
     destroy: () => {
       unwatch();
-      observer?.disconnect();
+      unfollow();
       cancelAnimationFrame(raf);
       window.removeEventListener('load', refresh);
       game.destroy(true);

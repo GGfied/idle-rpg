@@ -7,7 +7,9 @@ import type { TreeShape } from './treeArt';
 import { BOOTH_HALF_W, BOOTH_SIGN_TOP, CHEST_HALF_W, CHEST_TOP, OBJECT_ART } from './objectArt';
 import { ROCK_HALF_W, ROCK_TOP } from './rockArt';
 import { SPOT_HALF_W, SPOT_TOP } from './spotArt';
+import { FIRE_HALF_W, FIRE_TOP } from './fireArt';
 import { figureRects } from './figureArt';
+import { attachLabelClamp } from './labelClampHook';
 import type { FigureLook, FigureRect, FigureView } from './figureArt';
 import { NPC_LOOKS, PLAYER_LOOKS } from './figureLooks';
 import type { NpcSpriteKey, PlayerLookId } from './figureLooks';
@@ -89,7 +91,7 @@ const TREE_CANOPY_CENTRE_Y = 26;
 const FIGURE_TOP = 31;
 const FIGURE_HALF_W = 6;
 
-export type HitKind = TreeKind | ObjectKind | NodeKind | 'npc';
+export type HitKind = TreeKind | ObjectKind | NodeKind | 'npc' | 'fire';
 
 /** Kinds whose art is a pixel image: tap through transparent gaps (`opaqueAtImage`). Spots are not: the whole tile taps. */
 export const PIXEL_HIT_KINDS: ReadonlySet<HitKind> = new Set<HitKind>([
@@ -122,6 +124,7 @@ export const VIEW_HIT_BOUNDS: Record<HitKind, { up: number; radius: number }> = 
   net_spot: scaled(SPOT_TOP, SPOT_HALF_W),
   bait_spot: scaled(SPOT_TOP, SPOT_HALF_W),
   npc: scaled(FIGURE_TOP, FIGURE_HALF_W),
+  fire: { up: FIRE_TOP, radius: FIRE_HALF_W }, // fire art is baked at final px (no ART_SCALE)
 };
 
 /**
@@ -144,6 +147,8 @@ export function hitBoundsFor(
  * scale enlarges it. Render at 2x (the DPR cap) so zoom 1-3 and high-DPI screens stay crisp.
  */
 const TEXT_RESOLUTION = 2;
+/** World px kept clear between a nameplate and the visible camera edge. */
+const LABEL_EDGE_MARGIN = 4;
 
 /** Horizontal scale for the body figure only; the nameplate is never flipped. */
 export function facingScaleX(left: boolean): 1 | -1 {
@@ -205,6 +210,8 @@ function createFigureView(scene: Phaser.Scene, initial: FigureLook, name?: strin
     .setVisible(!!name);
   g.setScale(ART_SCALE);
   container.add([g, label]);
+  const unhook = attachLabelClamp(scene.cameras.main, container, label, LABEL_EDGE_MARGIN);
+  container.once('destroy', unhook);
   return {
     container,
     body: g,

@@ -1,23 +1,47 @@
 // Save safety in the real browser: load v1/v2 fixtures, corrupt save backup, two-tab lease, far-away progress.
-// Run: node tests/e2e/saves.e2e.mjs   (port 5209, E2E_PORT overrides)
+// Run: node tests/e2e/saves.e2e.mjs   (ports 9351-9352, E2E_PORT overrides; fast base: parallel desktop + phone children)
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { check, expect, forEachViewport, withGame } from './lib.mjs';
+import { check, expect, runParallel, withCombos } from './lib.mjs';
 
 const FIX = resolve(dirname(fileURLToPath(import.meta.url)), '../../src/core/persistence/fixtures');
 const fixture = (n) => readFileSync(resolve(FIX, n), 'utf8');
 const SAVE = 'idle-rpg:save:1';
 const CORRUPT = 'idle-rpg:save:1:corrupt';
-const port = Number(process.env.E2E_PORT ?? 5209);
+const PORT = 9351;
+const BUDGET_MS = 60e3;
+const COMBOS = await runParallel(import.meta.url, PORT, {
+  viewports: ['desktop', 'phone'],
+  renderers: ['webgl'],
+  budgetMs: BUDGET_MS,
+});
+const port = Number(process.env.E2E_PORT ?? PORT);
 const URL = `http://127.0.0.1:${port}/?tickMs=60`;
 const J = JSON.stringify;
+// Spy on the runtime's debounced save timer (SAVE_DEBOUNCE_MS = 1000 in src/app/runtime.ts): counts timers scheduled /
+// fired from runtime.ts, so "no save happened" checks wait for the real debounce to fire instead of a fixed sleep.
+const SAVE_TIMER_SPY = `(() => { if (window.__saveT) return; const T = (window.__saveT = { scheduled: 0, fired: 0 });
+  const o = window.setTimeout; window.setTimeout = function (fn, ms, ...a) {
+    if (ms === 1000 && typeof fn === 'function' && /runtime[.]ts/.test(new Error().stack || '')) {
+      T.scheduled++; const f = fn; fn = function (...b) { try { return f.apply(this, b); } finally { T.fired++; } }; }
+    return o.call(this, fn, ms, ...a); }; })();`;
+const saveT = (g) => g.eval(`({ ...window.__saveT })`);
+/** Wait until a debounced runtime save scheduled after `since` has fired (and none is pending). */
+async function debounceFired(g, since) {
+  await g.waitFor(
+    async () => {
+      const t = await saveT(g);
+      return t.fired > since.fired && t.fired === t.scheduled;
+    },
+    { timeoutMs: 8000, label: 'debounced save fired' },
+  );
+}
 
 /** Boot with localStorage seeded (key->string) BEFORE the game script runs; seed script is removed afterwards. */
 async function bootSeeded(g, seed) {
   const { cdp } = g;
   await cdp.send('Page.navigate', { url: 'about:blank' });
-  await g.sleep(300);
   await cdp.send('Storage.clearDataForOrigin', {
     origin: URL.split('/?')[0],
     storageTypes: 'local_storage',
@@ -31,7 +55,6 @@ async function bootSeeded(g, seed) {
 }
 const ready = async (g) => {
   await g.waitFor(() => g.page('ready()').catch(() => false), { timeoutMs: 25000, label: 'ready' });
-  await g.sleep(500);
 };
 const stored = (g, key = SAVE) => g.eval(`localStorage.getItem(${J(key)})`);
 const parsed = async (g) => JSON.parse(await stored(g));
@@ -41,9 +64,10 @@ const logs = (g) =>
   );
 const xp = (g, skill = 'woodcutting') => g.eval(`window.__e.game().progression.xp.${skill}`);
 
-await withGame(
-  { port },
-  forEachViewport(['desktop', 'phone'], async (g, vp) => {
+await withCombos(
+  { port: PORT, budgetMs: BUDGET_MS, initScripts: [SAVE_TIMER_SPY] },
+  COMBOS,
+  async (g, vp) => {
     for (const [file, ver] of [
       ['save-v1.json', 1],
       ['save-v2.json', 2],
@@ -102,10 +126,11 @@ await withGame(
         expect(banner && banner.canStartFresh, `banner ${J(banner)}`);
         expect((await xp(g)) !== 1154, 'loaded progress from corrupt save?');
         expect((await stored(g, CORRUPT)) === bad, `backup ${await stored(g, CORRUPT)}`);
+        const t0 = await saveT(g);
         await g.setXp('woodcutting', 5000);
-        await g.sleep(1800);
+        await debounceFired(g, t0); // the debounced save ran (and must have written nothing)
         expect((await stored(g)) === bad, 'corrupt save was overwritten while saving locked');
-        return `fresh pos ${J(pos)}, banner "${banner.text.slice(0, 50)}...", backup === raw, save untouched after progress`;
+        return `fresh pos ${J(pos)}, banner "${banner.text.slice(0, 50)}...", backup === raw, save untouched after progress (debounce fired ${J(await saveT(g))})`;
       },
     );
 
@@ -119,7 +144,14 @@ await withGame(
           timeoutMs: 5000,
           label: 'A first save',
         });
-        await g.sleep(1200);
+        // no debounced A save still pending before B opens
+        await g.waitFor(
+          async () => {
+            const t = await saveT(g);
+            return t.fired === t.scheduled;
+          },
+          { label: 'A idle' },
+        );
         const leaseA = await stored(g, 'idle-rpg:session');
         await g.eval(
           `(() => { const f = document.createElement('iframe'); f.id = 'tabB'; f.style.cssText = 'position:fixed;left:0;top:0;width:300px;height:200px;z-index:99999'; f.src = ${J(URL)}; document.body.appendChild(f); })()`,
@@ -131,15 +163,15 @@ await withGame(
             ),
           { label: 'B ready' },
         );
-        await g.sleep(800);
         const B = `document.getElementById('tabB').contentWindow.__idleRpg.store.getState()`;
         const bxp = await g.eval(`${B}.game.progression.xp.woodcutting`);
         expect(bxp === 2000, `B booted with xp ${bxp}, not A's 2000`);
         const leaseB = await stored(g, 'idle-rpg:session');
         expect(leaseB !== leaseA, 'lease not taken by B');
         // A (stale) makes progress: must not reach storage
+        const t1 = await saveT(g);
         await g.setXp('woodcutting', 9999);
-        await g.sleep(2200);
+        await debounceFired(g, t1); // A's debounced save ran and saw B's lease
         const s = await parsed(g);
         expect(
           s.data.progression.xp.woodcutting === 2000,
@@ -151,7 +183,12 @@ await withGame(
         await g.eval(
           `(() => { const s = document.getElementById('tabB').contentWindow.__idleRpg.store; const g = s.getState().game; s.setState({ game: { ...g, progression: { ...g.progression, xp: { ...g.progression.xp, woodcutting: 2500 } } } }); })()`,
         );
-        await g.sleep(2200);
+        await g
+          .waitFor(async () => (await parsed(g)).data.progression.xp.woodcutting === 2500, {
+            timeoutMs: 8000,
+            label: 'B saved 2500',
+          })
+          .catch(() => {});
         expect(
           (await parsed(g)).data.progression.xp.woodcutting === 2500,
           'B (newest) did not save',
@@ -184,7 +221,25 @@ await withGame(
             `${e.message}; tree ${J(t)} pos ${J(await g.state('movement.position'))} tapped ${J(pt)} chat ${J((await g.chatLines()).slice(-3))} pending ${J(await g.state('pendingInteraction'))}`,
           );
         });
-      await g.sleep(1500);
+      // end the chop session so the state is still, then wait until the save holds exactly the live state
+      await g.update('({ ...g, gathering: { ...g.gathering, session: null } })');
+      await g.waitFor(
+        async () => {
+          const s = await parsed(g).catch(() => null);
+          if (!s) return false;
+          const t = await saveT(g);
+          const savedLogs = s.data.inventory.slots
+            .filter((x) => x && x.itemId === 'logs')
+            .reduce((a, x) => a + x.quantity, 0);
+          return (
+            t.fired === t.scheduled &&
+            J(s.data.movement.position) === J(await g.state('movement.position')) &&
+            savedLogs === (await logs(g)) &&
+            s.data.progression.xp.woodcutting === (await xp(g))
+          );
+        },
+        { timeoutMs: 8000, label: 'save holds live state' },
+      );
       const before = {
         pos: await g.state('movement.position'),
         logs: await logs(g),
@@ -202,5 +257,5 @@ await withGame(
       expect(after.logs >= 1 && after.xp >= before.xp - 0, `logs/xp ${J(before)} -> ${J(after)}`);
       return `before ${J(before)} after ${J(after)}`;
     });
-  }),
+  },
 );

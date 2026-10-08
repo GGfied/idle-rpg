@@ -23,6 +23,21 @@ const WOODCUTTING_ITEM_IDS = [
   'small_fishing_net',
   'fishing_rod',
   'fishing_bait',
+  // firemaking + cooking
+  'tinderbox',
+  'ashes',
+  'shrimps',
+  'anchovies',
+  'sardine',
+  'herring',
+  'trout',
+  'mackerel',
+  'burnt_fish',
+  'raw_chicken',
+  'raw_beef',
+  'cooked_chicken',
+  'cooked_beef',
+  'burnt_meat',
 ];
 
 describe('itemIconUrl', () => {
@@ -143,4 +158,31 @@ describe('icon urls lead to their own file', () => {
       expect(itemIconUrl(n)).toBeUndefined();
     },
   );
+});
+
+// Raw / cooked / burnt food must be told apart at a glance: each state is its own drawing.
+const FOOD_STATES: Record<string, [string, string, string]> = {
+  shrimp: ['raw_shrimp', 'shrimps', 'burnt_fish'],
+  anchovies: ['raw_anchovies', 'anchovies', 'burnt_fish'],
+  sardine: ['raw_sardine', 'sardine', 'burnt_fish'],
+  herring: ['raw_herring', 'herring', 'burnt_fish'],
+  trout: ['raw_trout', 'trout', 'burnt_fish'],
+  mackerel: ['raw_mackerel', 'mackerel', 'burnt_fish'],
+  chicken: ['raw_chicken', 'cooked_chicken', 'burnt_meat'],
+  beef: ['raw_beef', 'cooked_beef', 'burnt_meat'],
+};
+/** Opaque pixels of an icon: sum of 'h<run>' widths over its path data. */
+const opaquePixels = (svg: string): number =>
+  [...svg.matchAll(/h(\d+)v1/g)].reduce((n, m) => n + Number(m[1]), 0);
+
+describe('food states are visibly different icons', () => {
+  it.each(Object.entries(FOOD_STATES))('%s: raw, cooked and burnt differ', (_food, ids) => {
+    const drawn = ids.map((id) => JSON.stringify(shapes(ITEM_FILES.get(id) ?? '')));
+    expect(new Set(drawn).size).toBe(3);
+    expect(new Set(ids.map((id) => itemIconUrl(id))).size).toBe(3);
+  });
+  it.each(Object.entries(FOOD_STATES))('%s: burnt is smaller than cooked', (_food, ids) => {
+    const [, cooked, burnt] = ids.map((id) => opaquePixels(ITEM_FILES.get(id) ?? ''));
+    expect(burnt).toBeLessThan(cooked ?? 0);
+  });
 });

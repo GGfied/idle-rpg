@@ -11,6 +11,7 @@ import {
   FISHING_TOOLS,
   STARTING_ITEMS as FISHING_KIT,
 } from '@features/skills/fishing';
+import { TINDERBOX_ID } from '@features/facilities';
 import type { Content } from '@app/registry';
 import type { GameState } from '@app/game/types';
 
@@ -38,6 +39,7 @@ export const STARTER_KITS: readonly StarterKit[] = [
       { itemId: BAIT_ITEM_ID, quantity: BAIT_STACK },
     ],
   },
+  { skill: 'firemaking', tools: [TINDERBOX_ID], grant: [{ itemId: TINDERBOX_ID, quantity: 1 }] },
 ];
 
 const held = (g: GameState, itemId: string): number =>

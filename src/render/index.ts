@@ -153,3 +153,25 @@ export { opaqueAtImage } from './artHit';
 export type { HitImage, HitTextures } from './artHit';
 export { SPOT_FRAMES } from './spotArt';
 export { ROCK_LOOKS } from './rockArt';
+export {
+  createFireView,
+  createAshesView,
+  createLogPileView,
+  FIRE_DYING_INTENSITY,
+  FIRE_GLOW_ALPHA,
+} from './fireViews';
+export type { FireView, FireFlameLayers } from './fireViews';
+export { FIRE_TOP, FIRE_HALF_W, FLAME_FRAME, FLAME_LAYERS } from './fireArt';
+export type { FlameLayer } from './fireArt';
+export {
+  createWorldEdge,
+  edgeCoverage,
+  edgeLayerAlphas,
+  edgeCompositeCoverage,
+  edgeLayerPoly,
+  WORLD_BACKDROP,
+  EDGE_STEPS,
+  EDGE_RING,
+} from './worldEdge';
+export { setLabelKeepOuts } from './labelKeepOut';
+export type { KeepOutSet, KeepRect } from './labelKeepOut';

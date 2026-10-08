@@ -2,9 +2,17 @@
 import type { Tile } from '@core/contracts';
 import { countItem, deposit, itemIds, swapSlots, withdraw } from '@core/inventory';
 import { isDepleted, stopGather } from '@core/skills';
-import { facilityDef, optionsFor, reachRuleFor, requirementsFor } from '@features/facilities';
+import {
+  TINDERBOX_ID,
+  facilityDef,
+  optionsFor,
+  reachRuleFor,
+  requirementsFor,
+} from '@features/facilities';
 import { getNpcDef, optionsFor as npcOptions } from '@features/npc';
 import { stopFishing } from '@features/skills/fishing';
+import { cancelCooking, interactCook, isCookable } from '@app/game/cooking';
+import { cancelLighting, isLightable, lightLogs } from '@app/game/firemaking';
 import { findPathToAdjacent, setDestination, setPath } from '@features/movement';
 import { NODE_EXAMINE } from '@app/registry';
 import { gatherNode } from '@app/game/gatherNode';
@@ -18,19 +26,22 @@ import type { GameState } from '@app/game/types';
 
 /** A new click cancels whatever the player was doing. */
 function cancelActions(state: GameState): GameState {
-  return {
-    ...state,
-    gathering: stopGather(state.gathering).state,
-    fishing: stopFishing(state.fishing).state,
-    pendingFishing: null,
-    pendingInteraction: null,
-    pendingFacility: null,
-    pendingNpc: null,
-    pendingGround: null,
-    talk: null,
-    bankOpen: false,
-    bankMode: 'full',
-  };
+  return cancelCooking(
+    cancelLighting({
+      ...state,
+      gathering: stopGather(state.gathering).state,
+      fishing: stopFishing(state.fishing).state,
+      pendingFishing: null,
+      pendingCook: null,
+      pendingInteraction: null,
+      pendingFacility: null,
+      pendingNpc: null,
+      pendingGround: null,
+      talk: null,
+      bankOpen: false,
+      bankMode: 'full',
+    }),
+  );
 }
 
 /** Click on ground: stop chopping and walk there. */
@@ -95,8 +106,46 @@ export type UseTarget =
  * Use the selected item on a target. No recipe or interaction takes it yet, so every pairing says so;
  * skills add their combinations here later, as data, without branching on item ids.
  */
-export function useItemOn(state: GameState, _item: string, _target: UseTarget): GameState {
+export function useItemOn(
+  state: GameState,
+  content: Content,
+  item: string,
+  target: UseTarget,
+): GameState {
+  if (target.kind === 'item') {
+    const other = state.inventory.slots[target.slot]?.itemId;
+    const logs = [item, other].find((id) => id !== undefined && isLightable(id));
+    const slot = logs === item ? slotOf(state, item) : target.slot;
+    if (other && logs && [item, other].includes(TINDERBOX_ID))
+      return lightLogs(state, content, slot, cancelActions);
+  }
+  if (
+    target.kind === 'object' &&
+    isCookable(item) &&
+    state.firemaking.fires.some((f) => f.id === target.id)
+  )
+    return interactCook(state, content, target.id, item, cancelActions);
   return addChat(state, 'Nothing interesting happens.');
+}
+
+const slotOf = (state: GameState, itemId: string): number =>
+  state.inventory.slots.findIndex((s) => s?.itemId === itemId);
+
+/** Light the logs in an inventory slot (needs a tinderbox): the player stands still for a few ticks. */
+export const lightSlot = (state: GameState, content: Content, slot: number): GameState =>
+  lightLogs(state, content, slot, cancelActions);
+
+/** Walk beside a fire and cook (`rawId` absent: the first raw item in the bag). */
+export const cookOnFire = (
+  state: GameState,
+  content: Content,
+  fireId: string,
+  rawId?: string,
+): GameState => interactCook(state, content, fireId, rawId, cancelActions);
+
+export function examineFire(state: GameState): GameState {
+  const def = facilityDef('fire');
+  return def ? addChat(state, def.examine) : state;
 }
 
 /**

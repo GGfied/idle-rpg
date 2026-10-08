@@ -1,8 +1,11 @@
-// World map overlay + minimap facing arrow. Run: node tests/e2e/worldmap.e2e.mjs (E2E_PORT overrides :5257).
+// World map overlay + minimap facing arrow. Run: node tests/e2e/worldmap.e2e.mjs (base port E2E_PORT or 9070).
+// Fast base: desktop + phone as parallel children, ?tickMs=60, walks wait on movement state, the overlay waits for its
+// first draw, wheel zoom runs until z stops changing (same 40/90 caps as before). The only fixed sleeps left measure
+// "nothing changes over time" (arrow kept after stop, no redraws after close); each says so.
 import { Buffer } from 'node:buffer';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import process from 'node:process';
-import { check, expect, withGame } from './lib.mjs';
+import { check, expect, forEachCombo, runParallel, withGame } from './lib.mjs';
 
 process.env.SHOTS_DIR ??= 'tests/e2e/.shots-worldmap';
 const SPY = `(() => {
@@ -26,12 +29,27 @@ const touch = (g, type, pts) =>
   });
 const near = (a, b, e) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b))) < e;
 
-await withGame({ port: 5257, viewport: 'desktop' }, async (g) => {
-  await g.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: SPY });
-  for (const vp of ['desktop', 'phone']) {
-    await g.setViewport(vp);
-    await g.load();
-    await g.teleport(18, 15, { settleMs: 1500 });
+const PORT = Number(process.env.E2E_PORT ?? 9070);
+const BUDGET_MS = 60e3;
+const COMBOS = await runParallel(import.meta.url, PORT, {
+  viewports: ['desktop', 'phone'],
+  renderers: ['webgl'], // overlay + minimap are 2D canvases drawn by React, not by Phaser's renderer
+  budgetMs: BUDGET_MS,
+});
+/** Tap-started walk: wait until it has started (a tile change or a path), then until the player is idle. */
+const walkDone = async (g, moved) => {
+  await g
+    .waitFor(async () => (await moved()) || (await g.state('movement.path.length')) > 0, {
+      timeoutMs: 3000,
+      label: 'walk started',
+    })
+    .catch(() => {});
+  await g.waitIdle();
+};
+
+const run = forEachCombo(COMBOS, async (g, vp) => {
+  {
+    await g.teleportSettled(18, 15);
     const mm = () => g.page(`rect('canvas.minimap')`);
     const shot = async (name, sel) => {
       const r = await g.page(`rect('${sel}')`);
@@ -51,16 +69,31 @@ await withGame({ port: 5257, viewport: 'desktop' }, async (g) => {
     const overlayOpen = () =>
       g.eval(`!!document.querySelector('[role=dialog][aria-label="World map"]')`);
     const open = async () => {
+      const d0 = (await S(g, 'draws["worldmap-canvas"]')) ?? 0;
       await g.tapSelector('.minimap-expand');
       await g.waitFor(overlayOpen, { label: 'overlay open' });
-      await g.sleep(500);
+      // was a fixed 500 ms: wait for the overlay's first frames (world image drawn, a few draws)
+      await g.waitFor(async () => (await S(g, 'draws["worldmap-canvas"]')) >= d0 + 3, {
+        label: 'overlay drawn',
+      });
+    };
+    /** Wheel at (x, y) until the zoom stops changing (at most `max` notches); returns the notch count. */
+    const wheelUntil = async (c, dy, max) => {
+      let z = (await S(g, 'img["worldmap-canvas"]')).z;
+      for (let i = 0; i < max; i++) {
+        await g.wheel(c.x, c.y, dy);
+        const nz = (await S(g, 'img["worldmap-canvas"]')).z;
+        if (Math.abs(nz - z) < 1e-9) return i + 1;
+        z = nz;
+      }
+      return max;
     };
 
     await check('c1', 'minimap tap walks, overlay stays closed', async () => {
       const stop = await g.trackMoves();
       const r = await mm();
       await g.tap(r.x + r.w * 0.2, r.y);
-      await g.waitTicks(25);
+      await walkDone(g, async () => (await g.eval('window.__pos.length')) > 1); // was waitTicks(25)
       const pos = await stop();
       expect(pos.length > 1, `no walk (${JSON.stringify(pos)})`);
       const opened = await overlayOpen();
@@ -81,14 +114,21 @@ await withGame({ port: 5257, viewport: 'desktop' }, async (g) => {
           const stop = await g.trackMoves();
           const r = await mm();
           await g.tap(r.x + r.w * fx, r.y + r.h * fy);
-          await g.waitTicks(30);
+          await walkDone(g, async () => (await g.eval('window.__pos.length')) > 1); // was waitTicks(30)
           const pos = await stop();
           const [p, q] = pos.slice(-2);
           const d = { dx: q.x - p.x, dy: q.y - p.y };
           const want = Math.atan2(d.dy, d.dx);
-          await sleep(400);
+          // was 400 ms: the minimap has redrawn its arrow since the walk ended (stroke count moved on)
+          const n0 = (await S(g, 'arrow["minimap"]'))?.n ?? 0;
+          await g
+            .waitFor(async () => ((await S(g, 'arrow["minimap"]'))?.n ?? 0) > n0, {
+              timeoutMs: 2000,
+              label: 'minimap arrow redrawn',
+            })
+            .catch(() => {});
           const a1 = (await S(g, 'arrow["minimap"]'))?.a;
-          await sleep(600);
+          await sleep(600); // the tested property: the arrow is KEPT for a while after the player stops
           const a2 = (await S(g, 'arrow["minimap"]'))?.a;
           out.push(
             `${name}: last step ${d.dx},${d.dy} want ${want.toFixed(2)} arrow ${a1?.toFixed(2)} after-stop ${a2?.toFixed(2)}`,
@@ -173,7 +213,7 @@ await withGame({ port: 5257, viewport: 'desktop' }, async (g) => {
       for (let i = 0; i < 3; i++) await g.wheel(c.x, c.y, -300);
       const zIn = (await im()).z;
       expect(zIn > z0 * 1.2, `wheel in ${z0}->${zIn}`);
-      for (let i = 0; i < 40; i++) await g.wheel(c.x, c.y, -300);
+      await wheelUntil(c, -300, 40); // to the max-zoom plateau (old: 40 fixed notches)
       const zMax = (await im()).z;
       await g.wheel(c.x, c.y, -300);
       const zMax2 = (await im()).z;
@@ -181,7 +221,7 @@ await withGame({ port: 5257, viewport: 'desktop' }, async (g) => {
         Math.abs(zMax2 - zMax) < 1e-6 && zMax >= zIn && zMax > z0,
         `max plateau ${zIn} ${zMax} ${zMax2}`,
       );
-      for (let i = 0; i < 90; i++) await g.wheel(c.x, c.y, 300);
+      await wheelUntil(c, 300, 90); // back to the fit zoom (old: 90 fixed notches)
       const iMin = await im();
       expect(Math.abs(iMin.z - z0) / z0 < 0.01, `min ${iMin.z} vs fit ${z0}`);
       expect(
@@ -203,14 +243,15 @@ await withGame({ port: 5257, viewport: 'desktop' }, async (g) => {
           await sleep(16);
         }
         await touch(g, 'touchEnd', []);
-        await sleep(200);
+        // was 200 ms: wait (<= 2 s) for the pinch to show in the drawn zoom
+        await g.waitFor(async () => (await im()).z > zb * 1.3, { timeoutMs: 2000 }).catch(() => {});
         const zp = (await im()).z;
         expect(zp > zb * 1.3, `pinch ${zb}->${zp}`);
         pinch = ` pinch ${zb.toFixed(3)}->${zp.toFixed(3)}`;
-        for (let i = 0; i < 90; i++) await g.wheel(c.x, c.y, 300);
+        await wheelUntil(c, 300, 90);
       }
       // zoomed in: pan is clamped to the world edges (no empty margin)
-      for (let i = 0; i < 9; i++) await g.wheel(c.x, c.y, -300);
+      for (let i = 0; i < 9; i++) await g.wheel(c.x, c.y, -300); // same 9 notches as before (z > 1.5x fit is asserted)
       const before = await im();
       const bb = box(before);
       expect(before.z > z0 * 1.5, `not zoomed enough ${before.z}`);
@@ -249,7 +290,16 @@ await withGame({ port: 5257, viewport: 'desktop' }, async (g) => {
         `({ x: window.__idleRpg.store.getState().game.movement.position.x, y: window.__idleRpg.store.getState().game.movement.position.y })`,
       );
       await g.tapSelector('.worldmap-centre');
-      await sleep(250);
+      // was 250 ms: wait (<= 2 s) for the drawn offset to change from the far-dragged one
+      await g
+        .waitFor(
+          async () => {
+            const i = await im();
+            return i.ox !== far2.ox || i.oy !== far2.oy;
+          },
+          { timeoutMs: 2000 },
+        )
+        .catch(() => {});
       const back = await im();
       edge(back, 'after centre');
       const px = back.ox + (me.x + 0.5) * back.z * K;
@@ -292,16 +342,26 @@ await withGame({ port: 5257, viewport: 'desktop' }, async (g) => {
     await check('c5', 'overlay stops redrawing after close', async () => {
       await open();
       const a = await S(g, 'draws["worldmap-canvas"]');
-      await sleep(500);
+      // same bound as the old 500 ms window (>= 3 draws in 500 ms), but returns as soon as they happen
+      await g
+        .waitFor(async () => (await S(g, 'draws["worldmap-canvas"]')) - a >= 3, { timeoutMs: 500 })
+        .catch(() => {});
       const b = await S(g, 'draws["worldmap-canvas"]');
       expect(b - a >= 3, `not redrawing while open ${a}->${b}`);
       await g.tapSelector('.worldmap-close');
-      await sleep(300);
+      await g.waitFor(async () => !(await overlayOpen()), { label: 'closed' });
+      await sleep(300); // a last in-flight frame may still land right after unmount (as before)
       const c = await S(g, 'draws["worldmap-canvas"]');
-      await sleep(1200);
+      await sleep(1200); // the tested property: NO redraws over 1.2 s after close
       const d = await S(g, 'draws["worldmap-canvas"]');
       expect(d === c, `redraws after close ${c}->${d}`);
-      return `open ${b - a} draws/500ms; after close ${d - c}/1200ms`;
+      return `${vp}: open ${b - a} draws/500ms; after close ${d - c}/1200ms`;
     });
   }
+});
+
+await withGame({ port: PORT, budgetMs: BUDGET_MS }, async (g) => {
+  // the canvas spy must be in place before forEachCombo's fresh load
+  await g.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: SPY });
+  return run(g);
 });

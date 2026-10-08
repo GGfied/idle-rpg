@@ -20,6 +20,16 @@ export function advanceTrail(trail: Trail, position: Tile, tick: number): Trail 
   return { from: trail.to, to: { ...position }, tick };
 }
 
+/**
+ * Advance like `advanceTrail`, but jump straight to `position` (no easing). Used when something
+ * appears on the tile the player just left (a fire), so the body is never drawn over it.
+ */
+export function snapTrail(trail: Trail, position: Tile, tick: number): Trail {
+  if (tick === trail.tick && trail.from.x === position.x && trail.from.y === position.y)
+    return trail;
+  return { from: { ...position }, to: { ...position }, tick };
+}
+
 /** Drawn tile-space position `alpha` (0..1) of the way from the previous to the current tile. */
 export function renderPosition(trail: Trail, alpha: number): Tile {
   const a = Math.min(1, Math.max(0, Number.isFinite(alpha) ? alpha : 0));

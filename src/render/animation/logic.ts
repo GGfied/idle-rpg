@@ -1,7 +1,9 @@
 import { PLAYER_LOOK, figureArmPivots, figureLegPivots, isoProjection } from '@render/index';
 import type { Facing8, FigureLook } from '@render/index';
+import { actPhase, actPose } from './act';
 import { chopPose } from './chop';
 import {
+  ACT_KEYS,
   ANIM_STATES,
   AXE_GRIP_Y,
   CHOP_SWING_PERIOD_MS,
@@ -22,7 +24,7 @@ import {
   SWING_KEYS,
   SWING_TIMELINES,
 } from './data';
-import type { SwingState } from './data';
+import type { ActState, SwingState } from './data';
 import type {
   AnimInput,
   AnimState,
@@ -69,6 +71,7 @@ export function makePose(): Pose {
     axeAngle: 0,
     axeVisible: false,
     twist: 0,
+    armsSolved: false,
     gripX: 0,
     gripY: 0,
   };
@@ -182,6 +185,7 @@ function resetPose(out: Pose): void {
   out.axeAngle = 0;
   out.axeVisible = false;
   out.twist = 0;
+  out.armsSolved = false;
   out.gripX = 0;
   out.gripY = 0;
 }
@@ -266,6 +270,15 @@ export function computePose(
       geom,
       params.chopStyle === 'static' ? 1 : view.reach,
       state as SwingState,
+    );
+  } else if (state in ACT_KEYS) {
+    actPose(
+      params.chopStyle,
+      actPhase(state as ActState, elapsedMs),
+      out,
+      geom,
+      params.chopStyle === 'static' ? 1 : view.reach,
+      state as ActState,
     );
   } else {
     out.bodyBobY =

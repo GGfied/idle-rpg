@@ -257,7 +257,7 @@ describe('bank', () => {
     expect(texts(s)).toContain('You withdraw 1 bronze axe.');
     s = bankWithdraw(s, CONTENT, 'logs', 1);
     expect(texts(s)).toContain('That item is not in your bank.');
-    s = bankDeposit(s, CONTENT, 5, 1);
+    s = bankDeposit(s, CONTENT, 7, 1);
     expect(texts(s)).toContain('There is nothing in that slot.');
     s = bankDepositAll(s, CONTENT); // tools stay: the starter tools are all that is left
     expect(s.inventory.slots.filter((x) => x !== null).map((x) => x.itemId)).toEqual([

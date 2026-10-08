@@ -37,6 +37,22 @@ describe('playerAnimInput', () => {
   });
 });
 
+describe('fire actions feed the animator', () => {
+  it('lighting and cooking = gathering with that tool kind', () => {
+    const l = playerAnimInput({ ...base, fireAction: 'lighting' });
+    expect(l).toEqual({ moving: false, gathering: true, toolKind: 'lighting' });
+    expect(nextAnimState('idle', l)).toBe('lighting');
+    expect(nextAnimState('idle', playerAnimInput({ ...base, fireAction: 'cooking' }))).toBe(
+      'cooking',
+    );
+  });
+  it('walking wins; no action returns to idle', () => {
+    const w = playerAnimInput({ ...base, moving: true, fireAction: 'cooking' });
+    expect(nextAnimState('cooking', w)).toBe('walk');
+    expect(nextAnimState('cooking', playerAnimInput({ ...base, fireAction: null }))).toBe('idle');
+  });
+});
+
 describe('rodCatchLanded', () => {
   const caught = [{ type: 'itemGathered', skill: 'fishing' }];
   it('rod catch -> pulse', () => expect(rodCatchLanded(caught, 'rod')).toBe(true));

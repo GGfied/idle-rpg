@@ -110,12 +110,13 @@ describe('bank interplay with tools', () => {
     const g = bankDepositAll({ ...base, inventory: added.value }, CONTENT);
     expect(countItem(g.inventory, 'logs')).toBe(0);
     expect(countItem(g.inventory, 'bronze_axe')).toBe(1);
-    // Exactly the logs and the starter bait (slot order is not part of the contract).
-    expect(g.bank.items).toHaveLength(2);
+    // Exactly the logs, the starter bait and the tinderbox (not a tool; slot order is not part of the contract).
+    expect(g.bank.items).toHaveLength(3);
     expect(g.bank.items).toEqual(
       expect.arrayContaining([
         { itemId: 'logs', quantity: 3 },
         { itemId: BAIT_ITEM_ID, quantity: BAIT_STACK },
+        { itemId: 'tinderbox', quantity: 1 },
       ]),
     );
     const again = bankDepositAll(g, CONTENT);

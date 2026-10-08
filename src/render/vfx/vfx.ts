@@ -4,6 +4,9 @@ import { EVENT_VFX, LIMITS_DESKTOP, SKILL_TAG, XP_STACK_LINE_PX, XP_STACK_WINDOW
 import {
   ballistic,
   blockedLabel,
+  createEmitBudget,
+  type EmitBudget,
+  createKeyedRegistry,
   createPool,
   createThrottle,
   diamondPoints,
@@ -19,6 +22,7 @@ import type {
   BlockedTextEffect,
   BurstEffect,
   CrossEffect,
+  FireEffect,
   MarkerKind,
   RingEffect,
   VfxContext,
@@ -40,6 +44,17 @@ export interface Vfx {
 }
 
 type Shape = Phaser.GameObjects.Arc;
+
+/** One running fire's smoke column. */
+interface FireFx {
+  def: FireEffect;
+  x: number;
+  y: number;
+  emberDepth: number;
+  smokeDepth: number;
+  budget: EmitBudget;
+  timer: Phaser.Time.TimerEvent;
+}
 
 /** Pooled, event-driven one-shot effects. One runner; effects are data in `EFFECTS`. */
 export function createVfx(
@@ -112,6 +127,9 @@ export function createVfx(
   };
 
   const throttle = createThrottle();
+  const timers = new Set<Phaser.Time.TimerEvent>();
+  // One running smoke column per fireId; stopping removes its timer (particles in flight finish and pool).
+  const fires = createKeyedRegistry<FireFx>(limits.fires, (f) => f.timer.remove(false));
 
   function burst(def: BurstEffect, x: number, y: number, depth: number, tint?: number): void {
     const ease = ballistic(def.rise, def.fall);
@@ -127,22 +145,123 @@ export function createVfx(
           1,
         )
         .setDepth(depth)
-        .setAlpha(1)
+        .setBlendMode(def.additive ? Phaser.BlendModes.ADD : Phaser.BlendModes.NORMAL)
+        .setAlpha(def.alpha ?? 1)
         .setScale(1)
         .setActive(true)
         .setVisible(true);
       // 4 segments = diamond chip; round puffs keep Phaser's default smooth circle.
       p.setIterations(def.round ? 0.1 : 1);
-      const dx = Phaser.Math.FloatBetween(-def.spread, def.spread);
+      const dx = Phaser.Math.FloatBetween(-def.spread, def.spread) + (def.drift ?? 0);
       fade(particles, p, {
         x: p.x + dx,
         y: { value: p.y + def.fall, ease },
         alpha: 0,
-        scale: def.round ? 1.8 : 0.6,
+        scale: def.grow ?? (def.round ? 1.8 : 0.6),
         duration: def.lifeMs * Phaser.Math.FloatBetween(0.8, 1.1),
         ease: 'Linear',
       });
     }
+  }
+
+  /** A burst that plays `repeat.times` times, `everyMs` apart (the first at once). Timers die with the vfx. */
+  function repeatedBurst(
+    def: BurstEffect,
+    x: number,
+    y: number,
+    depth: number,
+    tint?: number,
+  ): void {
+    if (!def.repeat || def.repeat.times <= 1) {
+      burst(def, x, y, depth, tint);
+      return;
+    }
+    let left = def.repeat.times;
+    const timer = scene.time.addEvent({
+      delay: def.repeat.everyMs,
+      loop: true,
+      callback: () => {
+        burst(def, x, y, depth, tint);
+        if (--left <= 0) {
+          timer.remove(false);
+          timers.delete(timer);
+        }
+      },
+    });
+    timers.add(timer);
+    burst(def, x, y, depth, tint);
+    left--;
+  }
+
+  /** Smoke puff + occasional ember for one fire, each under the fire's particle budget. */
+  function emitFire(fire: FireFx): void {
+    const { def, x, y, budget } = fire;
+    const now = scene.time.now;
+    if (budget.tryEmit(now, def.smoke.lifeMs)) {
+      const sm = def.smoke;
+      const p = particles.acquire();
+      const size = Phaser.Math.FloatBetween(sm.size[0], sm.size[1]);
+      p.setPosition(x + Phaser.Math.FloatBetween(-3, 3), y - def.smokeLift)
+        .setRadius(size / 2)
+        .setFillStyle(Phaser.Utils.Array.GetRandom(sm.colors as number[]) as number, 1)
+        .setDepth(fire.smokeDepth)
+        .setBlendMode(Phaser.BlendModes.NORMAL)
+        .setAlpha(sm.alpha)
+        .setScale(0.6)
+        .setActive(true)
+        .setVisible(true);
+      p.setIterations(0.1);
+      fade(particles, p, {
+        x: p.x + sm.drift + Phaser.Math.FloatBetween(-sm.sway, sm.sway),
+        y: p.y - sm.rise,
+        alpha: 0,
+        scale: sm.grow,
+        duration: sm.lifeMs * Phaser.Math.FloatBetween(0.85, 1.15),
+        ease: 'Sine.easeOut',
+      });
+    }
+    if (Math.random() < def.emberChance && budget.tryEmit(now, def.ember.lifeMs)) {
+      const em = def.ember;
+      const p = particles.acquire();
+      p.setPosition(x + Phaser.Math.FloatBetween(-5, 5), y - 10)
+        .setRadius(Phaser.Math.FloatBetween(em.size[0], em.size[1]) / 2)
+        .setFillStyle(Phaser.Utils.Array.GetRandom(em.colors as number[]) as number, 1)
+        .setDepth(fire.emberDepth)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setAlpha(1)
+        .setScale(1)
+        .setActive(true)
+        .setVisible(true);
+      p.setIterations(1);
+      fade(particles, p, {
+        x: p.x + Phaser.Math.FloatBetween(-em.sway, em.sway),
+        y: p.y - em.rise,
+        alpha: 0,
+        scale: 0.4,
+        duration: em.lifeMs * Phaser.Math.FloatBetween(0.8, 1.1),
+        ease: 'Sine.easeOut',
+      });
+    }
+  }
+
+  function startFire(def: FireEffect, key: string, x: number, feetY: number, depth: number): void {
+    fires.start(key, () => {
+      const fire: FireFx = {
+        def,
+        x,
+        y: feetY,
+        emberDepth: depth,
+        smokeDepth: effectDepth(def.smokeLayer, x, feetY),
+        budget: createEmitBudget(limits.fireParticles),
+        timer: undefined as unknown as Phaser.Time.TimerEvent,
+      };
+      fire.timer = scene.time.addEvent({
+        delay: def.tickMs,
+        loop: true,
+        callback: () => emitFire(fire),
+      });
+      return fire;
+    });
   }
 
   function ring(def: RingEffect, x: number, y: number, depth: number): void {
@@ -276,6 +395,9 @@ export function createVfx(
   }
 
   const clearAll = (): void => {
+    fires.stopAll();
+    for (const t of timers) t.remove(false);
+    timers.clear();
     particles.releaseAll();
     rings.releaseAll();
     texts.releaseAll();
@@ -284,7 +406,7 @@ export function createVfx(
 
   return {
     handleEvent(event, ctx) {
-      for (const { effect, x, y, depth, tint, throttle: th } of planEvent(
+      for (const { effect, x, y, feetY, depth, tint, persist, throttle: th } of planEvent(
         event,
         ctx,
         EVENT_VFX,
@@ -293,7 +415,10 @@ export function createVfx(
         const def = resolveEffect(effect, opts.mode);
         if (!def) continue;
         if (th && !throttle.allow(th.key, scene.time.now, th.ms)) continue;
-        if (def.kind === 'burst') burst(def, x, y, depth, tint);
+        if (def.kind === 'fire') {
+          if (persist?.action === 'start') startFire(def, persist.key, x, feetY, depth);
+          else if (persist?.action === 'stop') fires.stop(persist.key);
+        } else if (def.kind === 'burst') repeatedBurst(def, x, y, depth, tint);
         else if (def.kind === 'ring') ring(def, x, y, depth);
         else if (def.kind === 'xpDrop') xpDrop(def, x, y, depth, event);
         else if (def.kind === 'cross') crossEffect(def, x, y, depth);
@@ -304,6 +429,7 @@ export function createVfx(
     setMode(next) {
       opts.mode = next;
       if (next === 'off') clearAll();
+      else if (next === 'reduced') fires.stopAll();
     },
     setXpDrops(enabled) {
       opts.xpDrops = enabled;
@@ -312,6 +438,7 @@ export function createVfx(
       }
     },
     destroy() {
+      clearAll();
       particles.destroy();
       rings.destroy();
       texts.destroy();

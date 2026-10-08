@@ -49,8 +49,6 @@ export interface BuildingLook {
   wallColor?: number;
   /** Overrides the roof-kind roof colour. */
   roofColor?: number;
-  /** Gold trim along the ridge and hips. */
-  trimColor?: number;
   /** Shingle/straw bands per roof face. */
   bands: number;
   /** Door height in px (default: derived from the wall height). */
@@ -83,8 +81,7 @@ export const BUILDING_LOOKS: Record<BuildingStyleKey, BuildingLook> = {
     eaves: EAVES,
     pattern: 'dressed',
     wallColor: 0xe6dfcc,
-    roofColor: 0x3a404c,
-    trimColor: 0xe0b43a,
+    roofColor: 0x586379,
     bands: 3,
     doorHeight: 26,
     bankFront: true,
@@ -221,13 +218,15 @@ export function roofFaces(b: BuildingSource, proj: Projection): RoofFace[] {
   }));
 }
 
-/** Trim segments [x0,y0,x1,y1] along the ridge and hips; empty for styles without trim. Pure. */
+/** Ridge/hip line shade: a few steps darker than the roof (never an accent colour). */
+export const RIDGE_SHADE = 0.55;
+
+/** Ridge and hip segments [x0,y0,x1,y1] with their (dark) colour, for every roof. Pure. */
 export function roofTrim(
   b: BuildingSource,
   proj: Projection,
-): { color: number; lines: [number, number, number, number][] } | null {
-  const color = lookOf(b).trimColor;
-  if (color === undefined) return null;
+): { color: number; lines: [number, number, number, number][] } {
+  const color = shadeColor(lookOf(b).roofColor ?? roofStyleOf(b.roof).roof, RIDGE_SHADE);
   const { A, B, C, D, R1, R2, xLong } = roofGeometry(b, proj);
   const seg = (p: Pt, q: Pt): [number, number, number, number] => [p.x, p.y, q.x, q.y];
   const hips = xLong

@@ -1,13 +1,19 @@
 // Coal rock e2e (runbook mining-fishing): level 30 gate, coal yield/xp/rubble/respawn, pickaxe level gates, ore close-ups.
-// Run: node tests/e2e/coal.e2e.mjs   (port 5250, E2E_PORT overrides; shots in tests/e2e/.shots-coal)
+// Run: node tests/e2e/coal.e2e.mjs   (fast base: desktop + phone in parallel on 9205/9206; shots in tests/e2e/.shots-coal)
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Buffer } from 'node:buffer';
-import { check, expect, forEachViewport, withGame } from './lib.mjs';
+import { check, expect, forEachCombo, runParallel, withGame } from './lib.mjs';
 
 const SHOTS = resolve(dirname(fileURLToPath(import.meta.url)), '.shots-coal');
-const port = Number(process.env.E2E_PORT ?? 5250);
+const PORT = 9205; // C5 port block 9201-9250
+const BUDGET_MS = 60e3;
+const COMBOS = await runParallel(import.meta.url, PORT, {
+  viewports: ['desktop', 'phone'],
+  renderers: ['webgl'],
+  budgetMs: BUDGET_MS,
+});
 const J = JSON.stringify;
 const COAL = { id: 'quarry_coal_1', x: 70, y: 42 };
 const ROCKS = {
@@ -30,8 +36,13 @@ const tapRock = async (g, r) => {
   expect(await g.page(`topIsCanvas(${p.x}, ${p.y})`), `${r.id} covered at ${p.x},${p.y}`);
   await g.tap(p.x, p.y);
 };
+/** Wait until the game has advanced n ticks (state, not wall clock). */
+const waitGameTicks = async (g, n) => {
+  const t0 = await g.state('tick');
+  await g.waitState('tick', `t => t >= ${t0 + n}`, { label: `${n} ticks` });
+};
 async function shot(g, name, r) {
-  await g.sleep(200);
+  await g.settle();
   const p = await g.tileClient(r.x, r.y, -10);
   const { data } = await g.cdp.send('Page.captureScreenshot', {
     format: 'png',
@@ -43,10 +54,10 @@ async function shot(g, name, r) {
 const KIT = ['bronze_pickaxe'];
 
 await withGame(
-  { port },
-  forEachViewport(['desktop', 'phone'], async (g, vp) => {
+  { port: PORT, budgetMs: BUDGET_MS },
+  forEachCombo(COMBOS, async (g, vp) => {
     g.viewportName = vp;
-    await g.teleport(COAL.x, COAL.y + 3);
+    await g.teleportSettled(COAL.x, COAL.y + 3);
 
     await check('c1', 'Mining 29: coal tap -> level-30 line, no ore, no xp', async () => {
       await g.setInventory(KIT);
@@ -56,7 +67,8 @@ await withGame(
       await g.waitFor(async () => (await g.chatLines()).some((l) => /Mining level of 30/.test(l)), {
         label: 'level line',
       });
-      await g.sleep(1500);
+      // negative window: 25 ticks (= the old 1500 ms at 60 ms ticks) must pass with no ore and no xp
+      await waitGameTicks(g, 25);
       const ore = await count(g, 'coal');
       const n = await node(g, COAL.id);
       const dxp = (await miningXp(g)) - xp0;
@@ -67,24 +79,34 @@ await withGame(
     });
 
     await check('c2', 'Mining 30: coal in inv w/ icon, +60 xp, rubble, respawn', async () => {
-      await g.teleport(COAL.x, COAL.y + 3);
+      await g.teleportSettled(COAL.x, COAL.y + 3);
       await g.setInventory(KIT);
       await g.setLevel('mining', 30);
       const xp0 = await miningXp(g);
       const a0 = await art(g, COAL.id);
-      let a1;
-      await g.realTime(async () => {
-        await tapRock(g, COAL);
-        await g.waitFor(
-          async () => {
-            const n = JSON.parse(await node(g, COAL.id));
-            return n && n.respawnAt != null;
-          },
-          { timeoutMs: 60000, label: 'coal depleted' },
-        );
-        await g.sleep(250);
-        a1 = await art(g, COAL.id);
+      // was realTime: at 60 ms ticks a gather session ends in ~1 s, so mine at 150 ms ticks with a keep-alive re-tap
+      // while the rock is still standing (rules unchanged; coal depletes after one ore)
+      await g.setTickMs(150);
+      const standing = async () => {
+        const n = JSON.parse(await node(g, COAL.id));
+        return !(n && n.respawnAt != null);
+      };
+      await tapRock(g, COAL);
+      const stop = g.every(1500, async () => {
+        const s = await g.state('gathering.session');
+        if (!s && (await standing())) await tapRock(g, COAL);
       });
+      try {
+        await g.waitFor(async () => !(await standing()), {
+          timeoutMs: 40000,
+          label: 'coal depleted',
+        });
+      } finally {
+        stop();
+      }
+      await g.waitFor(async () => (await art(g, COAL.id)) !== a0, { label: 'rubble art' });
+      const a1 = await art(g, COAL.id);
+      await g.setTickMs(60);
       const ore = await count(g, 'coal');
       const dxp = (await miningXp(g)) - xp0;
       const icon = await g.eval(
@@ -136,8 +158,7 @@ await withGame(
     await check('c4', 'close-ups of 4 ore rocks (look at PNGs)', async () => {
       await g.setInventory(KIT);
       for (const [name, r] of Object.entries(ROCKS)) {
-        await g.teleport(r.x, r.y + 3, { settleMs: 1200 });
-        await g.realTime(() => g.sleep(0));
+        await g.teleportSettled(r.x, r.y + 3);
         await shot(g, name, r);
       }
       return `saved to ${SHOTS}`;

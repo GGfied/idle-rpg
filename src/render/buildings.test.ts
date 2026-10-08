@@ -225,13 +225,18 @@ describe('building styles', () => {
     expect(lookOf({ style: 'castle' }).style).toBe('house');
   });
 
-  it('bank: tall dressed-stone facade, door dressing, darker roof with gold trim', () => {
+  it('bank: tall dressed-stone facade, door dressing, shaded roof with dark ridge', () => {
     const b = lookOf(bank);
     expect(b.bankFront).toBe(true);
     expect(b.pattern).toBe('dressed');
     expect(b.wallHeight).toBeGreaterThan(lookOf(BANK).wallHeight);
-    const trim = roofTrim(bank, isoProjection)!;
-    expect(trim.color).toBe(0xe0b43a);
+    const trim = roofTrim(bank, isoProjection);
+    // Hardcoded: the ridge/hip line is never the old gold (0xe0b43a) and is darker than every roof face.
+    expect(trim.color).not.toBe(0xe0b43a);
+    const lumC = (c: number) => (c >> 16) + ((c >> 8) & 255) + (c & 255);
+    for (const f of roofFaces(bank, isoProjection))
+      expect(lumC(trim.color)).toBeLessThan(lumC(f.color));
+    expect(trim.color >> 16).toBeLessThanOrEqual(trim.color & 255); // not warm/gold: red never above blue
     expect(trim.lines).toHaveLength(5); // ridge + 4 hips
     const lum = (c: number) => (c >> 16) + ((c >> 8) & 255) + (c & 255);
     expect(lum(roofFaces(bank, isoProjection)[0]!.color)).toBeLessThan(
@@ -239,9 +244,12 @@ describe('building styles', () => {
     );
   });
 
-  it('only the bank has trim and door dressing; hut is plank-walled thatch', () => {
-    expect(roofTrim(BANK, isoProjection)).toBeNull();
-    expect(roofTrim(hut, isoProjection)).toBeNull();
+  it('every roof has dark ridge lines; only the bank has door dressing; hut is plank-walled thatch', () => {
+    for (const b of [BANK, hut]) {
+      const t = roofTrim(b, isoProjection);
+      expect(t.lines).toHaveLength(5);
+      expect(t.color).not.toBe(0xe0b43a);
+    }
     expect(lookOf(hut)).toMatchObject({ pattern: 'planks', bankFront: false });
     expect(lookOf(BANK).bankFront).toBe(false);
   });

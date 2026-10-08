@@ -5,3 +5,6 @@ package-lock.json
 .claude
 docs
 CLAUDE.md
+.wrangler
+**/.shots*
+tests/e2e/timings.json

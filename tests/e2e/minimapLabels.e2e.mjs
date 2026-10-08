@@ -1,16 +1,34 @@
 // Minimap labels e2e: region + bank labels drawn legibly (10 CSS px), inside the circle, no overlaps, per area.
 // Spies fillText/strokeText on the minimap canvas (the last frame = calls after the last clearRect).
-// Run: node tests/e2e/minimapLabels.e2e.mjs   (port 5208, SHOTS_DIR=... saves minimap PNGs)
+// Run: node tests/e2e/minimapLabels.e2e.mjs   (SHOTS_DIR=... saves minimap PNGs)
+// Fast base: the 3 runs (desktop dpr1, desktop dpr2, phone dpr3) are parallel children, ?tickMs=60, the fillText spy
+// goes in before the first load (initScripts), and "minimap settled" waits on the drawn label positions holding still
+// (the minimap redraws every rAF) instead of a fixed 2.8 s glide sleep + 250 ms. Budget 60 s.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { check, expect, withGame } from './lib.mjs';
+import { check, expect, runParallel, VIEWPORTS, waitStill, withCombos } from './lib.mjs';
+
+// File-local viewports (one runParallel child each); same sizes as before, the dpr is the variable under test.
+const RUNS = {
+  mmDesktopDpr1: { vp: 'desktop', dsf: 1 },
+  mmDesktopDpr2: { vp: 'desktop', dsf: 2 },
+  mmPhoneDpr3: { vp: 'phone', dsf: 3 },
+};
+for (const [name, { vp, dsf }] of Object.entries(RUNS)) VIEWPORTS[name] = { ...VIEWPORTS[vp], dsf };
+const PORT = 9316; // C7 port block 9301-9350; 3 combos use 9316-9318
+const BUDGET_MS = 60e3;
+const COMBOS = await runParallel(import.meta.url, PORT, {
+  viewports: Object.keys(RUNS),
+  renderers: ['webgl'], // the minimap is a 2D DOM canvas: the Phaser renderer does not draw it
+  budgetMs: BUDGET_MS,
+});
 
 const SPY = `(() => {
   const P = CanvasRenderingContext2D.prototype, oc = P.clearRect, of = P.fillText;
-  window.__mm = { calls: [], frame: [] };
-  P.clearRect = function (...a) { if (this.canvas.className === 'minimap') { window.__mm.frame = []; } return oc.apply(this, a); };
+  window.__mm = { calls: [], frame: [], last: [] };
+  P.clearRect = function (...a) { if (this.canvas.className === 'minimap') { window.__mm.last = window.__mm.frame; window.__mm.frame = []; } return oc.apply(this, a); };
   P.fillText = function (t, x, y) { if (this.canvas.className === 'minimap') {
-    window.__mm.frame.push({ t, x, y, font: this.font, align: this.textAlign, w: this.measureText(t).width }); }
+    window.__mm.frame.push({ t, x, y, a: this.globalAlpha, font: this.font, align: this.textAlign, w: this.measureText(t).width }); }
     return of.call(this, t, x, y); };
 })();`;
 
@@ -20,7 +38,7 @@ const SNAP = `(async () => {
   const cv = document.querySelector('canvas.minimap'), css = cv.clientWidth, dpr = cv.width / css;
   const r = cv.width / 2, s = 4 * (css / 160) * dpr;
   const pos = window.__idleRpg.store.getState().game.movement.position;
-  const frame = window.__mm.frame.slice();
+  const frame = window.__mm.last.slice(); // last COMPLETE frame (calls between two clearRects)
   const labels = W.WORLD_DEF.labels.map((l) => ({ text: l.text, kind: l.kind, px: r + (l.x - pos.x) * s, py: r + (l.y - pos.y) * s }));
   const rc = cv.getBoundingClientRect();
   return { frame, labels, r, dpr, css, pos, canvasW: cv.width, rect: { x: rc.left, y: rc.top, w: rc.width, h: rc.height } };
@@ -29,17 +47,24 @@ const SNAP = `(async () => {
 const boxOf = (f) => {
   const px = Number(/(\d+(?:\.\d+)?)px/.exec(f.font)[1]);
   const left = f.align === 'center' ? f.x - f.w / 2 : f.x;
-  return { left, right: left + f.w, top: f.y - px / 2, bottom: f.y + px / 2, px };
+  return { left, right: left + f.w, top: f.y - px / 2, bottom: f.y + px / 2, px, a: f.a ?? 1 };
 };
 
+/** Minimap settled: the last complete frame's label draw positions hold still (waitStill: 2 x 100 ms). */
 async function snap(g) {
-  await g.sleep(250);
+  await waitStill(
+    () =>
+      g.cdp.eval(
+        `(() => { const f = window.__mm.last; let x = f.length * 1000, y = 0; for (const c of f) { x += c.x; y += c.y; } return { x, y }; })()`,
+      ),
+    { intervalMs: 100, stable: 2, max: 80 },
+  );
   return g.cdp.eval(SNAP);
 }
 
 async function whereAt(g, name, tile) {
   if (tile) {
-    await g.teleport(tile[0], tile[1], { settleMs: 2800 }); // minimap trail glides ~2 s
+    await g.teleport(tile[0], tile[1], { settleMs: 0 }); // the trail glide is waited out by snap()
   }
   const s = await snap(g);
   const shot = await g.cdp.send('Page.captureScreenshot', {
@@ -118,7 +143,19 @@ async function checks(g, vp, area, s, file, expectDrawn, expectAbsent, iconOnly 
       // far-outside anchors (beyond radius+5 css px of box) must never be drawn
       for (const l of s.labels) {
         const dist = Math.hypot(l.px - s.r, l.py - s.r);
-        if (dist > s.r + 1) expect(!drawn.has(l.text), `${l.text} anchor outside circle yet drawn`);
+        // Region labels are nudged up to 2 box heights / 0.4 box widths to fit inside the circle (layoutLabels),
+        // so their anchor may sit that far outside; facility labels are never nudged.
+        const b = boxes.find((x) => x.t === l.text);
+        const slack =
+          l.kind === 'region' && b
+            ? 2 * (b.bottom - b.top + 4 * s.dpr) + 0.4 * (b.right - b.left)
+            : 0;
+        // Several labels can share a text ("The Wilds" x10): the draw is explained by any same-text anchor in range.
+        const explained = s.labels.some(
+          (x) => x.text === l.text && Math.hypot(x.px - s.r, x.py - s.r) <= s.r + 1 + slack,
+        );
+        if (dist > s.r + 1 + slack && !explained)
+          expect(!drawn.has(l.text), `${l.text} anchor outside circle yet drawn`);
       }
       return `${boxes.length} boxes inside r=${s.r}`;
     },
@@ -134,33 +171,24 @@ async function checks(g, vp, area, s, file, expectDrawn, expectAbsent, iconOnly 
     return `${boxes.length} labels pairwise disjoint`;
   });
   await check(`${area}-pixels`, `${area}: white label text pixels really painted`, async () => {
+    // Labels forced under the player marker are drawn at alpha 0.4 on purpose (never pure white): not counted.
+    const solid = boxes.filter((b) => b.a >= 0.99);
     const n = await g.cdp
       .eval(`(() => { const c = document.querySelector('canvas.minimap'), x = c.getContext('2d');
-      let hits = 0; for (const f of ${JSON.stringify(boxes)}) { const w = Math.max(1, Math.ceil(f.right - f.left)), h = Math.ceil(f.bottom - f.top);
+      let hits = 0; for (const f of ${JSON.stringify(solid)}) { const w = Math.max(1, Math.ceil(f.right - f.left)), h = Math.ceil(f.bottom - f.top);
         const d = x.getImageData(Math.max(0, Math.floor(f.left)), Math.max(0, Math.floor(f.top)), w, h).data; let white = 0;
         for (let i = 0; i < d.length; i += 4) if (d[i] > 245 && d[i+1] > 245 && d[i+2] > 245 && d[i+3] > 245) white++;
         if (white >= 8) hits++; } return hits; })()`);
-    expect(n === boxes.length, `${n}/${boxes.length} label boxes contain white text pixels`);
-    return `${n}/${boxes.length} boxes have white pixels`;
+    expect(n === solid.length, `${n}/${solid.length} solid label boxes contain white text pixels`);
+    return `${n}/${solid.length} solid boxes have white pixels (${boxes.length - solid.length} faded)`;
   });
 }
 
-const RUNS = [
-  { vp: 'desktop', dsf: 1 },
-  { vp: 'desktop', dsf: 2 },
-  { vp: 'phone', dsf: 3 },
-];
-
-await withGame({ port: 5208 }, async (g) => {
-  await g.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: SPY });
-  for (const { vp, dsf } of RUNS) {
-    await g.setViewport(vp);
-    const v =
-      vp === 'phone'
-        ? { width: 390, height: 844, mobile: true }
-        : { width: 1280, height: 800, mobile: false };
-    await g.cdp.send('Emulation.setDeviceMetricsOverride', { ...v, deviceScaleFactor: dsf });
-    await g.load();
+await withCombos(
+  { port: PORT, budgetMs: BUDGET_MS, initScripts: [SPY] },
+  COMBOS,
+  async (g, name) => {
+    const { vp, dsf } = RUNS[name];
     const tag = `${vp}-dpr${dsf}`;
     const spawn = await whereAt(g, `${tag}-spawn`, [18, 15]); // fresh-save spawn tile (explicit: load() sometimes kept the old tile)
     const small = vp === 'phone'; // small minimap: facility = coin icon only (decision)
@@ -170,9 +198,9 @@ await withGame({ port: 5208 }, async (g) => {
       'spawn',
       spawn.s,
       spawn.file,
-      small ? [] : ['Willowbrook Green', 'Willowbrook Bank'], // small: names that don't fit are skipped; need >= 1 region label
+      small ? [] : ['Willowbrook Green'], // small: names that don't fit are skipped; need >= 1 region label
       ['Fernhaven', 'Fernhaven Bank', 'Greatmere'],
-      small ? ['Willowbrook Bank'] : [],
+      ['Willowbrook Bank'], // the name would cross the player keep-out here, so the coin icon wins (layoutLabels)
     );
     const ww = await whereAt(g, `${tag}-whispering`, [50, 14]);
     await checks(
@@ -196,15 +224,16 @@ await withGame({ port: 5208 }, async (g) => {
     );
     const m0 = await snap(g); // put the bank anchor 0.7r left of centre so its name can fit in the circle
     const fbx = Math.round(94 + (0.7 * m0.r) / (4 * (m0.css / 160) * m0.dpr));
-    const fb = await whereAt(g, `${tag}-fernhavenbank`, [fbx, 62]);
+    const fb = await whereAt(g, `${tag}-fernhavenbank`, [fbx, 70]); // 8 tiles south of the bank so its name clears the player keep-out
     await checks(
       g,
       tag,
       'fernbank',
       fb.s,
       fb.file,
-      ['Fernhaven Bank'],
+      small ? [] : ['Fernhaven Bank'], // phone: the small circle can't fit the name, so only the coin icon (decision)
       ['Willowbrook Green', 'Willowbrook Bank', 'Whispering Wood'],
+      small ? ['Fernhaven Bank'] : [],
     );
-  }
-});
+  },
+);

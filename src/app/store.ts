@@ -18,6 +18,9 @@ import {
   swapInventorySlots,
   takeGroundItem,
   useItemOn,
+  lightSlot,
+  cookOnFire,
+  examineFire,
   examineItem,
   examineSpot,
   examineTree,
@@ -137,6 +140,11 @@ export interface AppState {
   cancelUse(): void;
   /** Walk to a ground item and pick it up. */
   takeGroundItem(id: string): void;
+  /** Light the logs in an inventory slot (needs a tinderbox). */
+  lightSlot(slot: number): void;
+  /** Walk beside a fire and cook (default: the first raw item in the bag). */
+  cookOnFire(fireId: string, rawId?: string): void;
+  examineFire(): void;
   /** Walk beside a facility and use its option (default: the first, e.g. "Bank"). */
   interactFacility(objectId: string, optionId?: string): void;
   examineFacility(objectId: string): void;
@@ -248,10 +256,16 @@ export function createAppStore(
       const sel = get().useSelection;
       if (!sel) return;
       if (target.kind === 'item' && target.slot === sel.slot) return set({ useSelection: null });
-      set((s) => ({ ...act((g) => useItemOn(g, sel.itemId, target))(s), useSelection: null }));
+      set((s) => ({
+        ...act((g) => useItemOn(g, content, sel.itemId, target))(s),
+        useSelection: null,
+      }));
     },
     cancelUse: () => set({ useSelection: null }),
     takeGroundItem: (id) => set(follow(act((g) => takeGroundItem(g, content, id)))),
+    lightSlot: (slot) => set(act((g) => lightSlot(g, content, slot))),
+    cookOnFire: (id, raw) => set(follow(act((g) => cookOnFire(g, content, id, raw)))),
+    examineFire: () => set(act((g) => examineFire(g))),
     interactFacility: (id, opt) => set(follow(act((g) => interactFacility(g, content, id, opt)))),
     examineFacility: (id) => set(act((g) => examineFacility(g, content, id))),
     interactNpc: (id, opt) => set(follow(act((g) => interactNpc(g, content, id, opt)))),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createTicker } from '@core/engine';
-import { advanceTrail, frameAlpha, renderPosition, startTrail } from './renderTrail';
+import { advanceTrail, snapTrail, frameAlpha, renderPosition, startTrail } from './renderTrail';
 
 describe('player render trail', () => {
   it('glides strictly between the previous and current tile within a tick', () => {
@@ -78,5 +78,14 @@ describe('player render trail', () => {
       const d = walk((t) => t.alpha());
       expect(spread(d.slice(40))).toBeGreaterThan(0.15);
     });
+  });
+
+  it('snapTrail jumps to the new tile with no easing, even inside the same tick', () => {
+    const t = advanceTrail(startTrail({ x: 5, y: 5 }, 0), { x: 5, y: 5 }, 1);
+    const s = snapTrail(t, { x: 6, y: 5 }, 1);
+    expect(renderPosition(s, 0)).toEqual({ x: 6, y: 5 });
+    expect(renderPosition(s, 0.5)).toEqual({ x: 6, y: 5 });
+    const walked = advanceTrail(t, { x: 6, y: 5 }, 2);
+    expect(renderPosition(walked, 0).x).toBe(5);
   });
 });

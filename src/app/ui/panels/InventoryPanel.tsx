@@ -13,6 +13,8 @@ import {
   useUseSelection,
 } from '@app/ui/useItemState';
 import { itemIconUrl } from '@render/index';
+import { isLightable } from '@app/game/firemaking';
+import { itemMenuOptions } from '@app/ui/itemMenu';
 
 interface DragState {
   from: number;
@@ -52,6 +54,7 @@ export function InventoryPanel() {
     rawDrop(i);
   };
   const examineItem = useApp((s) => s.examineItem);
+  const lightSlot = useApp((s) => s.lightSlot);
 
   const [drag, setDrag] = useState<DragState | null>(null);
   const press = useRef<Press | null>(null);
@@ -130,12 +133,15 @@ export function InventoryPanel() {
                   x: e.clientX,
                   y: e.clientY,
                   title: name,
-                  options: [
-                    ...(useItem ? [{ label: 'Use', onSelect: () => useItem(i) }] : []),
-                    { label: 'Drop', onSelect: () => dropSlot(i) },
-                    { label: 'Examine', onSelect: () => examineItem(i) },
-                    { label: 'Cancel', onSelect: () => undefined },
-                  ],
+                  options: itemMenuOptions(
+                    {
+                      use: useItem ? () => useItem(i) : undefined,
+                      drop: () => dropSlot(i),
+                      examine: () => examineItem(i),
+                      light: () => lightSlot(i),
+                    },
+                    isLightable(stack?.itemId ?? ''),
+                  ),
                 });
               }}
             />

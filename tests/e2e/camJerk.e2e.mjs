@@ -1,6 +1,22 @@
 // Camera jerk on re-follow (user bug: "on mobile whenever i move the camera jerks").
 // Real taps on the canvas, 4x CPU throttle, per-frame sampling of camera scroll + player client position.
-import { check, expect, waitStill, withGame } from './lib.mjs';
+// FAST BASE: desktop, phone (walks + gather) and phone (sheet) run as parallel runParallel children (withCombos: one
+// page load each), waits on state (tile stepped, walk end, camera still, ticks) instead of fixed sleeps, budget 60 s.
+// realTime (600 ms ticks) IS the thing tested: the per-frame scroll/step limits are for real walking speed; at 60 ms
+// ticks the player crosses 10x the distance per frame and the limits would no longer mean anything.
+// Run: node tests/e2e/camJerk.e2e.mjs (base port 9566; E2E_PORT overrides)
+import { VIEWPORTS, check, expect, runParallel, waitStill, withCombos } from './lib.mjs';
+
+// The phone runs at dpr 3 here (as the user's phone). Its sheet check is its own child (same phone) so the two phone
+// halves run in parallel; added here, lib.mjs stays unchanged.
+VIEWPORTS.phone3 = { width: 390, height: 844, touch: true, mobile: true, dsf: 3 };
+VIEWPORTS.phone3sheet = { ...VIEWPORTS.phone3 };
+const PORT = 9566;
+const BUDGET_MS = 60e3;
+const COMBOS = await runParallel(import.meta.url, PORT, {
+  viewports: ['desktop', 'phone3', 'phone3sheet'],
+  budgetMs: BUDGET_MS,
+});
 
 const MAX_SCROLL = 2; // world px per frame
 const MAX_BODY = 1.7; // client px per frame (live max 1.58 desktop+phone, 4x throttle; mutant 2.09-2.10 red): the body's offset inside the container eases (POSE_BLEND_MS), never snaps
@@ -71,12 +87,38 @@ async function sample(g, fn) {
   return stats(await g.eval('window.__cs.f'));
 }
 const pos = (g) => g.state('movement.position');
+// walk end, then keep sampling until the follow camera has stopped easing (was a fixed 500 ms)
 async function arrive(g, ms = 12000) {
   await g.waitFor(async () => (await g.state('movement.path')).length === 0, {
     timeoutMs: ms,
     label: 'walk end',
   });
-  await g.sleep(500);
+  await waitStill(() => camPos(g), { intervalMs: 100, stable: 3, max: 40, eps: 0.2 });
+}
+// mid-walk re-tap moment: wait until the DRAWN player has moved 20 world px (past the middle of a 36 px tile step)
+// since the previous tap. Was a fixed 500-700 ms; this keeps the re-tap mid-step (random tick phase like the old
+// sleep) instead of on a tick boundary, and does not depend on machine speed.
+const drawn = (g) =>
+  g.eval(
+    `(() => { const c = window.__idleRpg.scene().playerView.container; return { x: c.x, y: c.y }; })()`,
+  );
+let stepMiss = []; // re-tap moments where the drawn player had not moved 20 px within 1.5 s (reported in evidence)
+async function stepped(g) {
+  const p0 = await drawn(g);
+  let last = p0;
+  await g
+    .waitFor(
+      async () => {
+        last = await drawn(g);
+        return Math.hypot(last.x - p0.x, last.y - p0.y) >= 20;
+      },
+      { timeoutMs: 1500, label: 'drawn player moved mid-step' },
+    )
+    .catch(async () =>
+      stepMiss.push(
+        `${Math.hypot(last.x - p0.x, last.y - p0.y).toFixed(1)}px path ${(await g.state('movement.path')).length}`,
+      ),
+    );
 }
 // tap a tile `d` away from the player, trying direction candidates until one is on-canvas and moves us
 async function tapAhead(g, dist) {
@@ -99,90 +141,85 @@ async function tapAhead(g, dist) {
   throw new Error('no tappable tile');
 }
 
-await withGame({ port: Number(process.env.QA_PORT ?? 5275) }, async (g) => {
+await withCombos({ port: PORT, budgetMs: BUDGET_MS, realTime: true }, COMBOS, async (g, vp) => {
   const throttle = (rate) => g.cdp.send('Emulation.setCPUThrottlingRate', { rate });
-  for (const vp of ['desktop', 'phone']) {
-    await g.setViewport(vp);
-    if (vp === 'phone')
-      await g.cdp.send('Emulation.setDeviceMetricsOverride', {
-        width: 390,
-        height: 844,
-        deviceScaleFactor: 3,
-        mobile: true,
-      });
-    await g.load();
+  {
     await g.eval(SAMPLER);
     await throttle(4);
     const t = await g.targetOfKind('tree');
     await g.setInventory(['bronze_axe']);
     await g.realTime(async () => {
-      await check(
-        'walks',
-        '5 tap-walks 4-8 tiles with mid-walk re-taps: no camera snap',
-        async () => {
-          await g.teleport(18, 15);
+      if (vp !== 'phone3sheet')
+        await check(
+          'walks',
+          '5 tap-walks 4-8 tiles with mid-walk re-taps: no camera snap',
+          async () => {
+            await g.teleport(18, 15);
+            await settle(g);
+            const all = [];
+            let retaps = 0,
+              moved = 0;
+            for (let i = 0; i < 5; i++) {
+              const from = await pos(g);
+              const s = await sample(g, async () => {
+                await tapAhead(g, 3);
+                await stepped(g);
+                await tapAhead(g, 3);
+                retaps++; // re-follow mid-walk
+                if (i % 2 === 0) {
+                  await stepped(g);
+                  await tapAhead(g, 2);
+                  retaps++;
+                }
+                await arrive(g);
+              });
+              const to = await pos(g);
+              if (Math.abs(to.x - from.x) + Math.abs(to.y - from.y) >= 3) moved++;
+              all.push(s);
+            }
+            const agg = {
+              n: 0,
+              sMax: Math.max(...all.map((s) => s.sMax)),
+              sP95: Math.max(...all.map((s) => s.sP95)),
+              pMax: Math.max(...all.map((s) => s.pMax)),
+              pP95: Math.max(...all.map((s) => s.pP95)),
+              fps: all[0].fps,
+              top: all
+                .flatMap((s) => s.top)
+                .sort((x, y) => y.p + y.s - x.p - x.s)
+                .slice(0, 3),
+              maxDt: Math.max(...all.map((s) => s.maxDt)),
+            };
+            for (const s of all) agg.n += s.n;
+            expect(moved >= 4, `only ${moved}/5 walks moved >=3 tiles`);
+            expect(retaps >= 2, 'retaps');
+            expect(okS(agg), `${fmt(agg)} retaps ${retaps} stepMiss [${stepMiss.join(', ')}]`);
+            return `${vp}: ${moved}/5 walks, ${retaps} re-taps (re-tap waits that timed out: ${stepMiss.length ? stepMiss.join(', ') : 'none'}); ${fmt(agg)}`;
+          },
+        );
+      if (vp !== 'phone3sheet')
+        await check('gather', 'gather start right after a walk: no snap', async () => {
+          await g.teleport(t.x + 3, t.y + 3);
           await settle(g);
-          const all = [];
-          let retaps = 0,
-            moved = 0;
-          for (let i = 0; i < 5; i++) {
-            const from = await pos(g);
-            const s = await sample(g, async () => {
-              await tapAhead(g, 3);
-              await g.sleep(700);
-              await tapAhead(g, 3);
-              retaps++; // re-follow mid-walk
-              if (i % 2 === 0) {
-                await g.sleep(500);
-                await tapAhead(g, 2);
-                retaps++;
-              }
-              await arrive(g);
-            });
-            const to = await pos(g);
-            if (Math.abs(to.x - from.x) + Math.abs(to.y - from.y) >= 3) moved++;
-            all.push(s);
-          }
-          const agg = {
-            n: 0,
-            sMax: Math.max(...all.map((s) => s.sMax)),
-            sP95: Math.max(...all.map((s) => s.sP95)),
-            pMax: Math.max(...all.map((s) => s.pMax)),
-            pP95: Math.max(...all.map((s) => s.pP95)),
-            fps: all[0].fps,
-            top: all
-              .flatMap((s) => s.top)
-              .sort((x, y) => y.p + y.s - x.p - x.s)
-              .slice(0, 3),
-            maxDt: Math.max(...all.map((s) => s.maxDt)),
-          };
-          for (const s of all) agg.n += s.n;
-          expect(moved >= 4, `only ${moved}/5 walks moved >=3 tiles`);
-          expect(retaps >= 2, 'retaps');
-          expect(okS(agg), `${fmt(agg)} retaps ${retaps}`);
-          return `${vp}: ${moved}/5 walks, ${retaps} re-taps; ${fmt(agg)}`;
-        },
-      );
-      await check('gather', 'gather start right after a walk: no snap', async () => {
-        await g.teleport(t.x + 3, t.y + 3);
-        await settle(g);
-        const s = await sample(g, async () => {
-          await tapAhead(g, 2);
-          await arrive(g, 8000);
-          await g.tapObject(t.id);
-          await g.waitFor(
-            async () =>
-              (await g.state('gathering.session')) != null ||
-              (await g.chatLines()).some((l) => /log/i.test(l)),
-            { label: 'gather started' },
-          );
-          await g.sleep(1200);
+          const s = await sample(g, async () => {
+            await tapAhead(g, 2);
+            await arrive(g, 8000);
+            await g.tapObject(t.id);
+            await g.waitFor(
+              async () =>
+                (await g.state('gathering.session')) != null ||
+                (await g.chatLines()).some((l) => /log/i.test(l)),
+              { label: 'gather started' },
+            );
+            // keep sampling 2 game ticks of the gather start (was a fixed 1200 ms = 2 ticks at 600 ms)
+            const t0 = await g.state('tick');
+            await g.waitState('tick', `t => t >= ${t0 + 2}`, { timeoutMs: 5000, label: '2 ticks' });
+          });
+          expect(okS(s), fmt(s));
+          expect(s.bMax <= MAX_BODY, `body offset snap: ${fmt(s)}`);
+          return `${vp}: ${fmt(s)}`;
         });
-        expect(okS(s), fmt(s));
-        expect(s.bMax <= MAX_BODY, `body offset snap: ${fmt(s)}`);
-        return `${vp}: ${fmt(s)}`;
-      });
-      if (vp === 'phone')
+      if (vp === 'phone3sheet')
         await check(
           'sheet',
           'sheet collapsed/expanded: walk stays above HUD, no snap after inset settles',
@@ -193,7 +230,7 @@ await withGame({ port: Number(process.env.QA_PORT ?? 5275) }, async (g) => {
               const folded = await g.eval(
                 `document.querySelector('.sheet-fold').getAttribute('aria-expanded')`,
               );
-              await g.teleport(18, 15, { settleMs: 300 });
+              await g.teleport(18, 15, { settleMs: 0 });
               await waitStill(() =>
                 g.eval(
                   `(() => { const c = window.__idleRpg.scene(); return { x: c.camera.scrollX, y: c.camera.scrollY }; })()`,
@@ -201,7 +238,7 @@ await withGame({ port: Number(process.env.QA_PORT ?? 5275) }, async (g) => {
               );
               const s = await sample(g, async () => {
                 await tapAhead(g, 3);
-                await g.sleep(600);
+                await stepped(g);
                 await tapAhead(g, 3);
                 await arrive(g);
               });

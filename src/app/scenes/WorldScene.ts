@@ -13,6 +13,7 @@ import {
   PLAYER_LOOKS,
   createBuildingRenderer,
   createChunkRenderer,
+  createWorldEdge,
   isInsideBuilding,
   isoProjection,
   setCameraInsets,
@@ -39,13 +40,21 @@ import {
   facingFromStep,
   nextAnimState,
 } from '@render/animation';
-import type { AnimState, PlayerAnimator } from '@render/animation';
+import { createFlameFlicker } from '@render/animation';
+import type { AnimState, FlameFlicker, PlayerAnimator } from '@render/animation';
 import { startEffects, tilesInView } from '@render/effects';
 import type { EffectRunner, TileRect } from '@render/effects';
 import '@app/scenes/worldEffects';
 import { LIMITS_DESKTOP, LIMITS_MOBILE, createVfx } from '@render/vfx';
+import { setLabelKeepOuts } from '@render/index';
+import { KEEP_OUT_SELECTORS, MIN_OPACITY, keepOutSet } from '@app/scenes/keepOutRects';
 import type { Vfx } from '@render/vfx';
 import { getMethod } from '@features/skills/fishing';
+import type { FireState } from '@features/facilities';
+import { playerAction } from '@app/game/playerAction';
+import type { FireAction } from '@app/game/playerAction';
+import { FIRE_HIT_KIND, createFireViews } from '@app/scenes/fireViews';
+import type { FireViews } from '@app/scenes/fireViews';
 import { CHUNK_SIZE, WORLD_DEF } from '@features/world';
 import type { FishingSpotSpawn, ObjectSpawn, RockSpawn, TreeSpawn } from '@features/world';
 import { startedLine } from '@app/game/gatherMessages';
@@ -63,7 +72,7 @@ import { minZoomForWindow } from '@app/scenes/zoomLimit';
 import { clientToTile, clientToWorld } from '@app/scenes/clientToTile';
 import { objectAtPoint } from '@app/scenes/objectAtPoint';
 import type { HitTarget, IsOpaqueAt } from '@app/scenes/objectAtPoint';
-import { advanceTrail, renderPosition, startTrail } from '@app/scenes/renderTrail';
+import { advanceTrail, renderPosition, snapTrail, startTrail } from '@app/scenes/renderTrail';
 import type { Trail } from '@app/scenes/renderTrail';
 import { applyVisualPrefs } from '@app/scenes/applyPrefs';
 import { applyPlayerLook, lookIdFromPrefs } from '@app/scenes/playerLook';
@@ -96,6 +105,7 @@ interface Hit {
   spot?: FishingSpotSpawn;
   obj?: ObjectSpawn;
   npc?: NpcInstance;
+  fire?: FireState;
 }
 
 const START_ZOOM = 1.5;
@@ -124,6 +134,12 @@ export class WorldScene extends Phaser.Scene {
   private buildings?: BuildingRenderer;
   private groundItems?: GroundItemViews;
   private lastGround: unknown = null;
+  private fireViews?: FireViews;
+  /** One shared flame flicker for every fire view (ticked from animate, like the tree sway). */
+  private flicker?: FlameFlicker;
+  /** 'lighting' | 'cooking' | null this frame (read by the fire animation wiring). */
+  private fireAction: FireAction | null = null;
+  private lastFires: unknown = null;
   private targets: HitTarget<Hit>[] = [];
   private input$?: GestureInput;
   private unsubscribe?: () => void;
@@ -150,6 +166,13 @@ export class WorldScene extends Phaser.Scene {
     const { store } = this.deps;
     const state = store.getState();
     this.prefs = state.prefs;
+    createWorldEdge(
+      this,
+      isoProjection,
+      WORLD_DEF.widthChunks * CHUNK_SIZE,
+      WORLD_DEF.heightChunks * CHUNK_SIZE,
+      (x, y) => WORLD_DEF.terrainAt(x, y),
+    );
     this.ground = createChunkRenderer(this, {
       ...CHUNK_GRID,
       skipWall: isBuildingShell,
@@ -163,6 +186,8 @@ export class WorldScene extends Phaser.Scene {
     this.groundItems = createGroundItemViews(this, isoProjection, {
       motion: () => this.prefs.visuals.animations,
     });
+    this.flicker = createFlameFlicker(() => this.prefs.visuals.animations);
+    this.fireViews = createFireViews(this, this.flicker);
     this.water = createWaterOverlay(this, isoProjection, {
       kindAt: (x, y) => WORLD_DEF.terrainAt(x, y),
       motion: () => this.prefs.visuals.animations,
@@ -233,12 +258,14 @@ export class WorldScene extends Phaser.Scene {
     camera: Phaser.Cameras.Scene2D.Camera | undefined;
     playerView: PlayerView | undefined;
     animator: PlayerAnimator | undefined;
+    fireAction: FireAction | null;
     ground: { loaded: number; created: number };
   } {
     return {
       camera: this.cam,
       playerView: this.player,
       animator: this.animator,
+      fireAction: this.fireAction,
       ground: { loaded: this.ground.loaded(), created: this.ground.created() },
     };
   }
@@ -254,6 +281,7 @@ export class WorldScene extends Phaser.Scene {
     this.placePlayer(this.deps.alpha());
     this.ensureGround();
     this.animate(time);
+    this.flicker?.update(time);
     this.effects?.frame(time);
   }
 
@@ -316,7 +344,9 @@ export class WorldScene extends Phaser.Scene {
       gatherToolKind: session ? CONTENT.gatherDefs.get(session.defId)?.toolKind : undefined,
       fishing: fish !== null,
       fishToolKind: fish ? getMethod(fish.defId, fish.method)?.def.toolKind : undefined,
+      fireAction: playerAction(g),
     });
+    this.fireAction = playerAction(g);
     this.animState = nextAnimState(this.animState, { ...animIn, toolKind });
     const level = (skill: string): number =>
       isSkillId(skill) ? getLevel(g.progression, skill) : 1;
@@ -396,9 +426,20 @@ export class WorldScene extends Phaser.Scene {
       this.lastGround = game.ground;
       this.groundItems?.sync(game.ground.items);
     }
+    this.fireViews?.sync(game.firemaking.fires, game.tick, game.firemaking.lighting);
+    let newFire = false;
+    if (game.firemaking.fires !== this.lastFires) {
+      const known = new Set(((this.lastFires ?? []) as { id: string }[]).map((f) => f.id));
+      newFire = game.firemaking.fires.some((f) => !known.has(f.id));
+      this.lastFires = game.firemaking.fires;
+      this.targets = [...this.targets.filter((t) => !t.ref.fire), ...this.fireTargets()];
+    }
     const pos = game.movement.position;
     const before = this.trail;
-    this.trail = advanceTrail(before, pos, this.deps.tick());
+    // A new fire lands on the tile the player just stepped off: snap, so no frame draws the body in the flames.
+    this.trail = newFire
+      ? snapTrail(before, pos, this.deps.tick())
+      : advanceTrail(before, pos, this.deps.tick());
     this.ensureWindow(pos);
     this.buildings?.setInside(
       WORLD_DEF.buildings.find((b) => isInsideBuilding(b, pos.x, pos.y))?.id ?? null,
@@ -415,6 +456,12 @@ export class WorldScene extends Phaser.Scene {
     const tree = session ? this.spawn(session.nodeId) : undefined;
     if (tree && (tree.x !== pos.x || tree.y !== pos.y))
       this.facing = facingFromStep(tree.x - pos.x, tree.y - pos.y);
+    const cookFire = game.cooking.session
+      ? game.firemaking.fires.find((f) => f.id === game.cooking.session?.objectId)
+      : undefined;
+    const faceTile = cookFire?.tile ?? game.firemaking.lighting?.tile;
+    if (faceTile && (faceTile.x !== pos.x || faceTile.y !== pos.y))
+      this.facing = facingFromStep(faceTile.x - pos.x, faceTile.y - pos.y);
     const fishSpot = game.fishing.session
       ? CONTENT.fishingSpots.get(game.fishing.session.spotId)
       : undefined;
@@ -447,6 +494,18 @@ export class WorldScene extends Phaser.Scene {
     };
     this.applyInsets = apply;
     apply();
+    // Nameplate keep-outs: the render clamp re-reads this at most every 200 ms (labelKeepOut TTL), so the
+    // DOM reads follow resize, sheet fold and chat open/close with no observer or per-frame layout.
+    setLabelKeepOuts(() =>
+      keepOutSet(
+        this.game.canvas.getBoundingClientRect(),
+        KEEP_OUT_SELECTORS.flatMap((q) =>
+          [...document.querySelectorAll(q)]
+            .filter((e) => parseFloat(getComputedStyle(e).opacity) >= MIN_OPACITY)
+            .map((e) => e.getBoundingClientRect()),
+        ),
+      ),
+    );
     this.scale.on(Phaser.Scale.Events.RESIZE, apply);
     window.addEventListener('resize', apply);
     this.observer = new ResizeObserver(apply);
@@ -472,6 +531,7 @@ export class WorldScene extends Phaser.Scene {
       window.removeEventListener('resize', apply);
       this.observer?.disconnect();
       this.mutations?.disconnect();
+      setLabelKeepOuts(null);
     });
   }
 
@@ -502,7 +562,15 @@ export class WorldScene extends Phaser.Scene {
       })),
       ...l.objects.map((o) => ({ tile: o, kind: o.kind, ref: { obj: o } })),
       ...l.npcs.map((n) => ({ tile: n, kind: 'npc' as const, ref: { npc: n } })),
+      ...this.fireTargets(),
     ];
+  }
+
+  /** Tap targets for the fires currently burning. */
+  private fireTargets(): HitTarget<Hit>[] {
+    return this.deps.store
+      .getState()
+      .game.firemaking.fires.map((f) => ({ tile: f.tile, kind: FIRE_HIT_KIND, ref: { fire: f } }));
   }
 
   /** Zoom, but never out past the point where the loaded chunks stop filling the view. */
@@ -570,29 +638,35 @@ export class WorldScene extends Phaser.Scene {
         return;
       }
       const hit = hitAt(x, y);
-      const { tree, rock, spot, obj, npc } = hit;
+      const { tree, rock, spot, obj, npc, fire } = hit;
       const tile =
         tree ??
         rock ??
         (spot && spotTile(spot, this.deps.store.getState().game.fishing)) ??
         obj ??
         npc ??
+        fire?.tile ??
         tileAt(x, y);
       if (!tile) return;
       const store = this.deps.store.getState();
       store.closeMenu();
       const at = isoProjection.tileToWorld(tile.x, tile.y);
-      this.vfx?.clickMarker(at.x, at.y, tree || rock || spot || obj || npc ? 'interact' : 'walk');
+      this.vfx?.clickMarker(
+        at.x,
+        at.y,
+        tree || rock || spot || obj || npc || fire ? 'interact' : 'walk',
+      );
       const using = store.useSelection !== null;
-      if (using && (npc || obj || tree || rock || spot)) {
+      if (using && (npc || obj || tree || rock || spot || fire)) {
         if (npc) store.useItemOn({ kind: 'npc', id: npc.spawnId });
         else
           store.useItemOn({
             kind: 'object',
-            id: obj ? obj.objectId : ((tree ?? rock)?.nodeId ?? spot!.spotId),
+            id: obj ? obj.objectId : (fire?.id ?? (tree ?? rock)?.nodeId ?? spot!.spotId),
           });
       } else if (npc) store.interactNpc(npc.spawnId);
       else if (obj) store.interactFacility(obj.objectId);
+      else if (fire) store.cookOnFire(fire.id);
       else if (tree) store.interactTree(tree.nodeId);
       else if (rock) store.interactTree(rock.nodeId);
       else if (spot) store.interactSpot(spot.spotId);
@@ -626,13 +700,14 @@ export class WorldScene extends Phaser.Scene {
         });
         return;
       }
-      const { tree, rock, spot, obj, npc } = hitAt(x, y);
+      const { tree, rock, spot, obj, npc, fire } = hitAt(x, y);
       const tile =
         tree ??
         rock ??
         (spot && spotTile(spot, this.deps.store.getState().game.fishing)) ??
         obj ??
         npc ??
+        fire?.tile ??
         tileAt(x, y);
       if (!tile) return;
       const store = this.deps.store.getState();
@@ -644,57 +719,67 @@ export class WorldScene extends Phaser.Scene {
                 ? store.interactNpc(npc.spawnId, e.optionId)
                 : store.examineNpc(npc.spawnId),
           }))
-        : obj
-          ? facilityMenu(obj.kind).entries.map((e) => ({
+        : fire
+          ? facilityMenu('fire').entries.map((e) => ({
               label: e.label,
-              onSelect: () =>
-                e.optionId
-                  ? store.interactFacility(obj.objectId, e.optionId)
-                  : store.examineFacility(obj.objectId),
+              onSelect: () => (e.optionId ? store.cookOnFire(fire.id) : store.examineFire()),
             }))
-          : spot
-            ? [
-                lockableOption(
-                  { label: spotVerb(spot), onSelect: () => store.interactSpot(spot.spotId) },
-                  lockedReason(store.game, CONTENT, { kind: 'spot', defId: spot.defId }),
-                  store.say,
-                ),
-                { label: 'Examine Fishing spot', onSelect: () => store.examineSpot(spot.spotId) },
-              ]
-            : rock
+          : obj
+            ? facilityMenu(obj.kind).entries.map((e) => ({
+                label: e.label,
+                onSelect: () =>
+                  e.optionId
+                    ? store.interactFacility(obj.objectId, e.optionId)
+                    : store.examineFacility(obj.objectId),
+              }))
+            : spot
               ? [
                   lockableOption(
-                    { label: 'Mine Rock', onSelect: () => store.interactTree(rock.nodeId) },
-                    lockedReason(store.game, CONTENT, { kind: 'node', defId: rock.defId }),
+                    { label: spotVerb(spot), onSelect: () => store.interactSpot(spot.spotId) },
+                    lockedReason(store.game, CONTENT, { kind: 'spot', defId: spot.defId }),
                     store.say,
                   ),
-                  { label: 'Examine Rock', onSelect: () => store.examineTree(rock.nodeId) },
+                  { label: 'Examine Fishing spot', onSelect: () => store.examineSpot(spot.spotId) },
                 ]
-              : tree
+              : rock
                 ? [
                     lockableOption(
-                      { label: 'Chop down Tree', onSelect: () => store.interactTree(tree.nodeId) },
-                      lockedReason(store.game, CONTENT, { kind: 'node', defId: tree.defId }),
+                      { label: 'Mine Rock', onSelect: () => store.interactTree(rock.nodeId) },
+                      lockedReason(store.game, CONTENT, { kind: 'node', defId: rock.defId }),
                       store.say,
                     ),
-                    { label: 'Examine Tree', onSelect: () => store.examineTree(tree.nodeId) },
+                    { label: 'Examine Rock', onSelect: () => store.examineTree(rock.nodeId) },
                   ]
-                : [{ label: 'Walk here', onSelect: () => store.walkTo(tile) }];
+                : tree
+                  ? [
+                      lockableOption(
+                        {
+                          label: 'Chop down Tree',
+                          onSelect: () => store.interactTree(tree.nodeId),
+                        },
+                        lockedReason(store.game, CONTENT, { kind: 'node', defId: tree.defId }),
+                        store.say,
+                      ),
+                      { label: 'Examine Tree', onSelect: () => store.examineTree(tree.nodeId) },
+                    ]
+                  : [{ label: 'Walk here', onSelect: () => store.walkTo(tile) }];
       options.push({ label: 'Cancel', onSelect: () => undefined });
       store.openMenu({
         x,
         y,
         title: npc
           ? npcMenu(npc.npcId).title
-          : obj
-            ? facilityMenu(obj.kind).title
-            : spot
-              ? 'Fishing spot'
-              : rock
-                ? rockTitle(rock)
-                : tree
-                  ? treeTitle(tree)
-                  : 'Ground',
+          : fire
+            ? facilityMenu('fire').title
+            : obj
+              ? facilityMenu(obj.kind).title
+              : spot
+                ? 'Fishing spot'
+                : rock
+                  ? rockTitle(rock)
+                  : tree
+                    ? treeTitle(tree)
+                    : 'Ground',
         options,
       });
     });
@@ -739,6 +824,9 @@ export class WorldScene extends Phaser.Scene {
     this.nodes = undefined;
     this.water?.destroy();
     this.water = undefined;
+    this.fireViews?.destroy();
+    this.fireViews = undefined;
+    this.flicker = undefined;
     this.groundItems?.destroy();
     this.groundItems = undefined;
     this.effects?.destroy();

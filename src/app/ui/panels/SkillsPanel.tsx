@@ -13,6 +13,7 @@ import { useApp } from '@app/ui/context';
 import { Panel } from '@app/ui/components/Panel';
 import { SkillIcon } from '@app/ui/components/SkillIcon';
 import { ProgressBar } from '@app/ui/components/ProgressBar';
+import { SkillUnlocks } from '@app/ui/panels/SkillUnlocks';
 
 /** OSRS-style skills: a 3-column grid of big levels; tap one for XP and XP to the next level. */
 export function SkillsPanel() {
@@ -71,23 +72,26 @@ function SkillDetail({ skillId, name }: { skillId: (typeof SKILLS)[number]['id']
     ref.current?.scrollIntoView({ block: 'nearest' });
   }, [skillId]);
   return (
-    <div className="skill-detail" ref={ref}>
-      <strong>{name}</strong>
-      <div>
-        Level {level} / {MAX_LEVEL}
+    <>
+      <div className="skill-detail" ref={ref}>
+        <strong>{name}</strong>
+        <div>
+          Level {level} / {MAX_LEVEL}
+        </div>
+        <div>XP: {Math.floor(xp).toLocaleString()}</div>
+        <div>
+          {level >= MAX_LEVEL
+            ? 'Maximum level'
+            : `Next level in: ${Math.ceil(xpToNextLevel(xp)).toLocaleString()} XP`}
+        </div>
+        <ProgressBar
+          value={levelProgress(xp) * 100}
+          max={100}
+          label={`${name} progress`}
+          color={skillColor(skillId)}
+        />
       </div>
-      <div>XP: {Math.floor(xp).toLocaleString()}</div>
-      <div>
-        {level >= MAX_LEVEL
-          ? 'Maximum level'
-          : `Next level in: ${Math.ceil(xpToNextLevel(xp)).toLocaleString()} XP`}
-      </div>
-      <ProgressBar
-        value={levelProgress(xp) * 100}
-        max={100}
-        label={`${name} progress`}
-        color={skillColor(skillId)}
-      />
-    </div>
+      <SkillUnlocks skillId={skillId} />
+    </>
   );
 }

@@ -143,9 +143,9 @@ describe('scripted game', () => {
 
   it('chops to a full inventory, stops with a message, resumes after dropping a log', () => {
     const rng = seededRng(42);
-    // 23 logs + the axe, pickaxe, net, rod and bait (starter kits) fill all 28 slots.
-    let r = play(newGame(CONTENT), 1, (s) => countItem(s.inventory, 'logs') === 23, rng);
-    expect(countItem(r.s.inventory, 'logs')).toBe(23);
+    // 22 logs + the axe, pickaxe, net, rod, bait and tinderbox (starter kits) fill all 28 slots.
+    let r = play(newGame(CONTENT), 1, (s) => countItem(s.inventory, 'logs') === 22, rng);
+    expect(countItem(r.s.inventory, 'logs')).toBe(22);
     expect(countItem(r.s.inventory, 'bronze_axe')).toBe(1);
     expect(r.s.inventory.slots.every((x) => x !== null)).toBe(true);
     expect(getLevel(r.s.progression, 'woodcutting')).toBeGreaterThan(1);
@@ -159,15 +159,15 @@ describe('scripted game', () => {
     );
     expect(texts(r.s)).toContain('Your inventory is too full to hold any more logs.');
     expect(r.s.gathering.session).toBeNull();
-    expect(countItem(r.s.inventory, 'logs')).toBe(23);
+    expect(countItem(r.s.inventory, 'logs')).toBe(22);
 
     // Drop one log (slot 0 is the axe, slot 1 the first log) and resume.
     const slot = r.s.inventory.slots.findIndex((x) => x?.itemId === 'logs');
     const dropped = dropSlot(r.s, CONTENT, slot);
-    expect(countItem(dropped.inventory, 'logs')).toBe(22);
+    expect(countItem(dropped.inventory, 'logs')).toBe(21);
     expect(texts(dropped)).toContain('You drop the logs.');
-    const after = play(dropped, r.tick, (s) => countItem(s.inventory, 'logs') === 23, rng);
-    expect(countItem(after.s.inventory, 'logs')).toBe(23);
+    const after = play(dropped, r.tick, (s) => countItem(s.inventory, 'logs') === 22, rng);
+    expect(countItem(after.s.inventory, 'logs')).toBe(22);
   });
 
   it('dropping the axe while chopping stops with the no-axe message', () => {

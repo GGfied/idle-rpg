@@ -1,6 +1,10 @@
-// Off-screen view culling e2e (src/render/viewCull.ts), on tests/e2e/lib.mjs. Run: node tests/e2e/cull.e2e.mjs  (E2E_PORT overrides 5212)
+// Off-screen view culling e2e (src/render/viewCull.ts), on tests/e2e/lib.mjs. Run: node tests/e2e/cull.e2e.mjs  (E2E_PORT overrides 9501)
 // Oracle: every frame (postrender), any Container whose own bounds overlap the camera worldView must be visible.
-import { check, expect, forEachViewport, withGame } from './lib.mjs';
+// Fast base: runParallel desktop + phone, withCombos (one load per child), 60 ms ticks, budget 60 s. webgl only: the
+// oracle reads Container.visible + bounds from the scene graph (viewCull is renderer-independent), no pixel is asserted.
+// Waits are frame/state based (walk idle + camera settled, N sampled frames) instead of fixed 2.5 s / 300 ms sleeps;
+// wheel steps are real CDP wheel events with one rendered frame between them instead of lib's 120 ms per wheel.
+import { check, expect, runParallel, withCombos } from './lib.mjs';
 
 const SAMPLER = `(() => {
   const sc = window.__idleRpg.scene(); const world = sc.camera.scene; const cam = sc.camera;
@@ -23,172 +27,196 @@ const SAMPLER = `(() => {
 const SNAP = `(() => { const s = window.__cull; return { frames: s.frames, nviol: s.nviol || 0, viol: s.viol, playerHidden: s.playerHidden, total: s.total, vis: s.vis }; })()`;
 const RESET = `(() => { const s = window.__cull; s.frames = 0; s.nviol = 0; s.viol = []; s.playerHidden = 0; })()`;
 
-const port = 5212;
-await withGame(
-  { port },
-  forEachViewport(['desktop', 'phone'], async (g, vp) => {
-    // forest centre = tree with most trees within 10 tiles
-    const targets = await g.targets();
-    const trees = targets.filter((t) => t.kind.includes('tree'));
-    let best = trees[0],
-      bn = -1;
-    for (const t of trees) {
-      const n = trees.filter((o) => Math.abs(o.x - t.x) + Math.abs(o.y - t.y) <= 10).length;
-      if (n > bn) {
-        bn = n;
-        best = t;
-      }
-    }
-    await g.setInventory(['bronze_axe']);
-    await g.teleport(best.x, best.y + 2, { settleMs: 1200 });
-    await g.eval(SAMPLER);
-    const snap = () => g.eval(SNAP);
-    const noViol = async (label) => {
-      const s = await snap();
-      expect(s.frames > 20, `${label}: only ${s.frames} frames sampled`);
-      expect(
-        s.nviol === 0 && s.playerHidden === 0,
-        () =>
-          `${label}: ${s.nviol} pop-in frames-views, player hidden ${s.playerHidden} frames; ${JSON.stringify(s.viol.slice(0, 3))}`,
-      );
-      return `${s.frames} frames, 0 violations, ${bn} trees in forest cluster`;
-    };
+const PORT = 9501; // combos use 9501..9502
+const BUDGET_MS = 60e3;
+const COMBOS = await runParallel(import.meta.url, PORT, {
+  viewports: ['desktop', 'phone'],
+  renderers: ['webgl'],
+  budgetMs: BUDGET_MS,
+});
+const RAF = 'new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(0))))';
 
-    await check(
-      'c1',
-      'walking across the forest: no visible-region view is culled; player always visible',
+await withCombos({ port: PORT, budgetMs: BUDGET_MS }, COMBOS, async (g, vp) => {
+  /** Wait until the sampler has seen `n` more frames (replaces fixed sleeps that only let frames pass). */
+  const frames = async (n) => {
+    const f0 = (await g.eval(SNAP)).frames;
+    await g.waitFor(async () => (await g.eval(SNAP)).frames >= f0 + n, { label: `${n} frames` });
+  };
+  /** Real wheel input, one rendered frame per step (each zoom level is drawn and sampled). */
+  const wheel = async (x, y, deltaY) => {
+    await g.cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: 0, deltaY });
+    await g.eval(RAF);
+  };
+  const zoom = () => g.eval('window.__idleRpg.scene().camera.zoom');
+  const zoomStill = () =>
+    g.waitFor(
       async () => {
-        await g.eval(RESET);
-        const pos = await g.state('movement.position');
-        const stop = await g.trackMoves();
-        await g.walkTo(pos.x + 8, pos.y + 8);
-        await g.sleep(2500);
-        const moves = await stop();
-        expect(moves.length > 4, `player barely moved: ${moves.length} tiles`);
-        return (await noViol('walk')) + `; moved ${moves.length} tiles`;
+        const a = await zoom();
+        await g.eval(RAF);
+        return a === (await zoom());
       },
+      { label: 'zoom still' },
     );
+  // forest centre = tree with most trees within 10 tiles
+  const targets = await g.targets();
+  const trees = targets.filter((t) => t.kind.includes('tree'));
+  let best = trees[0],
+    bn = -1;
+  for (const t of trees) {
+    const n = trees.filter((o) => Math.abs(o.x - t.x) + Math.abs(o.y - t.y) <= 10).length;
+    if (n > bn) {
+      bn = n;
+      best = t;
+    }
+  }
+  await g.setInventory(['bronze_axe']);
+  await g.teleportSettled(best.x, best.y + 2);
+  await g.eval(SAMPLER);
+  const snap = () => g.eval(SNAP);
+  const noViol = async (label) => {
+    const s = await snap();
+    expect(s.frames > 20, `${label}: only ${s.frames} frames sampled`);
+    expect(
+      s.nviol === 0 && s.playerHidden === 0,
+      () =>
+        `${label}: ${s.nviol} pop-in frames-views, player hidden ${s.playerHidden} frames; ${JSON.stringify(s.viol.slice(0, 3))}`,
+    );
+    return `${s.frames} frames, 0 violations, ${bn} trees in forest cluster`;
+  };
 
-    await check('c2', 'drag-panning in 4 directions: no pop-in', async () => {
+  await check(
+    'c1',
+    'walking across the forest: no visible-region view is culled; player always visible',
+    async () => {
+      await g.eval(RESET);
+      const pos = await g.state('movement.position');
+      const stop = await g.trackMoves();
+      await g.walkTo(pos.x + 8, pos.y + 8);
+      await g.waitIdle();
+      await g.settle(); // the camera finishes following (render trail) before the sample window closes
+      await frames(21);
+      const moves = await stop();
+      expect(moves.length > 4, `player barely moved: ${moves.length} tiles`);
+      return (await noViol('walk')) + `; moved ${moves.length} tiles`;
+    },
+  );
+
+  await check('c2', 'drag-panning in 4 directions: no pop-in', async () => {
+    await g.eval(RESET);
+    const cx = vp === 'phone' ? 195 : 640,
+      cy = vp === 'phone' ? 420 : 400,
+      d = vp === 'phone' ? 150 : 350;
+    for (const [dx, dy] of [
+      [d, 0],
+      [-d, 0],
+      [0, d],
+      [0, -d],
+      [d, d],
+      [-d, -d],
+      [-d, d],
+      [d, -d],
+    ]) {
+      await g.drag(cx, cy, cx + dx, cy + dy, 12);
+    }
+    return noViol('pan');
+  });
+
+  await check(
+    'c3',
+    'zoom to both limits: no pop-in, culling still happens when zoomed out',
+    async () => {
       await g.eval(RESET);
       const cx = vp === 'phone' ? 195 : 640,
-        cy = vp === 'phone' ? 420 : 400,
-        d = vp === 'phone' ? 150 : 350;
-      for (const [dx, dy] of [
-        [d, 0],
-        [-d, 0],
-        [0, d],
-        [0, -d],
-        [d, d],
-        [-d, -d],
-        [-d, d],
-        [d, -d],
-      ]) {
-        await g.drag(cx, cy, cx + dx, cy + dy, 12);
-      }
-      return noViol('pan');
-    });
-
-    await check(
-      'c3',
-      'zoom to both limits: no pop-in, culling still happens when zoomed out',
-      async () => {
-        await g.eval(RESET);
-        const cx = vp === 'phone' ? 195 : 640,
-          cy = vp === 'phone' ? 420 : 400;
-        const zooms = [];
-        for (let i = 0; i < 14; i++) {
-          await g.wheel(cx, cy, -300);
-        }
-        zooms.push(await g.eval('window.__idleRpg.scene().camera.zoom'));
-        await g.sleep(300);
-        for (let i = 0; i < 40; i++) {
-          await g.wheel(cx, cy, 300);
-        }
-        zooms.push(await g.eval('window.__idleRpg.scene().camera.zoom'));
-        await g.sleep(300);
-        for (const [dx, dy] of [
-          [100, 60],
-          [-200, -120],
-        ])
-          await g.drag(cx, cy, cx + dx, cy + dy, 10);
-        expect(zooms[0] > zooms[1], `zoom did not change: ${zooms}`);
-        return (
-          (await noViol('zoom')) + `; zoom in ${zooms[0].toFixed(2)} out ${zooms[1].toFixed(2)}`
-        );
-      },
-    );
-
-    await check('c4', 'off-screen views are invisible (visible << total)', async () => {
-      // zoom back to 1-ish via wheel in, then stay
-      const cx = vp === 'phone' ? 195 : 640,
         cy = vp === 'phone' ? 420 : 400;
-      for (let i = 0; i < 40; i++) await g.wheel(cx, cy, 300);
-      for (let i = 0; i < 6; i++) await g.wheel(cx, cy, -150);
-      await g.sleep(400);
-      const s = await snap();
-      const z = await g.eval('window.__idleRpg.scene().camera.zoom');
-      expect(
-        s.total > 60 && s.vis < s.total * 0.5,
-        `visible ${s.vis} of ${s.total} containers at zoom ${z}`,
-      );
-      return `zoom ${z.toFixed(2)}: ${s.vis} visible of ${s.total} containers`;
-    });
+      const zooms = [];
+      for (let i = 0; i < 14; i++) await wheel(cx, cy, -300);
+      await zoomStill();
+      zooms.push(await zoom());
+      await frames(5);
+      for (let i = 0; i < 40; i++) await wheel(cx, cy, 300);
+      await zoomStill();
+      zooms.push(await zoom());
+      await frames(5);
+      for (const [dx, dy] of [
+        [100, 60],
+        [-200, -120],
+      ])
+        await g.drag(cx, cy, cx + dx, cy + dy, 10);
+      expect(zooms[0] > zooms[1], `zoom did not change: ${zooms}`);
+      return (await noViol('zoom')) + `; zoom in ${zooms[0].toFixed(2)} out ${zooms[1].toFixed(2)}`;
+    },
+  );
 
-    await check('c5', 'tap a tree at the right / top screen edge still chops', async () => {
-      const cr = await g.eval(
-        '(() => { const r = document.querySelector("canvas").getBoundingClientRect(); return { l: r.left, t: r.top, w: r.width, h: r.height }; })()',
-      );
-      const W = cr.w,
-        H = cr.h;
-      const cands = trees.filter(
-        (t) => t.kind === 'tree' && Math.abs(t.x - best.x) + Math.abs(t.y - best.y) <= 6,
-      );
-      const res = [];
-      for (const edge of ['right', 'top']) {
-        let done = false;
-        for (const t of cands) {
-          await g.setInventory(['bronze_axe']);
-          await g.teleport(t.x, t.y + 2, { settleMs: 500 });
-          await g.eval('window.__idleRpg.scene().camera.stopFollow(), 0');
-          const wp = await g.eval(
-            `(async () => { const { isoProjection } = await import('/src/render/projection.ts'); const w = isoProjection.tileToWorld(${t.x}, ${t.y}); return w; })()`,
-          );
-          // put the tap point (mid-height) 5 px inside the edge
-          const tx = edge === 'right' ? W - 5 : W / 2;
-          const ty = edge === 'right' ? H / 2 : 5;
-          const my = wp.y - t.up / 2;
-          await g.eval(`(() => { const c = window.__idleRpg.scene().camera; const k = c.zoom;
+  await check('c4', 'off-screen views are invisible (visible << total)', async () => {
+    // zoom back to 1-ish via wheel in, then stay
+    const cx = vp === 'phone' ? 195 : 640,
+      cy = vp === 'phone' ? 420 : 400;
+    for (let i = 0; i < 40; i++) await wheel(cx, cy, 300);
+    for (let i = 0; i < 6; i++) await wheel(cx, cy, -150);
+    await zoomStill();
+    await frames(3); // the sampler's vis/total come from a frame drawn at the final zoom
+    const s = await snap();
+    const z = await g.eval('window.__idleRpg.scene().camera.zoom');
+    expect(
+      s.total > 60 && s.vis < s.total * 0.5,
+      `visible ${s.vis} of ${s.total} containers at zoom ${z}`,
+    );
+    return `zoom ${z.toFixed(2)}: ${s.vis} visible of ${s.total} containers`;
+  });
+
+  await check('c5', 'tap a tree at the right / top screen edge still chops', async () => {
+    const cr = await g.eval(
+      '(() => { const r = document.querySelector("canvas").getBoundingClientRect(); return { l: r.left, t: r.top, w: r.width, h: r.height }; })()',
+    );
+    const W = cr.w,
+      H = cr.h;
+    const cands = trees.filter(
+      (t) => t.kind === 'tree' && Math.abs(t.x - best.x) + Math.abs(t.y - best.y) <= 6,
+    );
+    const res = [];
+    for (const edge of ['right', 'top']) {
+      let done = false;
+      for (const t of cands) {
+        await g.setInventory(['bronze_axe']);
+        await g.teleportSettled(t.x, t.y + 2);
+        await g.eval('window.__idleRpg.scene().camera.stopFollow(), 0');
+        const wp = await g.eval(
+          `(async () => { const { isoProjection } = await import('/src/render/projection.ts'); const w = isoProjection.tileToWorld(${t.x}, ${t.y}); return w; })()`,
+        );
+        // put the tap point (mid-height) 5 px inside the edge
+        const tx = edge === 'right' ? W - 5 : W / 2;
+        const ty = edge === 'right' ? H / 2 : 5;
+        const my = wp.y - t.up / 2;
+        await g.eval(`(() => { const c = window.__idleRpg.scene().camera; const k = c.zoom;
             c.setScroll(${wp.x} - (${tx} / ${W}) * c.width / k - (c.width - c.width / k) / 2, ${my} - (${ty} / ${H}) * c.height / k - (c.height - c.height / k) / 2); })()`);
-          await g.sleep(300);
-          const p = await g.tileClient(t.x, t.y, -t.up / 2);
-          if (!(await g.page(`topIsCanvas(${p.x}, ${p.y})`))) continue; // HUD overlay here: try another tree
-          const near = edge === 'right' ? cr.l + W - p.x : p.y - cr.t;
-          if (!(near > 0 && near < 45)) {
-            res.push(`skip ${t.id} near=${Math.round(near)}`);
-            continue;
-          }
-          const before = await g.chatCount('log');
-          await g.tap(p.x, p.y);
-          const ok = await g
-            .waitFor(async () => (await g.chatCount('log')) > before, {
-              timeoutMs: 6000,
-              label: 'log',
-            })
-            .then(
-              () => true,
-              () => false,
-            );
-          res.push(
-            `${edge}: tree ${t.id} tapped at ${Math.round(p.x)},${Math.round(p.y)} (${W}x${H}) -> ${ok ? 'chopped' : 'NO LOG'}`,
-          );
-          expect(ok, () => res.join(' | '));
-          done = true;
-          break;
+        await frames(2); // a frame drawn at the new scroll (cull pass + bounds) before reading the tap point
+        const p = await g.tileClient(t.x, t.y, -t.up / 2);
+        if (!(await g.page(`topIsCanvas(${p.x}, ${p.y})`))) continue; // HUD overlay here: try another tree
+        const near = edge === 'right' ? cr.l + W - p.x : p.y - cr.t;
+        if (!(near > 0 && near < 45)) {
+          res.push(`skip ${t.id} near=${Math.round(near)}`);
+          continue;
         }
-        expect(done, `no tappable ${edge}-edge tree found; ${res.join(' | ')}`);
+        const before = await g.chatCount('log');
+        await g.tap(p.x, p.y);
+        const ok = await g
+          .waitFor(async () => (await g.chatCount('log')) > before, {
+            timeoutMs: 6000,
+            label: 'log',
+          })
+          .then(
+            () => true,
+            () => false,
+          );
+        res.push(
+          `${edge}: tree ${t.id} tapped at ${Math.round(p.x)},${Math.round(p.y)} (${W}x${H}) -> ${ok ? 'chopped' : 'NO LOG'}`,
+        );
+        expect(ok, () => res.join(' | '));
+        done = true;
+        break;
       }
-      return res.join(' | ');
-    });
-  }),
-);
+      expect(done, `no tappable ${edge}-edge tree found; ${res.join(' | ')}`);
+    }
+    return res.join(' | ');
+  });
+});

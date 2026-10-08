@@ -8,8 +8,20 @@ import { itemIconIds, itemIconSource, itemIconUrl } from '@render/index';
 // "One item image everywhere": every registered item has the SAME icon in every view.
 const ids = CONTENT.items.all().map((d) => d.id);
 const clean = (s: string) => s.replace(/<!-- -->/g, '');
+// renderToStaticMarkup escapes attribute values (a small icon is inlined by Vite as a data: URL containing `'`).
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+const unescapeHtml = (s: string) =>
+  s.replace(/&(?:#x([0-9a-f]+)|#(\d+)|([a-z]+));/gi, (m, hex, dec, name) =>
+    hex
+      ? String.fromCodePoint(parseInt(hex, 16))
+      : dec
+        ? String.fromCodePoint(Number(dec))
+        : (ENTITIES[name.toLowerCase()] ?? m),
+  );
 const srcsOf = (html: string) =>
-  [...html.matchAll(/<img[^>]*class="slot-icon"[^>]*src="([^"]*)"/g)].map((m) => m[1]);
+  [...html.matchAll(/<img[^>]*class="slot-icon"[^>]*src="([^"]*)"/g)].map((m) =>
+    unescapeHtml(m[1] ?? ''),
+  );
 
 describe('item icons cover the item registry', () => {
   it('registry has the new mining and fishing items', () => {
@@ -28,6 +40,13 @@ describe('item icons cover the item registry', () => {
 });
 
 describe('every view draws itemIconUrl(id)', () => {
+  it('srcsOf round-trips a small data: SVG url (quotes, <, &) so inlined icons are checked on purpose', () => {
+    const url =
+      "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' a=\"b\"><path d='M0 0&1'/></svg>";
+    const h = renderToStaticMarkup(<img className="slot-icon" src={url} alt="" />);
+    expect(h).toContain('&#x27;');
+    expect(srcsOf(h)).toEqual([url]);
+  });
   it.each(ids)('ItemSlot renders exactly the shared url for %s', (id) => {
     const h = clean(renderToStaticMarkup(<ItemSlot itemId={id} name={id} />));
     expect(srcsOf(h)).toEqual([itemIconUrl(id)]);

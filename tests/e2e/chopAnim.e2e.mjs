@@ -1,15 +1,24 @@
 // QA slice anim-a3: two-handed chop AND mine pose; facing forced through the scene (walking cannot reach the back view).
-// Port 5272 (E2E_PORT overrides). Real 600 ms ticks.
+// Port 9001 (+1 per parallel combo; E2E_PORT overrides). Fast base: desktop + phone run as parallel children, budget 60 s. Deterministic: the scene animator is driven by hand with synthetic times (as animE),
+// so a swing is sampled exactly N times per period instead of waiting seconds of gameplay per facing.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
-import { check, expect, forEachViewport, withGame } from './lib.mjs';
+import { check, expect, forEachCombo, runParallel, withGame } from './lib.mjs';
+
+const PORT = 9001;
+const BUDGET_MS = 60e3;
+const COMBOS = await runParallel(import.meta.url, PORT, {
+  viewports: ['desktop', 'phone'],
+  renderers: ['webgl'],
+  budgetMs: BUDGET_MS,
+});
 
 const SHOTS = process.env.SHOTS_DIR ?? resolve(process.cwd(), 'tests/e2e/.shots-animA');
 const f = (n, d = 1) => Math.round(n * 10 ** d) / 10 ** d;
 const SAMPLER = `(() => {
-  const H = window.__idleRpg, S = (window.__S = { rows: [], on: false, want: null, frozen: null, back: null });
+  const H = window.__idleRpg, S = (window.__S = { back: null });
   const pv = () => H.scene().playerView;
   const all = (o, out = []) => { out.push(o); (o.list ?? []).forEach((c) => all(c, out)); return out; };
   const W = (o, x, y) => o.getWorldTransformMatrix().transformPoint(x, y);
@@ -18,9 +27,8 @@ const SAMPLER = `(() => {
   const pvw = pv(), orig = pvw.setBackView && pvw.setBackView.bind(pvw);
   if (orig) pvw.setBackView = (b) => { S.back = b; return orig(b); };
   Promise.all([import('/src/render/figureArt.ts'), import('/src/render/figureLooks.ts')]).then(([fa, fl]) => { S.topY = Math.min(...fa.figureRects(fl.PLAYER_LOOK, 'front').map((r) => r.y)); });
-  const loop = () => {
-    try { if (S.on) {
-      const c = pv().container, rig = c.list.find((o) => o.type === 'Container' && o.list.length === 4);
+  const row = () => {
+      const c = pv().container;
       const uf = find('armFrontUpper')[0], ub = find('armBackUpper')[0], ff = find('armFrontFore')[0], fb = find('armBackFore')[0];
       const axes = find(S.tool), hand = axes.find((a) => a.parentContainer?.name === 'armFrontFore'), back = axes.find((a) => a !== hand);
       const body = pv().body;
@@ -31,21 +39,45 @@ const SAMPLER = `(() => {
       const inv = ax.getWorldTransformMatrix().invert();
       const lf = inv.transformPoint(hf.x, hf.y), lb = inv.transformPoint(hb.x, hb.y);
       const bb = { top: W(body, 0, S.topY ?? -40).y };
-      const r = { t: performance.now(), y: c.y, back: S.back, sx: body.scaleX, lean: Math.abs(body.rotation) * 180 / Math.PI,
+      return { y: c.y, back: S.back, sx: body.scaleX, lean: Math.abs(body.rotation) * 180 / Math.PI,
         afVis: uf.visible, abVis: ub.visible, handVis: hand.visible, backVis: back.visible,
         cx: (sf.x + sb.x) / 2, half: Math.abs(sf.x - sb.x) / 2, sy: sf.y,
         ef: ef.x, eb: eb.x, hfx: hf.x, hfy: hf.y, hbx: hb.x, hby: hb.y,
         headDy: a1.y - a0.y, buttY: butt.y, tipY: tip.y, top: bb.top,
         lfx: lf.x, lfy: lf.y, lbx: lb.x, lby: lb.y, bodyTop: bb.top };
-      S.rows.push(r);
-      if (S.want && S.want(r)) { S.frozen = r; S.want = null; H.scene().camera.scene.game.loop.sleep(); }
-    }
-    } catch (e) { S.err = String(e); }
-    requestAnimationFrame(loop);
   };
-  requestAnimationFrame(loop);
-  S.go = () => { S.rows = []; S.on = true; };
-  S.wake = () => { S.frozen = null; H.scene().camera.scene.game.loop.wake(); };
+  // Hand-driven animator: mute the scene's own update/setState once, then step synthetic time. stop = sample index to leave posed.
+  const A = H.scene().animator, O = { u: A.update, s: A.setState };
+  A.update = () => {}; A.setState = () => {};
+  const N = 50, T = 1e6;
+  S.run = (state, facing, tool, item, stop = -1) => {
+    S.tool = tool; const P = A.swingPeriodMs;
+    O.s.call(A, state, { facing, toolItemId: item }); O.u.call(A, T);
+    const rows = [];
+    for (let i = 1; i <= N * 3; i++) { O.u.call(A, T + (i * P) / N);
+      if (i >= N) { rows.push(row()); if (i - N === stop) break; } }
+    return rows;
+  };
+  // Fine sweep (M2 elbow tuck smoothing): phase from..to in 0.5% steps, one row per step, elbows also in client px.
+  S.sweep = (state, facing, tool, item, from, to) => {
+    S.tool = tool; const P = A.swingPeriodMs;
+    O.s.call(A, state, { facing, toolItemId: item }); O.u.call(A, T);
+    const rows = [];
+    for (let ph = from; ph <= to + 1e-9; ph += 0.005) {
+      O.u.call(A, T + (1 + ph) * P);
+      const r = row(), uf = find('armFrontFore')[0], ub = find('armBackFore')[0];
+      const e1 = W(uf, 0, 0), e2 = W(ub, 0, 0);
+      const c1 = window.__e.toClient(e1.x, e1.y), c2 = window.__e.toClient(e2.x, e2.y);
+      const bi = pv().body.getWorldTransformMatrix().invert(), l1 = bi.transformPoint(e1.x, e1.y), l2 = bi.transformPoint(e2.x, e2.y);
+      rows.push({ ph, r, w: [[e1.x, e1.y], [e2.x, e2.y]], e: [[l1.x, l1.y], [l2.x, l2.y]], c: [[c1.x, c1.y], [c2.x, c2.y]] });
+    }
+    return rows;
+  };
+  S.pose = (state, facing, tool, item, ph) => {
+    S.tool = tool; const P = A.swingPeriodMs;
+    O.s.call(A, state, { facing, toolItemId: item }); O.u.call(A, T); O.u.call(A, T + (1 + ph) * P);
+    return 1;
+  };
   S.player = () => { const c = pv().container; return window.__e.toClient(c.x, c.y); };
 })()`;
 
@@ -66,97 +98,53 @@ async function clip(g, name) {
   return `${SHOTS}/${name}.png`;
 }
 
+// Whole swing, recoil key included. Mine leans harder on the pull-back (mine.test.ts allows 14 deg).
+const LEAN_MAX = { chop: 12, mine: 14 };
 const FACINGS = { s: 'front', se: 'front', sw: 'front', n: 'back' };
-const TOOLS = { chop: { tool: 'axe', kind: 'tree' }, mine: { tool: 'pick', kind: 'copper_rock' } };
+const TOOLS = {
+  chop: { tool: 'axe', item: 'bronze_axe' },
+  mine: { tool: 'pick', item: 'bronze_pickaxe' },
+};
 
 await withGame(
-  { port: Number(process.env.E2E_PORT ?? 5272) },
-  forEachViewport(['desktop', 'phone'], async (g, vp) => {
+  { port: PORT, budgetMs: BUDGET_MS },
+  forEachCombo(COMBOS, async (g, vp) => {
     await g.eval(SAMPLER);
     await g.setInventory(['bronze_axe', 'bronze_pickaxe']);
     await g.eval(`window.__idleRpg.store.getState().setPref({ visuals: { animations: 'on' } })`);
     const data = {};
-    /** Force the facing, gather at 600 ms ticks, collect swing rows, freeze + close-up at impact and wind-up. */
+    /** Drive 2 swing periods at fixed phase steps; the impact + wind-up frames are re-posed for the close-ups. */
     const run = async (name, facing) => {
-      const { tool, kind } = TOOLS[name];
+      const { tool, item } = TOOLS[name];
       const view = FACINGS[facing];
-      const wantBackNow = view === 'back';
-      const t =
-        name === 'mine'
-          ? await g.eval(
-              `(async () => { const w = await import('/src/features/world/index.ts'); const r = w.WORLD_ROCKS.find((q) => q.defId === 'copper_rock'); return { id: r.nodeId, x: r.x, y: r.y }; })()`,
-            )
-          : await g.targetOfKind(kind);
-      for (const [ox, oy] of [
-        [0, 2],
-        [1, 2],
-        [-1, 2],
-        [0, -2],
-        [2, 0],
-        [-2, 0],
-        [1, -2],
-      ]) {
-        const ok =
-          await g.eval(`(async () => { const w = await import('/src/features/world/index.ts'); const gr = w.createWorldCollisionGrid();
-          return gr.isWalkable(${t.x + ox}, ${t.y + oy}); })()`);
-        if (!ok) continue;
-        await g.teleport(t.x + ox, t.y + oy);
-        break;
-      }
-      await g.eval(
-        `Object.defineProperty(window.__idleRpg.scene().camera.scene, 'facing', { get: () => '${facing}', set() {}, configurable: true }); 0`,
-      );
-      await g.sleep(500);
-      await g.eval(
-        `window.__S.back = ${wantBackNow}; window.__S.tool = '${tool}'; window.__S.go()`,
-      );
       const wantBack = view === 'back';
-      const sel = `window.__S.rows.filter((r) => (r.handVis || r.backVis) && !!r.back === ${wantBack})`;
-      const t0 = Date.now();
-      while (Date.now() - t0 < 25000) {
-        if ((await g.eval(sel + '.length')) > 70) break;
-        if (!(await g.state('gathering.session !== null')))
-          await g.store(`s.interactTree(${JSON.stringify(t.id)})`);
-        await g.sleep(250);
-      }
-      const rows = await g.eval(sel);
+      const drive = (stop) =>
+        g.eval(`window.__S.run('${name}', '${facing}', '${tool}', '${item}', ${stop})`);
+      // One drive: the hand-driven animator is deterministic, so the unfiltered series doubles as the index source.
+      const all = await drive(-1);
+      const rows = all.filter((r) => (r.handVis || r.backVis) && !!r.back === wantBack);
       if (rows.length < 60)
-        throw new Error(
-          `${name}/${facing}: only ${rows.length} frames (S.back=${await g.eval('window.__S.back')})`,
-        );
-      const yMax = Math.max(...rows.map((r) => (view === 'front' ? (r.hfy + r.hby) / 2 : r.tipY)));
+        throw new Error(`${name}/${facing}: only ${rows.length} frames (view ${view})`);
       const tipMin = Math.min(...rows.map((r) => r.tipY));
+      const idx = (pred) =>
+        all.findIndex((r, i) => (r.handVis || r.backVis) && !!r.back === wantBack && pred(r, i));
       const shots = {};
-      const grab = async (key, want) => {
-        await g.eval(`window.__S.want = ${want}`);
-        await g.waitFor(
-          async () => {
-            if (!(await g.state('gathering.session !== null')))
-              await g.store(`s.interactTree(${JSON.stringify(t.id)})`);
-            return g.eval('!!window.__S.frozen');
-          },
-          {
-            timeoutMs: 15000,
-            label: `${name}/${facing} ${key} freeze`,
-          },
+      const grab = async (key, pred) => {
+        const i = idx(pred);
+        expect(i >= 0, `${name}/${facing} ${key}: no frame matches`);
+        const row = (await drive(i))[i];
+        // wait for two rendered frames of the posed figure (state, not a fixed sleep)
+        await g.eval(
+          'new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(1))))',
         );
-        shots[key] = {
-          row: await g.eval('window.__S.frozen'),
-          file: await clip(g, `${vp}-${name}-${facing}-${key}`),
-        };
-        await g.eval('window.__S.wake()');
+        shots[key] = { row, file: await clip(g, `${vp}-${name}-${facing}-${key}`) };
       };
-      const vis = '(r.handVis||r.backVis) && !!r.back === ' + wantBack;
-      await grab(
-        'impact',
-        view === 'front'
-          ? `(r) => ${vis} && r.headDy > 0.5 && (r.hfy + r.hby) / 2 >= ${yMax - 0.6}`
-          : `(r) => ${vis} && r.tipY >= ${yMax - 0.6}`,
-      );
-      await grab('windup', `(r) => ${vis} && r.tipY <= ${tipMin + 0.6}`);
+      // the strike key (SWING_IMPACT_PHASE 0.68 = sample 34 of 50), not the later recoil key
+      await grab('impact', (r, i) => i === 34);
+      await grab('windup', (r) => r.tipY <= tipMin + 0.6);
       return { rows, shots };
     };
-    await g.realTime(async () => {
+    {
       for (const name of Object.keys(TOOLS)) {
         data[name] = {};
         for (const facing of Object.keys(FACINGS))
@@ -195,6 +183,77 @@ await withGame(
           },
         );
         await check(
+          `c8-${name}`,
+          `${name} phase 0.55-0.70 in 0.5% steps (s, se, sw): elbow jump < 7 art px, both fists on the haft`,
+          async () => {
+            const out = [];
+            const { tool, item } = TOOLS[name];
+            for (const facing of ['s', 'se', 'sw']) {
+              const sw = await g.eval(
+                `window.__S.sweep('${name}', '${facing}', '${tool}', '${item}', 0.55, 0.7)`,
+              );
+              expect(sw.length >= 30, `${facing}: only ${sw.length} sweep frames`);
+              let jump = 0,
+                jumpW = 0,
+                jumpPx = 0,
+                at = 0;
+              for (let i = 1; i < sw.length; i++)
+                for (const k of [0, 1]) {
+                  const d = Math.hypot(
+                    sw[i].e[k][0] - sw[i - 1].e[k][0],
+                    sw[i].e[k][1] - sw[i - 1].e[k][1],
+                  );
+                  jumpW = Math.max(
+                    jumpW,
+                    Math.hypot(
+                      sw[i].w[k][0] - sw[i - 1].w[k][0],
+                      sw[i].w[k][1] - sw[i - 1].w[k][1],
+                    ),
+                  );
+                  if (d > jump) {
+                    jump = d;
+                    at = sw[i].ph;
+                    jumpPx = Math.hypot(
+                      sw[i].c[k][0] - sw[i - 1].c[k][0],
+                      sw[i].c[k][1] - sw[i - 1].c[k][1],
+                    );
+                  }
+                }
+              // lateral drift budget = ELBOW_BLEND_HAND_DRIFT_PX (4) mid-window; along the haft the same range as c1
+              const bad = sw.filter(
+                ({ r }) =>
+                  Math.abs(r.lfx) > 4 ||
+                  Math.abs(r.lbx) > 4 ||
+                  r.lfy < -11 ||
+                  r.lby < -11 ||
+                  r.lfy > 13 ||
+                  r.lby > 13 ||
+                  !r.handVis,
+              );
+              expect(jump < 7, `${facing}: elbow jump ${f(jump, 2)} art px at phase ${f(at, 3)}`);
+              expect(
+                bad.length === 0,
+                `${facing}: ${bad.length}/${sw.length} frames fist off haft e.g. ph ${bad[0]?.ph} lfx ${f(bad[0]?.r.lfx)} lbx ${f(bad[0]?.r.lbx)} lfy ${f(bad[0]?.r.lfy)} lby ${f(bad[0]?.r.lby)}`,
+              );
+              out.push(
+                `${facing} max jump ${f(jump, 2)} art px (body-local; ${f(jumpW, 2)} world incl. bob/lean; ${f(jumpPx, 2)} screen px) @${f(at, 3)}, ${sw.length} frames fists ok (max lateral ${f(Math.max(...sw.map(({ r }) => Math.max(Math.abs(r.lfx), Math.abs(r.lbx)))), 2)})`,
+              );
+            }
+            return out.join('; ');
+          },
+        );
+        if (name === 'mine')
+          await check(`c9-${name}`, 'mine (s) close-ups at phases 0.60-0.66 saved', async () => {
+            const files = [];
+            for (const ph of [0.6, 0.62, 0.64, 0.66]) {
+              await g.eval(
+                `window.__S.pose('mine', 's', 'pick', 'bronze_pickaxe', ${ph}); new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(1))))`,
+              );
+              files.push(await clip(g, `${vp}-mine-s-ph${Math.round(ph * 100)}`));
+            }
+            return files.join(' ');
+          });
+        await check(
           `c2-${name}`,
           `${name} impact: elbows within torso half-width + V (s, se, sw)`,
           async () => {
@@ -223,8 +282,27 @@ await withGame(
           },
         );
         await check(
+          `c7-${name}`,
+          `${name} recoil key (phase 0.74): elbows within torso half-width (s, se, sw)`,
+          async () => {
+            const out = [];
+            for (const facing of ['s', 'se', 'sw']) {
+              const d = data[name][facing];
+              expect(!d.err, d.err);
+              const r = d.rows[37]; // rows[k] = phase k/50, so 37 = 0.74
+              const eIn = Math.max(Math.abs(r.ef - r.cx), Math.abs(r.eb - r.cx));
+              expect(
+                eIn <= r.half + 0.5,
+                `${facing}: 0.74 elbow ${f(eIn)} > half-width ${f(r.half)}`,
+              );
+              out.push(`${facing} ${f(eIn)}<=${f(r.half)}`);
+            }
+            return out.join('; ');
+          },
+        );
+        await check(
           `c3-${name}`,
-          `${name}: lean <= 12 deg, tool head above head top at wind-up`,
+          `${name}: lean <= 12 (chop) / 14 (mine) deg, tool head above head top at wind-up`,
           async () => {
             const out = [];
             for (const facing of ['s', 'se', 'sw']) {
@@ -232,7 +310,7 @@ await withGame(
               expect(!d.err, d.err);
               const lean = Math.max(...d.rows.map((r) => r.lean));
               const w = d.shots.windup.row;
-              expect(lean <= 12, `${facing}: lean ${f(lean)}`);
+              expect(lean <= LEAN_MAX[name], `${facing}: lean ${f(lean)}`);
               expect(
                 w.tipY < w.bodyTop,
                 `${facing}: head ${f(w.tipY)} not above head top ${f(w.bodyTop)}`,
@@ -281,6 +359,6 @@ await withGame(
         expect(e.length === 0, e.join(' | '));
         return '0 errors';
       });
-    });
+    }
   }),
 );

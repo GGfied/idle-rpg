@@ -25,7 +25,8 @@ export function resolveEffect(
   const def = Object.hasOwn(effects, id) ? effects[id] : undefined;
   if (!def || mode === 'off') return undefined;
   if (mode === 'on') return def;
-  if (def.kind === 'burst' && def.decorative) return undefined;
+  if ((def.kind === 'burst' || def.kind === 'fire') && def.decorative) return undefined;
+  if (def.kind === 'fire') return def;
   const reduced = { ...def, lifeMs: def.lifeMs * REDUCED_LIFE_SCALE };
   if (reduced.kind === 'burst') reduced.jitter = 0;
   if (reduced.kind === 'blockedText') reduced.shakePx = 0;
@@ -40,6 +41,10 @@ export interface Placement {
   depth: number;
   /** Colour override from the cue's `tintField`, when the event's value has one. */
   tint?: number;
+  /** Feet-point world y before `lift` (what smoke layers its depth from). */
+  feetY: number;
+  /** Start/stop of a persistent effect and the key it is bound to (e.g. a fireId). */
+  persist?: { action: 'start' | 'stop'; key: string };
   /** Throttle key and window, when the cue is throttled. */
   throttle?: { key: string; ms: number };
 }
@@ -72,8 +77,14 @@ export function planEvent(
       effect: cue.effect,
       x: p.x,
       y: p.y - (def.lift ?? 0),
+      feetY: p.y,
       depth: effectDepth(def.layer, p.x, p.y),
     };
+    if (cue.persist) {
+      const key = event[cue.persist.keyField];
+      if (typeof key !== 'string' && typeof key !== 'number') continue;
+      placement.persist = { action: cue.persist.action, key: String(key) };
+    }
     const tint = cue.tintField ? tintFor(event[cue.tintField]) : undefined;
     if (tint !== undefined) placement.tint = tint;
     if (cue.throttleMs) {
@@ -120,6 +131,7 @@ function anchorPoint(
   ctx: VfxContext,
 ): { x: number; y: number } | undefined {
   if (cue.at === 'player') return ctx.playerWorld;
+  if (cue.at === 'tile') return tilePoint(event.tile);
   if (cue.at === 'node') {
     const node = nodeId ? ctx.nodeWorld?.(nodeId) : undefined;
     return node && cue.towardPlayer
@@ -128,6 +140,14 @@ function anchorPoint(
   }
   const index = event[cue.at];
   return nodeId && typeof index === 'number' ? ctx.tileWorld?.(nodeId, index) : undefined;
+}
+
+/** Feet world point of an event's `{x, y}` tile, or undefined when the event has no valid tile. */
+export function tilePoint(tile: unknown): { x: number; y: number } | undefined {
+  const t = tile as { x?: unknown; y?: unknown } | null | undefined;
+  if (typeof t?.x !== 'number' || typeof t.y !== 'number') return undefined;
+  if (!Number.isFinite(t.x) || !Number.isFinite(t.y)) return undefined;
+  return isoProjection.tileToWorld(t.x, t.y);
 }
 
 /** `from` moved up to `px` toward `to` (never past it). */
@@ -274,4 +294,71 @@ export function resolveXpColor(
   fallback: string,
 ): string {
   return (skill && lookup?.(skill)) || fallback;
+}
+
+export interface EmitBudget {
+  /** True (and records it) when a particle living `lifeMs` fits under the cap right now. */
+  tryEmit(now: number, lifeMs: number): boolean;
+  live(now: number): number;
+}
+
+/**
+ * Per-fire particle cap by expiry times, so it stays right when the shared pool recycles a particle early.
+ * Uses `cap` fixed slots: no allocation after creation.
+ */
+export function createEmitBudget(cap: number): EmitBudget {
+  const expiry = new Array<number>(Math.max(0, cap)).fill(-Infinity);
+  const live = (now: number): number => {
+    let n = 0;
+    for (const e of expiry) if (e > now) n++;
+    return n;
+  };
+  return {
+    live,
+    tryEmit(now, lifeMs) {
+      const slot = expiry.findIndex((e) => e <= now);
+      if (slot < 0) return false;
+      expiry[slot] = now + lifeMs;
+      return true;
+    },
+  };
+}
+
+export interface KeyedRegistry<T> {
+  /** Start `key` unless already running (returns false then). Over `cap`, the oldest is stopped first. */
+  start(key: string, make: () => T): boolean;
+  /** Stop `key` (no-op when unknown). */
+  stop(key: string): boolean;
+  stopAll(): void;
+  has(key: string): boolean;
+  size(): number;
+}
+
+/** Running persistent effects by key (fireId). `dispose` must release everything the entry owns. */
+export function createKeyedRegistry<T>(cap: number, dispose: (item: T) => void): KeyedRegistry<T> {
+  const items = new Map<string, T>();
+  const stop = (key: string): boolean => {
+    const item = items.get(key);
+    if (item === undefined) return false;
+    items.delete(key);
+    dispose(item);
+    return true;
+  };
+  return {
+    start(key, make) {
+      if (items.has(key) || cap <= 0) return false;
+      while (items.size >= cap) {
+        const oldest = items.keys().next().value as string;
+        stop(oldest);
+      }
+      items.set(key, make());
+      return true;
+    },
+    stop,
+    stopAll() {
+      for (const key of [...items.keys()]) stop(key);
+    },
+    has: (key) => items.has(key),
+    size: () => items.size,
+  };
 }

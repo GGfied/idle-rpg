@@ -1,5 +1,5 @@
 # Runbook: Inventory extras (drag-to-swap, "Use", ground items)
-- **Status:** in progress
+- **Status:** done
 - **Started:** 2026-10-08
 - **Last updated:** 2026-10-08
 - **Owner:** main session
@@ -54,3 +54,4 @@ Wave 1 (items, graphics, hud) is dispatched in parallel. When it reports, send t
 - 2026-10-08 (restart): `hud` DONE (partial work was already complete): drag after 8 px (slotDrag.ts) → swapInventorySlots; "Use" first in the menu (only if the store has useItem); selected ring; UseHint bar with a 44 px ✕; optional selectors in useItemState.ts. Store contract for the integrator: swapInventorySlots(a,b), useItem(slot), useItemOn(target {kind:'item',slot}|object|npc) → "Nothing interesting happens.", cancelUse(), useSelection {slot,itemId}|null cleared when that slot changes; scene: object/NPC tap while selected → useItemOn, ground tap → cancelUse. tsc/eslint clean, ui 30 tests. Not browser-checked (qa after wiring).
 - 2026-10-08 (restart): `items` DONE. The killed run had already finished the code, so nothing changed. API from `@core/items`: GroundItem{id,itemId,qty,x,y,spawnTick,despawnTick}, GroundItemsState, emptyGroundItems, dropGroundItem(state,{itemId,qty,x,y,tick},registry) (stackables merge per tile and reset the timer), takeGroundItem(state,id) → Result<…,'notFound'> (the integrator re-drops what doesn't fit), groundItemsAt, tickGroundItems(state,tick), GROUND_ITEM_DESPAWN_TICKS=300, events groundItemDropped/Taken/Despawned. 33 tests; tsc/eslint/prettier clean. Runtime state only, not saved. Integrator waits for graphics views + hud.
 - 2026-10-08 05:06: the user approved #41. Runbook created. Wave 1 dispatched: items (ground items), graphics (ground item views), hud (drag-swap + Use UI).
+- 2026-10-08 10:19 CLOSED at the v0.1.2 release (0d7fcf6): remaining items shipped in v0.1.1/v0.1.2 and QA'd, or skipped by the user (marked [-]).

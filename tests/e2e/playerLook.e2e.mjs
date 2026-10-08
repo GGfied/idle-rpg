@@ -1,10 +1,21 @@
 // QA slice 13: Settings Character Male/Female. Real taps in Settings; world view, walk, chop, dialogue portrait, reload, back to male.
-// Port 5238 (E2E_PORT overrides, mutant 5338). SHOTS_DIR default tests/e2e/.shots-playerLook.
+// Ports 9275-9278 (E2E_PORT overrides). SHOTS_DIR default tests/e2e/.shots-playerLook.
+// Fast base: desktop/phone x webgl/canvas as 4 parallel children (hair is a pixel check: both renderers), ?tickMs=60,
+// teleportSettled + waits on prefs/radio/dialogue/saved-prefs state instead of fixed sleeps, budget 60 s.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
-import { check, expect, forEachViewport, withGame } from './lib.mjs';
+import { check, expect, runParallel, withCombos } from './lib.mjs';
+
+const PORT = 9275; // C6 block; 4 combos use 9275-9278
+const BUDGET_MS = 60e3;
+const COMBOS = await runParallel(import.meta.url, PORT, {
+  viewports: ['desktop', 'phone'],
+  renderers: ['webgl', 'canvas'],
+  budgetMs: BUDGET_MS,
+});
+const PREF = { Male: 'player', Female: 'player_f' };
 
 const SHOTS = process.env.SHOTS_DIR ?? resolve(process.cwd(), 'tests/e2e/.shots-playerLook');
 const PAGE = `(() => {
@@ -44,7 +55,10 @@ async function shot(g, name) {
   };
   const { data } = await g.cdp.send('Page.captureScreenshot', { format: 'png', clip });
   mkdirSync(SHOTS, { recursive: true });
-  writeFileSync(resolve(SHOTS, `${g.viewportName}-${name}.png`), Buffer.from(data, 'base64'));
+  writeFileSync(
+    resolve(SHOTS, `${g.viewportName}-${g.renderer}-${name}.png`),
+    Buffer.from(data, 'base64'),
+  );
   return data;
 }
 /** count auburn hair-ish px and decode via in-page canvas */
@@ -68,16 +82,34 @@ async function pick(g, text) {
     `(() => { const r = window.__L.btn(${JSON.stringify(text)}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`,
   );
   await g.tap(r.x, r.y);
-  await g.sleep(500);
+  // the tap took effect: pref + radio switched (callers still assert both)
+  await g
+    .waitFor(
+      async () =>
+        (await g.store('s.prefs.playerLook')) === PREF[text] &&
+        (await g.eval('window.__L.sel()'))[0] === text,
+      { timeoutMs: 4000, label: `picked ${text}` },
+    )
+    .catch(() => {});
 }
-const closeSettings = (g) => g.eval(`window.__idleRpg.store.setState({ settingsOpen: false })`);
+async function closeSettings(g) {
+  await g.eval(`window.__idleRpg.store.setState({ settingsOpen: false })`);
+  await g.waitFor(() => g.eval('!window.__L.grp()'), { timeoutMs: 4000, label: 'settings closed' });
+  // two rendered frames: the world shows the current look before any screenshot
+  await g.eval(
+    'new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))',
+  );
+  // phone: Settings re-lays the HUD sheet and the camera inset glides; a clip taken mid-glide missed the player and
+  // counted the bank's orange floor as hair (c7 532-3593 px, once per phone combo). Wait for the camera.
+  await g.settle();
+}
 const look = (g) => g.store('s.prefs.playerLook');
 const portrait = (g) => g.eval(`document.querySelector('.dialogue-avatar-img')?.src ?? null`);
 
 async function walkLane(g, dx, dy, name) {
   const lane = await g.eval(`window.__L.lane(${dx}, ${dy}, 5)`);
   expect(lane, 'no lane');
-  await g.teleport(lane.start.x, lane.start.y);
+  await g.teleportSettled(lane.start.x, lane.start.y);
   await g.walkTo(lane.end.x, lane.end.y);
   await g.waitFor(
     async () => {
@@ -86,58 +118,60 @@ async function walkLane(g, dx, dy, name) {
     },
     { label: 'walk end', timeoutMs: 20000 },
   );
-  await g.sleep(500);
+  await g.waitIdle();
+  await g.settle(); // follow camera caught up: the clip is centred on the standing player
   return shot(g, name);
 }
 
-await withGame(
-  { port: 5238 },
-  forEachViewport(['desktop', 'phone'], async (g) => {
-    await g.eval(PAGE);
-    let base = 0;
-    await check('c1', 'Character row: Male/Female, Male default, targets >=44px', async () => {
-      await openSettings(g);
-      const sel = await g.eval('window.__L.sel()');
-      expect(sel.length === 1 && sel[0] === 'Male', `selected ${sel}`);
-      const sz = await g.eval(
-        `['Male','Female'].map((t) => { const r = window.__L.btn(t).getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })`,
-      );
-      expect(
-        sz.every(([w, h]) => w >= 44 && h >= 44),
-        `sizes ${JSON.stringify(sz)}`,
-      );
-      expect((await look(g)) === 'player', `pref ${await look(g)}`);
-      base = await g.eval('window.__L.kids()');
-      return `selected Male, sizes ${JSON.stringify(sz)}, children ${base}`;
-    });
-    let maleShot;
-    await check('c2a', 'male baseline close-up (front)', async () => {
-      await closeSettings(g);
-      maleShot = await walkLane(g, 0, 1, 'male-front');
-      return `male auburn px ${await hairPx(g, maleShot)}`;
-    });
-    await check(
-      'c2',
-      'tap Female: world look switches live, auburn hair front + back, no reload',
-      async () => {
-        await g.eval('window.__noReload = 1');
-        await pick(g, 'Female');
-        expect((await look(g)) === 'player_f', `pref ${await look(g)}`);
-        expect((await g.eval('window.__L.sel()'))[0] === 'Female', 'radio not Female');
-        await closeSettings(g);
-        const front = await walkLane(g, 0, 1, 'female-front');
-        const back = await walkLane(g, 0, -1, 'female-back');
-        const m = await hairPx(g, maleShot),
-          f = await hairPx(g, front),
-          b = await hairPx(g, back);
-        expect(await g.eval('window.__noReload === 1'), 'page reloaded');
-        expect(f > m + 80 && b > m + 80, `auburn px male ${m} female front ${f} back ${b}`);
-        return `auburn px male ${m}, female front ${f}, back ${b}`;
-      },
+await withCombos({ port: PORT, budgetMs: BUDGET_MS }, COMBOS, async (g) => {
+  await g.eval(PAGE);
+  let base = 0;
+  await check('c1', 'Character row: Male/Female, Male default, targets >=44px', async () => {
+    await openSettings(g);
+    const sel = await g.eval('window.__L.sel()');
+    expect(sel.length === 1 && sel[0] === 'Male', `selected ${sel}`);
+    const sz = await g.eval(
+      `['Male','Female'].map((t) => { const r = window.__L.btn(t).getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })`,
     );
+    expect(
+      sz.every(([w, h]) => w >= 44 && h >= 44),
+      `sizes ${JSON.stringify(sz)}`,
+    );
+    expect((await look(g)) === 'player', `pref ${await look(g)}`);
+    base = await g.eval('window.__L.kids()');
+    return `selected Male, sizes ${JSON.stringify(sz)}, children ${base}`;
+  });
+  let maleShot;
+  await check('c2a', 'male baseline close-up (front)', async () => {
+    await closeSettings(g);
+    maleShot = await walkLane(g, 0, 1, 'male-front');
+    return `male auburn px ${await hairPx(g, maleShot)}`;
+  });
+  await check(
+    'c2',
+    'tap Female: world look switches live, auburn hair front + back, no reload',
+    async () => {
+      await g.eval('window.__noReload = 1');
+      await pick(g, 'Female');
+      expect((await look(g)) === 'player_f', `pref ${await look(g)}`);
+      expect((await g.eval('window.__L.sel()'))[0] === 'Female', 'radio not Female');
+      await closeSettings(g);
+      const front = await walkLane(g, 0, 1, 'female-front');
+      const back = await walkLane(g, 0, -1, 'female-back');
+      const m = await hairPx(g, maleShot),
+        f = await hairPx(g, front),
+        b = await hairPx(g, back);
+      expect(await g.eval('window.__noReload === 1'), 'page reloaded');
+      expect(f > m + 80 && b > m + 80, `auburn px male ${m} female front ${f} back ${b}`);
+      return `auburn px male ${m}, female front ${f}, back ${b}`;
+    },
+  );
+  // c3-c5 (limb animation, axe graphics, dialogue portrait <img>) do not depend on the renderer: the webgl combos run
+  // them; the canvas combos run the pixel checks (c2a, c2, c6, c7) only.
+  if (g.renderer === 'webgl') {
     await check('c3', 'walk while Female: limbs animate, no child leak', async () => {
       const lane = await g.eval(`window.__L.lane(1, 0, 5)`);
-      await g.teleport(lane.start.x, lane.start.y);
+      await g.teleportSettled(lane.start.x, lane.start.y);
       const k0 = await g.eval('window.__L.kids()');
       await g.eval(`(() => { window.__rot = new Set(); const c = window.__idleRpg.scene().playerView.container; const rig = c.list.find((o) => o.type === 'Container' && o.list.length === 4);
         const t = setInterval(() => window.__rot.add(Math.round(rig.list[1].rotation * 100)), 16); window.__rotT = t; })()`);
@@ -155,7 +189,7 @@ await withGame(
     await check('c4', 'chop while Female: axe drawn, xp rises', async () => {
       await g.setInventory(['bronze_axe']);
       const tree = await g.targetOfKind('tree');
-      await g.teleport(tree.x, tree.y + 3);
+      await g.teleportSettled(tree.x, tree.y + 3);
       const xp0 = await g.state('progression.xp.woodcutting');
       await g.tapObject(tree.id);
       let axe = 0;
@@ -169,8 +203,8 @@ await withGame(
       const xp1 = await g.state('progression.xp.woodcutting');
       expect(axe >= 1, `no drawn arm/axe graphics (${axe})`);
       expect((await look(g)) === 'player_f', 'look changed');
-      await g.sleep(400);
-      await shot(g, 'female-chop');
+      await g.settle();
+      await shot(g, 'female-chop'); // record only
       return `xp ${xp0} -> ${xp1}, max drawn graphics ${axe}`;
     });
     let fPortrait;
@@ -178,7 +212,7 @@ await withGame(
       const banker =
         (await g.targets()).find((t) => t.id.includes('banker') && t.kind === 'npc') ??
         (await g.targetOfKind('npc'));
-      await g.teleport(banker.x + 2, banker.y + 2);
+      await g.teleportSettled(banker.x + 2, banker.y + 2);
       await g.tapObject(banker.id);
       for (
         let i = 0;
@@ -187,7 +221,12 @@ await withGame(
       ) {
         if (await g.eval(`!!document.querySelector('.dialogue-main')`))
           await g.tapSelector('.dialogue-main');
-        await g.sleep(150);
+        await g
+          .waitFor(() => g.eval(`!!document.querySelector('.dialogue-choice')`), {
+            timeoutMs: 600,
+            label: 'choices',
+          })
+          .catch(() => {}); // not yet: the tap only completed the typed line, tap again
       }
       await g.waitFor(() => g.eval(`!!document.querySelector('.dialogue-choice')`), {
         label: 'choice node',
@@ -213,34 +252,39 @@ await withGame(
       expect(again === fPortrait, 'female portrait not stable after toggle');
       return `female len ${fPortrait.length}, male len ${mPortrait.length}, differ, female stable`;
     });
-    await check('c6', 'reload keeps Female (pref + world hair)', async () => {
-      await g.sleep(500);
-      await g.cdp.send('Page.reload');
-      await g.waitFor(() => g.page('ready()').catch(() => false), {
-        label: 'ready',
-        timeoutMs: 25000,
-      });
-      await g.sleep(1200);
-      await g.eval(PAGE);
-      expect((await look(g)) === 'player_f', `pref ${await look(g)}`);
-      await openSettings(g);
-      expect((await g.eval('window.__L.sel()'))[0] === 'Female', 'radio not Female after reload');
-      await closeSettings(g);
-      await g.sleep(300);
-      const px = await hairPx(g, await shot(g, 'female-after-reload'));
-      expect(px > 80, `auburn px after reload ${px}`);
-      return `pref player_f, auburn px ${px}`;
+  }
+  await check('c6', 'reload keeps Female (pref + world hair)', async () => {
+    // the pref is persisted (idle-rpg:prefs) before the reload, instead of a 500 ms grace sleep
+    await g.waitFor(
+      () => g.eval(`(localStorage.getItem('idle-rpg:prefs') || '').includes('player_f')`),
+      { timeoutMs: 5000, label: 'prefs saved' },
+    );
+    // marker on the OLD page: ready() must come from the reloaded page, not the one still unloading (a race the old
+    // 1200 ms sleep hid; phone c6 read the old page once: "reading 'scene'")
+    await g.eval('window.__oldPage = 1');
+    await g.cdp.send('Page.reload');
+    await g.waitFor(() => g.eval('!window.__oldPage && window.__e?.ready()').catch(() => false), {
+      label: 'ready',
+      timeoutMs: 25000,
     });
-    await check('c7', 'back to Male: male look returns, no leak', async () => {
-      await pick(g, 'Male');
-      await closeSettings(g);
-      await g.sleep(300);
-      const px = await hairPx(g, await shot(g, 'male-again'));
-      const k = await g.eval('window.__L.kids()');
-      expect((await look(g)) === 'player', 'pref not player');
-      expect(k === base, `children ${base} -> ${k}`);
-      expect(px < 30, `auburn px ${px} (female hair still shown?)`);
-      return `pref player, auburn px ${px}, children ${k}`;
-    });
-  }),
-);
+    await g.settle();
+    await g.eval(PAGE);
+    expect((await look(g)) === 'player_f', `pref ${await look(g)}`);
+    await openSettings(g);
+    expect((await g.eval('window.__L.sel()'))[0] === 'Female', 'radio not Female after reload');
+    await closeSettings(g);
+    const px = await hairPx(g, await shot(g, 'female-after-reload'));
+    expect(px > 80, `auburn px after reload ${px}`);
+    return `pref player_f, auburn px ${px}`;
+  });
+  await check('c7', 'back to Male: male look returns, no leak', async () => {
+    await pick(g, 'Male');
+    await closeSettings(g);
+    const px = await hairPx(g, await shot(g, 'male-again'));
+    const k = await g.eval('window.__L.kids()');
+    expect((await look(g)) === 'player', 'pref not player');
+    expect(k === base, `children ${base} -> ${k}`);
+    expect(px < 30, `auburn px ${px} (female hair still shown?)`);
+    return `pref player, auburn px ${px}, children ${k}`;
+  });
+});

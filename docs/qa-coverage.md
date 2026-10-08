@@ -1,277 +1,99 @@
 # QA coverage map
 
-What a player can do, and which browser test proves it. Real taps/clicks, desktop 1280x800 + phone 390x844 unless noted.
-Kept by the main session and updated in REAL TIME (user rule): ⏳ + port when a slice is dispatched, the result as soon as
-it appears in `docs/qa-log.md` (agents append there the moment each run ends) or in a report. After a crash, read
-`docs/qa-log.md` first: any line newer than this file's rows is a result not yet folded in.
+What a player can do and which browser test proves it (real taps/clicks, desktop 1280x800 + phone 390x844 unless noted).
+Kept current by the main session. Full history up to 2026-10-08 11:00 (run-by-run notes, mutant details):
+`docs/archive/qa-coverage-2026-10-08.md`. Raw results: `docs/qa-log.md`.
 
-Legend: ✅ verified (full run + test proven to fail when broken) · ⏳ re-running now · 🔧 fixed in code, browser check
-pending · ❌ NOT COVERED (gap) · ➖ unit tests only
+Legend: ✅ verified (pass + test proven to fail when broken) · 🔧 code done, browser check owed · ⏳ running · ❌ open/gap ·
+➖ unit tests only
 
-✅* = passed in full (17/17 desktop + phone) but the "test fails when broken" proof is not done yet.
+## Open now
 
-Last updated: 2026-10-08 10:09 (stale rows closed against qa-log; qa-log folded through the 10:07 lines). Running now: see "Running now" below.
-(Earlier: the 04:55 session death killed every in-flight run; those rows were re-checked and corrected.)
-Health at the audit: tsc clean, vitest 91 files / 1312 tests pass, lint 5 errors (unused vars in axeSound.e2e.mjs ×4,
-chatUi.e2e.mjs ×1).
+| Item | Status |
+|---|---|
+| Closed today (fire/cooking, lighting polish, black water/CANVAS, roofs, nameplates, fish art, world-edge seam, Show HUD, camera inset, cook pose, M1-M3 elbows, e2e speed + #39 fast-base sweep, Q4/Q4b harness, chat flake, fireArt ground, phone label keep-out + banner, lint speed, g.settle conversion) | ✅ — rows archived in docs/archive/qa-coverage-2026-10-08.md |
+| Smoke flakes c (swing msg), d (canopy tap → neighbour; `graphics`), h (2-frame jitter) | 🔧 12:08: c now latches swing lines via store.subscribe (chat cap scrolled them out); d failure now prints pending/session tree ids (graphics bug if they differ); h load-induced, no change (0 frames > 15%). Only 1 live run since — flake fix not proven |
+| Full e2e suite health | 🔧 every file green in its own slice since the 12:05 full run (28/86 red then). Full run-all CANCELLED by user 23:1x, so the suite total, worldEdge seam and bigWorld phone (73 s) recheck ride on each file's next qa run. Known flakes under load: isoTap, fishChat, camJerk, roofs canvas ridge px |
+| Cook pose rear hand (M4) + elbow loose ends (M5) | ❌ M4 parked (qa stopped before any browser ran; not requested, over the ~4 browser cap): rear hand attach/clamp/visibility never checked. ❌ M5 in the #39 sweep: lint newfish + chatUi, cookPose > 60 s budget, add M4's rear-hand check to cookPose |
+| Locked dialogue: amber "important" chat lines | ➖ no important lines exist yet |
+| Not covered by choice: landscape phone for most rows; GATE of every e2e on one build (user skipped) | — |
 
-## World and movement (isometric)
-
-| Behaviour | Status | Test |
-|---|---|---|
-| Page loads, 0 console errors | ✅ | smoke a, every slice's console check |
-| Tap ground → walk to exactly that diamond (centre + edges, camera scrolled, dpr 1/1.6) | ✅ desktop + phone (pickTile y+16 → g1 red on both) | isoTap g1 (162 taps), c-flat. The proof run was killed by the 7-min watchdog (2×162 taps under load); qa was told to split it by viewport and then the session died. No result recorded → re-run (desktop and phone as 2 slices) |
-| Tap tree trunk / canopy / just below feet → walk adjacent + chop ("the tree you see wins") | ✅ isoTap FINAL: desktop dpr 1 + 1.6 49/49, phone 22/22, 0 errors. t-* chop the target at its own visible point; own-* every target keeps ≥1 own spot (tree_9/tree_10 3/4); tv-* below-feet under a front tree chops the visible tree (tree_11/tree_6); gap-* a transparent gap falls through to the tree behind. Mutants: isOpaqueAt→true → 5 red (t-tree_9-trunk chops tree_6 on all 3 viewports + gap-tree_9); pickTile y+16 desktop → 12 red (g1 52/72 off, b-* ×4, c-flat). Oracle = frontmost opaque tree, 5 px sway margin. HISTORY: ❌ canopy taps FAIL (05:52-05:53): desktop 33 pass / 4 fail (canopy at dpr 1 and 1.6); phone 17/19 then 18/19 (t-tree_10-canopy, -canopy-top; then t-tree_9-canopy-top: flaky, overlapping canopies). PHONE slice reported (PARTIAL): g1 (162 taps), all 4 b-*, c-flat, console pass in both live runs; canopy fails are B1 (P2,
-flaky: player arrives adjacent but no chop starts; failing id changes per run; trees overlapping neighbours). Phone mutant
-proof DONE: pickTile y+16 in clientToTile → 12/19 (g1, all b-*, c-flat red). Not proven: t-* group (only the already-flaky
-id went red). Desktop slice reported 05:59 (INCOMPLETE, stopped for quota): run 1 33/37, run 2 3 fails, all "player adjacent, no chop
-session in 14 s"; g1 + b-* pass on desktop; desktop mutant NOT run. Hypothesis T1 (stumps) DISPROVED 06:03 (diag1: every
-target standing before every tap). New leads (main, 06:08): (A) a tap on tree_10's TRUNK started a chop on the neighbour
-tree_11 and the test counted it as PASS ("AMBIGUOUS"), i.e. a product overlap-resolution issue; (B) "no chop" may be the check
-missing a chop that already finished (normal trees fall after 1 log, session clears). qa redirected to log objectAtPoint's
-resolved id + logs gained + gathering events per tap. RESULTS: 06:11 diag2 (22/25): spy shows MANY taps resolve to the
-NEIGHBOUR tree (tree_11, tree_6, tree_8) = lead (A) CONFIRMED (overlap resolution; user's canopy decision pending).
-06:15 diag3 (23/24): the one fail = interactTree(tree_9) fired but tree_9 was already chopped by an earlier check (player
-never moved) = stump case is real for that check. run4 06:15:26 → 06:19:01: 37/37 desktop (dpr 1 + 1.6), BUT it still
-counts a neighbour chop as PASS (AMBIGUOUS) and each run takes 3.5 min (USER: "isotap is always stuck"). qa told:
-?tickMs=60, sample g1 (≈40 taps not 162), target < 60 s/viewport, neighbour chop = FAIL, one run, then report.
-06:20 strict run (neighbour chop = FAIL): 23/37, 14 t-* FAIL: taps on tree_10/tree_9 trunk + below-feet chop the
-neighbour (tree_11/tree_6) = the product bug, EXPECTED to fail until integrator's "tree you see wins" lands; plus a
-"fully covered" oracle culling flake (test). Note: at 06:25 no e2e process of any agent was running.
-06:29 run7 (tickMs=60, ~65 s): 25/37. The qa agent then ended WITHOUT a report (its log lines are the record).
-06:3x integrator "tree you see wins" LANDED (objectAtPoint + WorldScene.isOpaqueAt): unit 13/13, mutant (pixel check off)
-→ 3 red; its isoTap run desktop + phone: trunk taps on tree_9/tree_10 chop themselves, gaps walk. Remaining t-* fails
-are OLD test expectations: those canopies are fully hidden behind tree_6/tree_11, and their below-feet spot lies under
-opaque leaves of the front tree, so the visible tree is chopped, as decided. → qa updates the expectations + mutant. Logs: scratchpad live.txt / live2.txt / mut.txt | isoTap t-*, smoke c d (same isoTap proof as above) |
-| Tap between two trees → walk, no chop | ✅ desktop + phone (mutant → all 4 b-* red on both) | isoTap b-* (4/4 gaps) (same isoTap proof as above) |
-| Tap where two tree canopies overlap → may chop the neighbour (nearest wins) | ⚠️ P3 | isoTap AMBIGUOUS cases; visual overlap, consider smaller canopies |
-| Player drawn behind/in front of trees and walls correctly | ✅ | isoCamera occlusion |
-| Camera follows player, centred | ✅ | isoCamera follow |
-| Drag-pan moves camera, does not walk | ✅ | isoCamera, smoke g2 |
-| Pan stops at map edges | ✅ | isoCamera clamp |
-| Wheel / pinch zoom within limits | ✅ | isoCamera zoom |
-| Empty space below the map at minimum zoom | ✅ | minZoom 11/11 desktop + phone after the ISO-1b fix (z3 pan to limits: no void in 6 directions; z2 0 clear px at full density; the dark px were the "You" label). History: minZoom: zoom-out fills the view ✅ (desktop 0.63, phone 0.51 = window-fit bound), resizes ✅, fresh load ✅, tap after zoom-in ✅ (mutant → z1 red). ISO-1b FIXED by integrator (view centre clamped to the iso diamond; panCamera tests + e2e mutant red): z3 green desktop + phone (9261/3180+ in-world samples) → qa re-run (:5191). Phone z2: NOT a flake, deterministic: 1 clear + 8 near-black px at 63,47 (by the chunk border x=64), also without the fix → qa diagnosing (seam vs art) |
-| Phone frame time while walking the big world (4x slower CPU) | ✅ | performance: p95 33 → 16.7 ms after culling off-screen views |
-| Off-screen views culled without pop-in (walk, 8-way pan, zoom limits), edge taps still chop | ✅ | cull 11/11 (margin-0 mutant → 410 pop-ins) |
-| Graphics memory on phone (≤ ~60 MB), no black ground when panning far | ✅ | integrator rt.mjs: walk ~32 MB (was up to 72), pan peak 56 MB, black ground 86% → 0% |
-| Minimap N button doesn't cover the HP orb | ✅ | N moved below the minimap; orbs 13/13, minimap m2 + n1 |
-| Minimap red destination marker after a tap (d1) | ✅ | fixed (pixelRatio scale, drawn above labels); minimap 15/15 |
-| Minimap region boundaries + a label per region (derived from area data) | ✅ | minimapRegions boundary pixel check: edge tiles brighter 28/30 desktop, 27/29 phone, controls 0 (mutant alpha 0 → red) |
-| Minimap rim arrow toward an off-circle destination | ✅ | minimap a1 (17/17; destination set via store, not a real long walk) |
-| Bridge colour on the minimap | ✅ | palette test: every terrain kind has a minimap colour |
-| Every sizable part of a region labelled (e.g. The Wilds near the village) | ✅ | minimapRegions 48/48 desktop + phone after the B1 fix (current region's label placed first; graphics unit test + mutant); every anchor still labelled |
-| Walking smooth (no judder) | ✅ | isoCamera smoothness |
-| Run: 2 tiles/tick, energy drain/regen, auto-off + message | ✅ | orbs o4 o5 |
-| Layout survives zoom / window resize | ✅ | viewport 8/8 + user confirmed in real Chrome (2026-10-08) |
-| Bigger world: walk spawn → causeway → Whispering Wood, no seams at 5 chunk borders, chop forest tree, Fernhaven bank by tap, reload far away, ≤9 chunk textures | ✅ | bigWorld 16/16 (2 mutants → red) |
-| Buildings: roof outside, roof fades + front walls see-through inside, back on exit (3 buildings), no double walls, behind from north, Animations Off instant, booth from inside | ✅ | buildings 43/43 (2 mutants → red) |
-| Bank / hut building looks (bank: stone, columns, coin + BANK sign, gold roof trim) | ✅ (screenshot) | buildings 43/43 still pass; look checked by screenshot |
-| Area banner doesn't cover NPC nameplates (desktop) | ✅ | banner moved to the top; buildings 43/43 |
-| Long walks across the map (re-path legs): exact arrival, 0 idle ticks between legs, water target stops adjacent, a tap mid-walk cancels | ✅ | longWalk 11/11 desktop + phone ((2,2)→(91,64) 89 tiles, 2 legs; mutant re-path off → t1/t2 red). The far leg is sent as the walkTo intent (no single tap can reach 80+ tiles); the 4x stall-retry branch is not exercised |
-
-## This round: visuals + sound
+## World and movement
 
 | Behaviour | Status | Test |
 |---|---|---|
-| Bridge over the lake: planks + rails, walkable; water taps never put you in water | ✅ | water t1/t2 desktop + phone (walked x35→41 on row 15). Rails across a chunk border: n/a (the bridge sits inside one chunk) |
-| Realistic water: depth gradient, shallows, damp shore, no tile grid, no seam at chunk borders, no magenta | ✅ (look by screenshot) | water t5 0 magenta px, t7 border jump 5.4 vs 16.7 interior (desktop) / 6.1 vs 14.8 (phone) |
-| Water animation moves; Animations Off = still; phone frame time | ✅ | water t3/t4/t6: On 612/19200 px move, Off 0; phone p95 16.7 ms (mutant motion forced on → t4 red) |
-| Ground textures (grass/dirt/sand), no seam at chunk borders, no black/magenta when panning 8 ways | ✅ | ground g5/g6 desktop + phone (grass std 29, path/sand std ~10; seams ≈ control; black ≤0.2%) |
-| Flowers drawn + sway; Reduced < On (no double sway); Off = still; flowers don't block taps | ✅ | ground f1-f5 (102 flowers; On 6.5°, Reduced 1.2°, Off 0; mutant → f3/f5 red) |
-| Tree sway; Reduced < On; Off = still; chop still works; phone frame time | ✅ | treeSway 5/5 desktop + phone (29/29, 21/21 trees; phone p95 16.7 ms; 2 mutants red) |
-| Realistic trees (art): variants per tile, oak art, stump after chop, canopy/trunk tap still chops | ✅ | trees 13/13 desktop + phone (7 variants, 61 oaks own art, stump → standing after respawn, canopy + trunk taps chop; mutant → 4 red). Stump look not seen in a screenshot (only via texture log) |
-| Realistic player + NPC art | 🔧 A1 (P2): chop back view: the axe floated beside the head with no raised arm. `animation` 06:07: cause = axe handle drawn from the fist back toward the shoulder (blade by the head) + sideways swing in back view; fix + unit tests green; mutants red (no foreshorten: 3 fail, old axe geometry: 1 fail). 06:08 own browser :5226 desktop + phone (shots3/*-fix-ne-*.png): arm raised, hand grips the handle. 06:12 report: gait 23/23, suite 1332 pass, tsc clean for animation. ❌ OPEN: USER "the chop animation is top to bottom so the hit needs to face down" (the edge faced up at the hit in front + back view); ❌ REGRESSION animation.e2e chop-axe-off desktop + phone (Off axe varies 11.88° by facing). 06:15 v2 fixes both in code (head mirrored to the leading side, Off not foreshortened; unit tests + 2 mutants red). 06:31: gait 23/23, animation.e2e 40/40 (Off regression FIXED) but the shots (bv/shots4/*-v2-*) show the hit STILL edge-up: head above the handle, arm swept past (main viewed desktop-v2-se-0.68.png) → sent back 06:36, then CANCELLED 06:38: USER checked the live game: "its ok back/front axe head down". ✅ by the
-user's live check (main's frozen 0.68 frame was past the visible hit). animation told: no v3, revert any v3 edit, report. 06:20 USER: "looks stuck": animation.e2e up 3+ min at ~0% renderer CPU, no log since 06:15 → told to use ?tickMs=60, tee, kill its own pids if hung, one rerun, report. Walk front/back/side OK (2-segment arms on shoulders; legs read as one dark mass); banker OK; no villager NPC exists | live (figureArt + figureLooks, legs + 2-segment arms rigged). No qa slice has checked the look on desktop + phone yet (gait slice took close-up screenshots, report never reached main) |
-| Natural walk gait: arms opposite to legs, knee bend, 2 bobs/stride, idle still (USER: same-timing swing looks weird) | ✅ gait 23/23 desktop + phone (05:53): walk 533 ms, run 334 ms, arm-leg corr -0.9; mutant (arm phases swapped) reds g1 on both viewports. g0 frame threshold lowered 150 → 90 (131-134 frames under load). thigh p-p 50° walk / 76° run vs upper arm 32°, knee bends in 63/63 swing frames, straight in 62/62 stance, 2 bobs/cycle, idle + Off 0°. animation.e2e ALL PASS desktop + phone on the new rig (6 face-walk directions, chop axe 170°/87° On, 35° Reduced, 0° Off, scale 1.5) | qa wrote tests/e2e/gait.e2e.mjs (:5209); its memory notes walk period 517 ms / run 333 ms, arm-leg correlation -0.9, mutant (arm phases swapped) reds g1 only. The pass/fail summary never reached main (session died) → one re-run to record the result; animation.e2e (stale 5-child rig) was edited at 05:29, also unconfirmed. Integrator wired `running` (walk ~516 ms, run ~339 ms in its own Chrome). part 2: shoulder-pivoted upper arm + trailing forearm (rigUpperArms), the axe follows the arm chain; render 336 tests, 3 mutants red. part 1: contralateral legs + forearms, knee bend, 2 bobs, run gait, idle still; 16 gait unit tests (4 mutants red). Not browser-checked. Part 2: upper-arm segment (graphics) → animation wires it; integrator passes `running`; animation.e2e is stale (5-child rig) → qa updates it + gait slice |
-| Every axe swing: one axe-hit sound + one chat line (USER request); log crack per log; tree fall sound; Sound Off silent | ✅ | axeSound 11/11 desktop + phone: 6 swings → 6 hits (gaps 2399-2401 ms, none in between) + 6 "swing your axe" lines; 1 crack per log; 1 fall; Off = 0 sounds (mutant: per-swing line removed → t5 red). History: B1 extra hits from stopgap audio mappings, fixed by sound; the per-swing line was wrongly removed (main's prompt) and restored |
+| Page loads, 0 console errors | ✅ | smoke a |
+| Tap ground → walk to that diamond (dpr 1/1.6, camera scrolled) | ✅ | isoTap g1, c-flat |
+| Tap tree trunk/canopy/below feet → chop the tree you see | ✅ | isoTap t-*, own-*, tv-*, gap-* |
+| Tap between trees → walk, no chop | ✅ | isoTap b-* |
+| Occlusion, camera follow, drag-pan, edge clamp, zoom limits, no void at min zoom | ✅ | isoCamera, minZoom |
+| Smooth walk, no camera jerk (desktop + phone, sheet toggles) | ✅ | isoCamera, camJerk, #48 |
+| Run: 2 tiles/tick, energy drain/regen | ✅ | orbs o4 o5 |
+| Long walks (re-path legs, exact arrival, water target adjacent) | ✅ | longWalk 11/11 |
+| Big world: chunk seams, ≤9 textures, culling without pop-in, phone memory ≤60 MB, p95 16.7 ms | ✅ | bigWorld, cull, rt.mjs, performance |
+| Buildings: roof fade inside, see-through walls | ✅ | buildings 43/43 |
+| Water + bridge, ground textures, flowers, tree sway (On/Reduced/Off) | ✅ | water, ground, treeSway |
+| Layout survives zoom/resize | ✅ | viewport 8/8 |
+| Area banner + music/ambience per area | ✅ | areas, bigWorldAreas |
 
-## Woodcutting and items
-
-| Behaviour | Status | Test |
-|---|---|---|
-| Chop → log in inventory, XP gained | ✅ | smoke c, skills k8 |
-| Tree falls after one log (tilt On, no tilt Reduced, instant Off) | ✅ | animation (39/40) |
-| Facing while walking 8 directions, faces tree while chopping, axe swing per mode, scale kept | ✅ | animation 40/40 (A1 was a test route detour, fixed) |
-| No axe → refused + message + effect | ✅ | blocked a |
-| Level too low (oak 15) → refused + requirement message | ✅ | blocked b |
-| Inventory full → refused immediately, no swing | ✅ | blocked c (mutant → red) |
-| Effects off/on, no leftover effects after 10 repeats | ✅ | blocked d e f |
-| First tap on a tree sometimes ignored on phone | ✅ | B2 was a test bug (stale tap point while camera eased); fixed with lib.mjs waitStill; blocked 3/3 desktop + phone, old loop → red 3/3 |
-| Inventory: tap / long-press menu, Drop, Examine, Cancel, full 28, tap size | ✅ | inventory (mutants → 14/22 red) |
-| Inventory: drag to swap slots (8 px threshold; long-press still opens menu) | ✅ | inventorySwap 11/11 desktop + phone (swap, move to empty, long-press menu no swap, 5 px = tap, same-slot/outside no-op; mutant threshold 1 px → red) |
-| Inventory: "Use" / item-on-item → "Nothing interesting happens." | ✅ | useItem 21/21 desktop + phone (select ring + bar, item/tree/NPC → message + nothing else, same item / ✕ / ground cancel, drop/swap clear; mutant → 10 red). Not covered: Use on a facility object; real phone long-press while Use is active |
-| Items on the ground: Drop → on tile, tap/Take picks up, full inventory refused, despawn 300 ticks | ✅ | groundItems 11/11 desktop + phone (drop drawn on tile, tap from 3 tiles walks + takes, long-press Take, full bag refused + item stays, despawn at exactly +300 ticks; mutant 200 → red). Not covered: reload clears them, piles/qty badge, "Walk here" entry |
-| Item stacking rules: non-stackables one per slot, stack + badge, bank stacks + withdraw-all into free slots, drop/take whole stack, full bag still stacks | ✅ | stacking 11/11 desktop + phone (mutant: stackable branch off → 6 red). No stackable item ships yet, so 3 checks use a test shim on logs; re-check when coins/arrows exist |
-
-## Bank and NPCs
+## Skills
 
 | Behaviour | Status | Test |
 |---|---|---|
-| Walk into the bank through the door (no stuck tiles) | ✅ | isoBank door-in, door-diag (mutant door blocked → red) |
-| Tap booth → bank opens; deposit all / withdraw 1 / withdraw all | ✅ | isoBank booth-tap, bank-ops (mutant booth intent → red) |
-| Long-press / right-click booth and Banker → correct menu | ✅ | isoBank booth-menu-bank + npc-menu-bank (pick "Bank" from the menu → bankOpen + overlay): 3 runs 21/21, 20/21, 21/21 desktop + phone. Mutants: booth menu Bank→examine reds only booth-menu-bank (both viewports); NPC menu → only npc-menu-bank. Flake P3 (test only): phone door-diag "no canvas-visible exit tile (HUD covers all)" ~1 in 3; fix = teleport nearer the door / more candidate tiles. Earlier proof: door mutant → 14/17 red; booth-intent mutant → booth-tap + bank-ops red |
-| Tap Banker → dialogue (incl. the first Banker, not the booth) | ✅ | isoBank npc-talk, npc-talk-1 (mutant door blocked → red) |
-| Walking away closes the bank | ✅ | isoBankRules (outcome proven; which code path closes it not isolated) |
-| Bank contents survive reload | ✅ | isoBankRules (mutant → red) |
-| Can't walk behind the counter (8 taps on staff/booth/wall tiles) | ✅ | isoBankRules (mutant → red) |
-| Fernhaven bank (door, booths, shared storage with Willowbrook, bankers, counter, walk-away) | ✅ | fernhavenBank 13/13 (mutant → red) |
-| Fernhaven banker greeting names Fernhaven | ✅ | bankerGreeting 9/9 desktop + phone (Fernhaven ×2, Willowbrook, bank option; mutant: no place var → 4 red) |
+| Woodcutting: chop → log + XP, tree falls + respawns, no axe / level / full bag refused | ✅ | smoke c, animation, blocked a-f, respawn |
+| Oak tuning (45 XP, success 48/150) | ✅ | oakTuning 11/11 |
+| Mining: rocks, ores, pickaxe tiers, iron/coal gates, one swing line per attempt | ✅ | mining 23/23, coal 11/11 |
+| Fishing: net/bait spots, bait use, spot hops, new fish (trout L25, mackerel L30), stop-reason flashes | ✅ | fishing 17/17, newfish 8/8, fishFlash |
+| Locked gather menu options ("Requires X N (you: M)") | ✅ | lockedMenu 13/13 |
+| Skill sounds + per-attempt chat lines (all 3 skills) | ✅ | axeSound 11/11, 6c 9/9 |
+| Skill vfx (chips, dust, splash, ripples) | ✅ | vfxHooks 11/11, skillTags 5/5 |
+| Poses: chop/mine two-handed, net, rod; walk/run gait; Off/Reduced | ✅ | gait, gaitB, a3, c2, e2, rod |
+| Skill unlock tree (WC/Mining/Fishing): branches, locked = "Unknown" + requirement, same width as skills grid, live unlock | ✅ | skillUnlocks 25/25 |
+| Light a fire (tinderbox, oak burns longer, ashes) | ✅ | fireLight 23/23 (firemaking session) |
+| Cook on a fire (cooked/burnt, XP) | ✅ | cookFire 17/17 (firemaking session) |
+| Smoke: walk, chop, canopy, reload, bank, smoothness, phone portrait + landscape | ✅ 11:19 | smoke 12/12 live7/9/10/11 (stale iso coords fixed in smoke.mjs; mutant flat coords → 3/12). Flakes c/d/h ~1 in 4 (see Open now) |
+| Raw/cooked/burnt names + icons (user) | ✅ 11:29 | fireVisuals v5 (8 names, distinct icons, same in inventory/bank/ground, Examine); cooking/data.test.ts names (mutant red); itemIcons "food states visibly different" (mutant red); itemIconsEverywhere 73/73 |
+| Fire art / flicker / dying / ashes icon | ✅ 11:29 | fireVisuals (flicker mutant red), ashesIcon 3/3, fireWire 9/9, fireLifecycle unit (mutant red) |
+| Lighting kneel + cooking pose | ✅ lighting 12:20 (wing fixed, 8 facings); cook pose ✅ 18:47 (food in hand over the flame, poke motion; cookPose.e2e numeric asserts) | lightPolish sheets; act.test + playerAnimator pivot test (mutants red) |
+| Fire vfx (sparks, smoke, steam, burnt puff, embers) | ✅ 11:29 | fireVisuals desktop + phone; vfx unit 55 (5 mutants red) |
+| Logs menu: Light, Use, Drop, Examine, Cancel | ✅ 11:29 | fireVisuals menu check desktop + phone; itemMenu.test 3 (2 mutants red) |
+| Log pile while lighting, swap to fire, removed on cancel; step aside on lit; no player-in-flames frame | ✅ 12:20 | f3.e2e 5/5 desktop + phone (stub-pile mutant red); lightPolish.e2e lp-overlap pass (integrator run; mutant red) |
+| Fires walkable (user 11:55); step-aside W→E→S→N; refused when all 4 blocked | ✅ 12:20 (qa fireBlock 21/21 desktop + phone) | fireBlock.e2e (s1-s4, s6 pass desktop + phone; STEP_ASIDE mutant 7/21 red) |
+
+## Items and inventory
+
+| Behaviour | Status | Test |
+|---|---|---|
+| Menu (tap/long-press), Drop, Examine, full 28, drag-swap | ✅ | inventory, inventorySwap 11/11 |
+| Use item on item/tree/NPC → "Nothing interesting happens." | ✅ | useItem 21/21 |
+| Ground items: drop, take, full bag refused, despawn 300 ticks, visible around feet | ✅ | groundItems 11/11, drops 9/9 |
+| Stacking rules | ✅ | stacking 11/11 (shim on logs; re-check when a real stackable ships) |
+| One icon per item everywhere (inventory = bank = ground) | ✅ | itemIconsEverywhere 73/73, icons e2e 15/15 |
+| Examine texts per node type | ✅ | examine 19/19 |
+
+## Bank, NPCs, dialogue
+
+| Behaviour | Status | Test |
+|---|---|---|
+| Willowbrook + Fernhaven + Greatmere banks: door, booths, menus, deposit/withdraw, walk-away closes, contents survive reload | ✅ | isoBank, isoBankRules, fernhavenBank, bankBooth5 |
+| Deposit chest (deposit-only view) | ✅ | depositChest 15/15 |
+| Male + female banker per bank, own dialogue face, greeting names the town | ✅ | bankerGreeting 23/23, dialogueAvatar 7/7 |
+| Chat + dialogue UI (44 px choices, typewriter) | ✅ | chatUi 9/9, chat 12/12 |
+| Locked dialogue choice (dimmed + requirement, keys 1-9, landscape) | ✅ | lockedDialogue 25/25 |
 
 ## HUD
 
 | Behaviour | Status | Test |
 |---|---|---|
-| Chat scrolls (wheel + phone drag), follows new lines only at the bottom | ✅ | chat |
-| Skills grid: icons, colours, levels, total + combat level, tap for XP detail | ✅ | skills |
-| HP / Prayer / Run orbs, Run toggle, low-energy message | ✅ | orbs |
-| Minimap: tap to walk, water/wall taps, dot, toggle | ✅ | minimap m1-m3, d1, t1 |
-| Minimap N button re-centres | ✅ | minimap n1 (mutant → red) |
-| Minimap correct after walking 60 tiles across chunks | ✅ | minimap w1 (187/187 terrain pixels) |
-| Minimap tap far north walks (not blocked by N) | ✅ | minimap m2 + n1 after MM-1 fix (N moved outside the circle) |
-| Minimap terrain correct after a long walk (w1) | ✅ | minimap 15/15 (w1 skips label pixels) |
-| Minimap labels in Whispering Wood / Fernhaven: shown, ~10 CSS px at every dpr, inside circle, no overlap | ✅ | minimapLabels (mutant → 49 red) |
-| Minimap labels at spawn (Willowbrook + bank; phone: bank as coin icon) | ✅ | minimapLabels 74/74 (L1 fixed) |
-| Settings: sound switch, volume steps, toggles | ✅ | settings |
-| Settings footer version + What's new | ✅ | footer |
-| Area name banner + music/ambience per area (village) | ✅ | areas |
-| Big-world areas: banner + chat once, ambience kind, re-enter, Off silences, phone layout | ✅ | bigWorldAreas 18/18 (mutant → 10 red) |
-| Level-up: popup text, non-blocking, tap/4 s dismiss, chat line, effect on/off, grid, double level-up, Notifications toggle | ✅ | levelUp (mutants → 10/28) |
-| XP drops | ✅ | settings d6 |
-| Modern chat + dialogue: choices + close ≥44px, tap to choose, typewriter On (tap completes) / Off instant, phone sheet clear of orbs/minimap/tabs, chat scroll unchanged | ✅ | chatUi 9/9 + chat 12/12 (mutants: typewriter + 20px choices → red) |
-| Dialogue avatar shows the speaker's face (USER 06:08), not a colour circle | ✅ | dialogueAvatar 7/7 desktop + phone (a1 banker img data:png alt "Banker", round; a2 player "You" portrait differs; a3 choices 44 px, close 44x44, sheet clear of orbs/minimap; 0 errors); chatUi 9/9; mutant speakerPortrait→null reds a1 + a2 both viewports. Face readable but small at 24 px (banker less distinct; 32 px optional). Not checked: other NPC portraits (none ship), img onError fallback in browser. Earlier: 06:08 dialogueAvatar 7/7 desktop + phone (banker + player avatar img, 24 CSS px / 48 device px); chatUi rerun for the avatar layout logged, summary pending; mutant + size verdict pending. USER saw the faces after a refresh. LIVE: graphics portraitUrl (8 unit tests, mutant red; main viewed montage: player, grey-haired banker, villager, blonde villager_f — faces clear); hud SpeakerAvatar in the 24 px circle (34 ui tests). Open: is 24 px big enough to read a face; villagers need a lookId when they get dialogue (npcId ≠ look id in general) |
-| One female + one male Banker at each bank (USER 06:27), each with their own dialogue face | ✅ | bankerGreeting.e2e 23/23 desktop + phone, 0 errors: world hair pixels (male grey / female dark-brown) for all 4 bankers, avatar src = portraitUrl(their look), male ≠ female avatar at both banks, greeting names the town, Bank from banker_2/banker_4. Mutants: speakerLookId always 'banker' → 17/23 (av_banker_2/4, av_diff red); banker_4 spawn → 'banker' → 19/23. Not checkable: banker back view (NPCs don't turn). USER checked live: "looks right" | world part live 06:33 (npc def 20/20, look 356/356, spawns 58/58, mutants red; main viewed figures.png). Integrator speakerLook DONE: npcContent.test 3/3 (spriteKey → render look, spawn npcId → NPC_DEFS, speakerLook per spawn); own browser: banker_1/3 male, banker_2/4 female look, dialogue portrait differs male vs female at both banks, Bank opens for all 4. qa slice running |
-| Locked dialogue choice (dimmed + requirement), amber important chat lines, landscape phone, keys 1-9 | ✅ locked choice: lockedDialogue 25/25 desktop + phone portrait + landscape, mutants red (Session 2 row). ➖ amber important chat lines: not browser-checked | no locked choice in content yet; rest unchecked |
+| Skills grid + detail, orbs, level-up popup, XP drops | ✅ | skills, orbs, levelUp, settings d6 |
+| Minimap: tap-walk, N button, labels, region boundaries, markers (rocks, spots, tree types), facing arrow | ✅ | minimap, minimapLabels, minimapRegions, mmnet, mmLabel |
+| World map overlay (fit, zoom, pan, close) | ✅ | worldmap2 11/11 |
+| Settings, footer version, Male/Female look | ✅ | settings, footer, playerLook 17/17 |
+| Phone: sheet + chat folded by default, fold state persists, camera inset above HUD | ✅ | collapse 6/6, foldPersist 5/5, cam-inset 9/9 |
 
 ## Saves
 
 | Behaviour | Status | Test |
 |---|---|---|
-| Logs + XP survive reload | ✅ | smoke e |
-| Old save versions (v1, v2) load in the browser and upgrade to v3 | ✅ | saves load-v1/v2 (desktop + phone) |
-| Corrupt save → message, fresh start, bad data kept as backup | ✅ | saves corrupt |
-| Two copies of the game don't overwrite each other (lease) | ✅ | saves two-tabs (iframe as tab B; mutant → red) |
-| Progress far away in the big world survives reload | ✅ | saves far-world |
-
-## Balance (big-world placement) ✅ reported (tests/balance/woodcuttingPlacement.test.ts, real gathering + pathfinding, 20 seeds)
-
-| Finding | Numbers |
-|---|---|
-| Crowding near spawn | fine: 12 village normal trees, 0 ticks waiting for respawn in every run; 4 oaks enough (~8 logs each) |
-| Oaks near spawn | fine: nearest normal tree 3 tiles, oak 5; level 1 just gets "need level 15" |
-| Oak 15 → 30 | village oaks 65 min (~11.1k XP/h) vs village normal trees 53 min (~13.6k XP/h); Oak Ridge oaks 73 min |
-| Unnamed pocket | 171 trees (46 oaks) at x63-79, y26-52 east of Greatmere fall outside every zone: no area name/label |
-| Fernhaven bank | 70+ tiles from every forest; bank round trip per 28 logs: village 16-36 ticks, Whispering Wood 80-112, Oak Ridge 106-114 |
-| Proposals (USER approved all 3; queued, not dispatched: quota pause) | (1) oak xp 37.5→45, success 32/100→48/150 (oak ahead of normal trees at every level; not re-simulated) or keep OSRS numbers; (2) `map`: name the pocket + a bank booth near (72,53); (3) bank/deposit chest near Whispering Wood (48,15) |
-| Distances | spawn → normal tree 3 tiles, → oak 5-7 (Oak Grove, 4 oaks); Willowbrook bank 10 from spawn; Whispering Wood 30-48 from spawn / 40-56 from bank; Oak Ridge 44-61 / 53-57; Fernhaven bank 102 from spawn, 68-72 from the woods |
-| Woodcutting 1 → 15 | village normal trees 14.6 min walking / 14.1 run (97 logs, 3 bank trips, 0 waiting); Whispering Wood only 17.0 min |
-| XP/hour normal tree vs oak | lvl 15: 9932 vs 9485 (oak worse until ~lvl 40); lvl 30: 11735 vs 11682; lvl 99: 18535 vs 21277 → possible tuning issue, wait for balance's proposal |
-
-## Gaps to close (in order)
-
-Done: inventory, level-up, iso bank rules, saves, big-world areas, big-world walk, buildings, Fernhaven bank,
-minimap labels (74/74), phone frame time, off-screen culling (11/11), tree sway, chat/dialogue UI, Fernhaven greeting,
-trees, water + bridge, flowers + ground textures, minimap boundaries, inventory drag-swap, Use, ground items, region labels (48/48 after B1 fix), long walks, item stacking,
-isoBank failure proof (door, booth), ISO-1b fix + minZoom re-run 11/11, per-swing chat line restored + axeSound 11/11,
-gait 23/23 (mutant red), isoBank pick-Bank (mutants red), dialogue faces 7/7 (mutant red), e2e lint, balance placement.
-
-The open work is also listed as tasks in `docs/runbooks/2026-10-08-big-world.md` → "HANDOFF tasks". After a crash, read
-`docs/qa-log.md` from the bottom first.
-
-06:36-06:37 isoTap FINAL (oracle = frontmost opaque tree): desktop dpr 1 + 1.6 43/43, phone 22/22 (after 2 fixes for
-sway/unstable tap points). 06:38 mutant run on :5329 in progress.
-~06:35 integrator stopped by main (work logged done, idle on its own background job, no report); main verified: tsc
-clean, app tests 35 files / 232 pass, no leftover servers on 5228/5328; its last edits were 06:32-06:33 (store.ts,
-app/ui dialoguePortrait.ts + DialoguePanel.tsx [hud's files, minimal speakerLook change], npcContent.test.ts), nothing
-half-written after. Browser re-proof: tap rule = the running isoTap final; bankers = other account's qa slice.
-(Main's "06:42/06:44" stamps above were estimates; the real clock was ~06:35.)
-Running now (10:09): nothing (mmLabel ✅ 10:14). #47 ✅ 10:12. Then: changelog fold + release (#40).
-
-Still open, in order:
-1. ✅ DONE: isoTap (all rows proven on desktop + phone).
-2. ✅ DONE (user-confirmed live, shipped v0.1.1). A1 axe: USER "the chop animation is top to bottom so the hit needs to face down". 06:15 v2: axe head mirrored to the
-   leading side + Off mode no longer foreshortened; unit tests green; mutants red (blade on the wrong side → edge-leads test
-   red; Off always foreshortened → Off test red). Still to come: e2e (animation.e2e chop-axe-off) + screenshots main views,
-   then the user checks after a refresh.
-3. ✅ DONE: lint clean (qa removed the 5 unused vars; prettier-formatted 5 more e2e files; main re-ran `npm run lint`).
-4. ✅ DONE: the stray `tests/e2e/shots-trees/` (6 PNGs) was deleted. No script hard-codes it; it came from a manual
-   `SHOTS_DIR=tests/e2e/shots-trees`. Convention: `SHOTS_DIR=tests/e2e/.shots-<name>` (ignored).
-5. ✅ DONE: isoBank "pick Bank" from the booth + Banker menus (mutants red). New P3: phone door-diag flake ~1/3.
-6. SKIPPED by the USER (09:27, "#9 can skip"). Was: one GATE run of every tests/e2e file on one build, so all ✅ rows are proven together. → OTHER ACCOUNT (user 06:21),
-   together with the oak/map/bank/deposit-chest work (runbook handoff items 4-8).
-7. ✅ Canopy overlap: "the tree you see wins" LIVE + proven (isoTap final 49/49 + 22/22, mutants red). Earlier: USER 06:02 "wait for isoTap result": decide front-tree-wins / smaller canopy / keep nearest
-   AFTER the running isoTap investigation says whether overlap causes the failing canopy taps (tree_9, tree_10 overlap).
-8. ✅ DONE (lockedDialogue 25/25 incl. landscape, mutants red; amber chat lines not browser-checked). Was: Locked dialogue choice: close WITHOUT new content: a qa slice pushes a temp dialogue tree with a gated choice in-page
-   (story keeps the registry a plain array for this) and checks dimmed + "Requires …" text, tap does nothing, keys 1-9,
-   amber important chat lines, landscape phone. Queued (handoff item 10).
-
-### Session 2 (2026-10-08, after /clear): runbook items 4-8, 14, 15
-| Feature | Status |
-|---|---|
-| greatmere_east area label/banner | ✅ 07:21 qa :5231 13/13 desktop+phone (minimap label, banner in/out x62 + y52, 0 console errors); mutant 9/13 red. Open P3: phone minimap label covers player dot. Lint fixed 07:22, rerun 13/13 |
-| oak tuning (xp 45, success 48/150) | ✅ 07:27 qa oakTuning :5233 11/11 desktop+phone: tap oak walks+chops, oak log = 45 XP, normal tree = 25 XP, L40 150 attempts 0.360/0.387 vs p 0.352 (loose band, no seed hook), 0 console errors; mutant xp 37.5 -> 4 red. shots moved to ignored .shots-oak |
-| deposit_chest def (facilities) | ✅ 07:25 qa depositChest :5234 15/15 desktop+phone (see wiring row) |
-| deposit_chest art (graphics) | ✅ 07:25 qa c1 close-up desktop+phone: dark chest, iron straps, gold slot, distinct from bank chest |
-| deposit-only bank view (hud) + integrator wiring (bankMode transient, withdraw refused, depositPanel intent) | ✅ 07:25 qa depositChest :5234 15/15 desktop+phone, 0 console errors: walk adjacent (48,15), menu Deposit/Examine, deposit-1/all + button (tools kept by design), no withdraw + forced withdraw no-op, empty "Nothing to deposit." dimmed, close/walk resets to full, tap targets ≥44; mutant (intent→full) 10/15 red. Main viewed phone panel shot. P3: on phone the docked Inventory panel under the overlay shows the same items twice |
-| bank_booth_5 (72,52) + deposit_chest_1 (48,14) placement + Greatmere Bank minimap icon (map) | ✅ 07:27 chest (qa depositChest c2) + booth qa bankBooth5 :5235 15/15 desktop+phone: drawn, tap walks to (72,53), Bank -> full bank, deposit/withdraw 0->5->4, y53 path walkable past booth, minimap icon + "Greatmere Bank" label at anchor, 0 console errors; mutant label x60 -> 2 red. Hardcoded-anchor oracle not yet run live (GATE covers it) |
-| chop two-handed + body motion (front OK, back arms hidden, front end V); walk arms + legs front-back synced (items 14/15/16) | ✅ items 14-16: gaitB 17/17 (walk + run front-back, opposite-arm sync, mutant red); chop/mine a3 19/19 (impact V, back view arms hidden) + A3-1 c6 wind-up two fists, mutants red. Running toward/away arms: see the B2 row |
-| locked dialogue choice (item 10) | ✅ 07:41 qa lockedDialogue rerun :5236 25/25 desktop + phone portrait + landscape: exact "Requires Woodcutting 15 (you: 1)", dimmed, tap/keys no-op, unlocked works, ≥44px, 0 errors; mutants: gate always passes 15 red, skillLevel→0 l2b red x3. B1 fixed via core evaluateRequirement → story → integrator. l6 amber N/A (no important lines yet) |
-| player Male/Female look in Settings (item 13) | ✅ 07:36 qa playerLook :5238 17/17 desktop+phone, real Settings taps: Character row Male default ≥44px, Female switches live front+back (auburn pixels), walk animates no child leak, chop gives XP, portrait differs, reload keeps Female, back to Male, 0 console errors; mutant (no setLook) 13/17 red. Main viewed desktop-female-front.png: long auburn hair, same tunic. Poses not judged (animation 14-16 owed) |
-| GATE: lint/test/build + every e2e on one build (item 9) | ❌ after animation 14-16 + the P3s; isoBank phone door-diag flake ✅ 07:53 fixed in test (frozen vite config + ?tickMs=60, wait for stable camera, 2 more exit candidates); 6/6 runs 21/21 desktop+phone; mutant door shift 17/21 red. GATE NOTE: every e2e must use vite.frozen.config.mjs or parallel agents' edits HMR the page mid-run |
-| P3 phone minimap area label covers player dot | ✅ 10:14 qa mmLabel 21/21 desktop+phone: no solid label text over the player marker at Greatmere, Fernhaven, Willowbrook Green/Bank (bank label fades to 0.4 by design), marker pixels intact, facing arrow draws, 0 errors; mutant (keep-out off) red 4 |
-| cleanup: story drops DialogueContext meets + fallback (all app contexts supply evaluate) | ✅ 07:43 story: evaluate required, meets + NO_STATE + fallback removed; 17 tests, mutant red. Leftover: integrator deletes the extra meets in ctxFor (sent) |
-| P3 stale doc comment in BankPanel.tsx (+ review integrator DialoguePanel edit) | ✅ n/a: comment-only change, no behaviour to test |
-| P3 phone: bank/deposit overlay + docked Inventory show the same items twice | ✅ hud e2e hudBankDock 3/3 desktop+phone, mutants red |
-
-### Mining + Fishing (runbook 2026-10-08-mining-fishing)
-| Feature | Status |
-|---|---|
-| mining module (rocks, ores, pickaxes) | 🔧 07:42 mining: copper/tin (L1, 17.5xp), iron (L15, 35xp), ores, bronze/iron/steel pickaxe ToolDefs, generic gather events; 206 tests, mutants red. integrator WIRED 07:56 (lint/test/build green, 1944 tests; own Chrome desktop: real rock art, chat, +17.5 XP, rubble). qa mining 08:10 17/21 desktop+phone: kit (fresh + old save once), quarry banner/label, iron gate, inventory full, menu, rocks block, bank at booth, 0 errors ✅; B1 FIXED + ✅ 08:55 (m11) 08:17 by integrator (swing derived from the tick events + previous session; mining.e2e 21/21 incl. m10 at 600 ms; mutant red) → ⏳ qa B1 confirm; B2 = bad luck (ticks measured 1.67/s, correct); copper vs iron NOT distinguishable in-game → graphics coal slice fixing; regression.test weakened to toContainEqual (P3, qa). Mutant iron L1 red |
-| fishing module (net + bait spots, fish, tools) | 🔧 07:45 fishing: net_spot (shrimp L1 10xp, anchovies L15 40xp), bait_spot (sardine L5, herring L10), net/rod ToolDefs, fishing_bait consumed per catch, spots move 60-120 ticks; own tickFishing (core gather loop lacks bait/per-yield success/spot moves: core gap noted); 46 tests, 10 mutants killed. integrator WIRED 07:56 (own Chrome desktop: real spot art, cast + shrimp + 10 XP; hop stops fishing by design). qa fishing ✅ 08:12 17/17 desktop+phone: kit 500 no dupe, net shrimp +10 XP, bait L1 gate + L5 sardine -1 bait per catch (miss costs none), no-bait stop, spot hop stops + resume on new tile, inventory full, never on water, bank, 0 errors; mutant (no bait use) red. Issues: spots hard to see + net/bait identical → graphics spot-vis slice; P3 phone: a spot can sit under the HUD at the south camera clamp (shore_bait_1 tile 54,51) → queued. 5 live runs (over cap, test-side fixes) |
-| Stonefold Quarry (map): 4 copper, 4 tin, 3 iron at x69-79 y41-46, named area, rock spawn type, bank booth ≤16 tiles | ✅ via qa mining 23/23 + coal 11/11 (rocks placed, mined, deplete, respawn) and qa respawn (exact tick counts) |
-| Fishing spots (map): shore_net_1/2 + shore_bait_1/2, 4 candidate water tiles each at y=51, shore sand y=52 reachable, nearest ~13 tiles from the bank booth | ✅ via qa fishing + newfish 8/8 + fishFlash 14/15→pass + cam-inset 9/9 (south spot tappable on phone) |
-| rock + spot world art (graphics MF5) | 🔧 07:51 graphics: 3 ores x 4 variants + rubble, tree-style ramp/rim/shadow, ore glint idle; net/bait spots 6-frame ripple/bubbles; pixel hit for rocks, whole-tile for spots; shared pixelArt.ts (tree checksum identical); render 472 tests, 2 mutants red. Main viewed rocks.png/spots.png: rocks read well next to a tree; WATCH: copper vs iron veins both orange-ish, spots small/subtle on water (judge in-game). in-game ✅ per integrator shots 07:56 (main viewed quarry-after.png: rocks + rubble) |
-| mining/fishing vfx + woodcutting upgrade | ✅ vfxHooks 11/11 + skill tags 5/5, mutants red |
-| world placement + art (tree quality) + anims (idle/state/poses) + vfx (dust, glint, splash, ripples) + wiring | ✅ phase 2 done: rock/spot art + anim (nodeViews), poses (c 17 + c2 19/19 + a3 19/19), vfx (vfxHooks), all with mutants red |
-| mining/fishing sounds (fitting) + chat parity with chopping | ✅ qa 6c 9/9 desktop+phone (sound + chat per skill), mutant red |
-| balance MF sim | ✅ 08:03 balance: mining OK (≤1.2x woodcutting); fishing 2-4x slower; bait had no source; goal gaps after L15; pickaxe tiers too close. USER decided: speed fishing up, 500 starter bait, L30 rock + L25-30 fish per spot + pickaxes 10/20 |
-| balance follow-ups (USER 08:03) | mining M1 ✅ code 08:05 (pickaxes L10/L20). fishing F1 ✅ code 08:07 (baseTicks 4, higher success; XP/h net L1 3.6k, L15 6.0k, L99 11.9k; bait L5 5.9k, L15 7.5k, L99 15.2k; mutant red). bait500 ✅ code 08:07 (kit 500 + one-time top-up via meta.grants marker; playTime keeps meta; mutants red). persistence review ✅ 08:08: meta.grants compliant without a bump (additive optional leaf, tolerant read, sanitised: non-array→undefined, non-strings dropped, cap 50, __proto__ harmless; v1/v2 fixtures load); metaSlice.test.ts ✅ 08:11 (9 cases, mutants red) tsc fixed 08:16 (import.meta.glob raw fixtures; 9/9). qa fishing.test → BAIT_STACK ✅ 08:08 (app/game 85/85, lint clean); mining M2 ✅ code 08:08 (coal_rock L30 xp 60, item coal; 281 tests, mutants red); map coal ✅ 08:10 (quarry_coal_1 (70,42), _2 (75,45), _3 (76,42); world 69/69, mutant red); graphics coal ✅ 08:12 (coal_rock art + coal icon; ore body+vein colours reworked: copper tan+orange+green, tin silver, iron dark grey+rust-red, coal black+blue sheen; main viewed rocks.png: all 4 clearly distinct; mutant red); vfx coal tint ✅ 08:12 (ITEM_TINT coal, test + mutant, vfx 42/42); graphics fish icons ✅ 08:13 (raw_trout speckled olive + pink stripe, raw_mackerel blue-green bars + silver belly; suite 2090 green; mutant red); fishing F2 new fish; next: F2 new fish, then map/graphics/icons/integrator/qa for new content |
-| qa mining / qa fishing / balance XP/h | ✅ qa mining 23/23, coal 11/11, newfish 8/8, balance sim 08:01 (mining/fishing XP/h) + follow-ups |
-| starter kits (pickaxe; net + rod + 50 bait) for new + existing saves, no save bump | ✅ regression.test exact (bank: logs + 500 bait after Deposit all) + mining/fishing e2e start with the kit tools; meta.grants reviewed by persistence |
-| realistic item icons (17: logs, axes, ores, pickaxes, raw fish, net, rod, bait) + ONE source inventory = bank = ground = shop | ✅ 07:53 qa icons :5243: unit itemIconsEverywhere 38/38 (every CONTENT item has an icon, ItemSlot + BankView render the same url); e2e 15/15 desktop+phone (inventory, bank, deposit-only srcs identical; ground keys = itemIconSource for log/axe/ore/shrimp), 0 errors; 5 mutants red. Axe drop works (graphics miss = MAX_PILE 3 per tile). Open P3s: ground drops hide under the player feet (hard to see); sack placeholder shows until the icon image loads |
-| P3 ground drops drawn under the player's feet are hard to see; icon loads async (sack placeholder flash) | 🔧 09:06 graphics: PILE_OFFSETS front corners (peek out around feet, tap target still the tile), all icons preloaded at view creation; 3 tests, 2 mutants red; preview viewed by graphics. ✅ 09:08 qa drops 9/9 desktop+phone: real icon on the FIRST frame (logs/coal/raw_shrimp), piles at front offsets visible around the feet, tap-to-take from 2 tiles works, 0 errors; mutant (no icon preload) red on d1. Not re-checked: pile long-press/right-click menu. Cosmetic: coal at (13,5) partly behind the leg |
-| qa slice for integrator A (vfx in WorldScene) | ✅ 08:16 qa vfxHooks 11/11 desktop+phone after the v1 rewrite (spy on swingImpact, real 600 ms ticks: chop chips/bark at the tree, 0 rock; mining dust at the rock; fishing splash at the spot; spot-move ripples from+to; Effects Off); mutants: nodeId dropped → v1+v2 red, tileWorld undefined → v4 red. Flake watch: phone v3 (catch ring 0) + v4 (to-ripple 0) failed once in run 1 → watch in GATE |
-| qa slice for integrator B (skill tags: log puff on woodcutting gather, rock crumble sound/vfx not tree-fall on rock deplete) | ✅ 08:04 qa skillTags 5/5 desktop+phone: log gain → logPuff; tree fall → treeFallDust+leafBurst+treeFall sound; rock deplete → rockBurst+rockPebbles+rockCrumble (not tree); 0 errors; mutant (no withNodeSkill) 1/5. Proven via real planners on the scene's events, not drawn pools. integrator B: tags already present (core sets itemGathered.skill; withNodeSkill feeds audio + vfx via one fan-out); tests added, mutant red; no product change |
-| fishing per-attempt chat + cast sound (parity with chopping) | 🔧 07:58 fishing: fishingAttempt event + FISHING_MESSAGES.attempt (net/bait); 1975 tests, mutant killed. sound DONE 07:59 (fishCast on every fishingAttempt, not on start; 300 ms min gap; tests + mutant). integrator C DONE 08:00 (cast line per fishingAttempt, start line kept like chopping). ✅ 08:18 qa 6c 9/9 + mutant red (per progress line; formal report pending) |
-| P3 regression.test bank assertion weakened (toEqual → toContainEqual) by integrator kit change | ✅ 08:55 exact again (length 2 + logs×3 + bait BAIT_STACK) |
-| P3 phone: fishing spot under the HUD when the camera clamps at the south map edge (shore_bait_1 (54,51)) | ✅ qa cam-inset 9/9 desktop+phone, mutant red |
-| fishing spots more visible + net ≠ bait (graphics spot-vis) | ✅ qa spot-vis desktop+phone (net vs bait distinct), mutant red |
-| coal rock + ore colours in-game | ✅ 08:24 qa coal 11/11 desktop+phone: L29 gate line, L30 coal +60 XP + icon + rubble→respawn, pickaxe tiers (iron L10 3 ticks, steel L20 2 ticks), 0 errors; mutant red. Ores distinguishable on phone (tin weakest: olive base, cream spots). Earlier ⏳ 08:15 qa :5250 |
-| new fish: raw_trout (bait L25, 36xp), raw_mackerel (net L30, 62xp) | 🔧 08:15 fishing F2: 55 fishing tests, 4 mutants killed, suite 2105 green, build OK; XP/h net L30/60/99 8.9/11.8/15.7k, bait 9.5/12.5/16.1k. ✅ 08:21 qa newfish 8/8: bait L24 no trout / L25 trout+sardine+herring; net L29 no mackerel / L30 mackerel+shrimp+anchovies; XP exact on 280 catches; icons render desktop+phone; 0 errors; mutant red. Spot art: bait easy to see, NET too faint at phone zoom (main viewed phone-net.png: agreed) → graphics net-spot slice. balance ✅ 08:17: stale proposal sim deleted, suite 6/6; final pure XP/h net L1/15/30/60/99 3.6/5.7/8.9/11.8/15.7k, bait L5/15/30/60/99 5.9/7.5/9.5/12.5/16.1k |
-| LIVE: fresh-load HUD crash (shared vite deps cache) | ✅ 08:23 qa: frozen config cacheDir = tmpdir per port+root; 11 scripts that spawned plain vite now use it; proof: live-tree + scratch-mutant orbs runs 13/13 each, node_modules/.vite metadata mtime unchanged. Earlier: 🔧 08:21 main restarted :5173 --force, hard reload verified in a clean-origin tab; ⏳ qa cacheDir isolation slice |
-| BUG: mining swing fires twice (chat + sound) | ✅ 08:55 qa mining 23/23 desktop+phone incl. new m11 (exactly ONE swing line + ONE pickHit per attempt, hits and misses, real 600 ms ticks); mutants red on m11 (drop itemGathered branch; animatorImpactCounts always true). The old m10 was too weak (mutant passed) → m11 added |
-| minimap markers: rocks (ore tint, dim when depleted) + fishing spots distinct from trees | ✅ 08:32 qa mmnet 9/9 desktop+phone: ore squares at rock tiles, depleted dims; net/bait spot markers at current tiles + follow a hop; oak vs normal tree markers differ; 0 errors; mutant (no spots) red |
-| net spot brighter/bigger (graphics net-spot) | ✅ 08:32 qa mmnet: clearly visible on phone, NO box around it (phone close-up), bait still distinct |
-| locked gather menu options (Requires X N (you: M)) for bait spot / rocks / trees | ✅ 08:36 qa lockedMenu 13/13 desktop+phone: bait L1 greyed "Requires Fishing 5 (you: 1)" + tap posts it, no session; L5 normal; iron L1 / coal L29 reasons; net + copper open; rows 44 px; menu on screen; 0 errors; mutant red. Main viewed locked-phone.png. Note: reason line is tight in a 44 px row (design call). Oak lock not tested. 4 live runs (over budget, test-side) |
-| minimap tree markers per type (normal vs oak) | ✅ 08:32 qa mmnet check d: oak darker+brown ring vs light-green normal, desktop+phone (d mutant not run) |
-| fishing poses: net (cast/haul) + rod (cast/wait/reel) + integrator anim-state hook | net pose 🔧 08:46 (fishNet loop, 'net' graphic, back view no arms, 12 tests, 5/6 mutants, animation.e2e 42/42; SWING_TOOLS table). integrator hook 🔧 08:48 (animInput.ts playerAnimInput: fishing session → gathering + net/rod; faces spot; 4 tests, mutant red). qa netAnim ✅ 08:50 9/9 desktop+phone (state fishNet + net graphic visible, faces spot, returns to idle, chop unaffected, 0 errors; main-unviewed phone shot shows net hoop over the spot); mutant NOT run (3 runs, over budget: cold vite + selector). rod pose 🔧 09:02 (fishRod: cast → wait bob → pulse("catch") lift; rod + upright line with float; back view no arms; 229 anim tests, 7 mutants killed, animation.e2e 42/42). integrator rod hook ✅ 09:02 (rodCatchLanded + tickRodCatch → pulse('catch'); tests, mutant red; suite 2207 green). ⏳ qa via anim slice c :5261 |
-| fishing stop reasons (level/no tool/no bait/full) show the overhead flash like trees/rocks | 🔧 08:35 integrator: stopFlash.ts maps fishingStopped → gatherStopped flash (level 'Level N needed', 'No net'/'No rod', full); locked bait-spot tap emits the event too; 4 tests, mutant red; lint clean (WorldScene prettier fixed). vfx 'No bait' ✅ 08:36. ✅ 08:49 qa fishFlash 14/15 → PASS: Level 5 needed / No net / No bait / Inventory full all flash with the rock style on desktop+phone (spy saw gatherStopped:<reason>); spotMoved no text; earlier fails were test tap misses; mutant red (f1). Relaxed f5 only ran in the mutant run |
-| mining pickaxe pose ('mine') | ✅ qa c 17/17 + c2 19/19 + a3 19/19 (two-handed pick, head down at impact, back view arms hidden), mutants red |
-| world map overlay (EXPAND ICON by the minimap; minimap tap-to-walk unchanged; zoom/pan; same markers) | graphics ✅ 08:45 drawWorldMap (shared painter, rect frame, circle golden unchanged; 2156 tests; 4 mutants red; whole-world preview viewed by graphics). hud ✅ 08:48 (44px expand button under the minimap; minimap tap still walks; overlay: portal, drag pan, wheel/pinch zoom clamped, centre-on-me, ✕/Esc/backdrop close, 100 ms redraw while open; shared minimapMarkers(); 12 tests, mutants red). 🟡 08:56 qa worldmap PARTIAL: minimap tap still walks ✅, expand button opens with all markers/labels ✅, arrow east=0 rad / south=π/2 + persists ✅ (both views), redraw stops on close ✅, mutant (tap opens overlay) red ✅; zoom/pan/centre/close NOT verified (test bugs, 2-run cap). BUG (main viewed overlay-desktop.png): opens centred on the player at fit zoom → empty top-left, world clipped bottom-right → hud worldmap-fit ✅ 08:59 (one clampView for open/pan/zoom/centre; 11 tests, mutant red; main viewed ov-desktop.png: whole world fitted + centred, nothing clipped). ✅ 09:06 qa worldmap2 11/11 desktop+phone: opens whole world inside the canvas + centred, fit-zoom pan does nothing, wheel/pinch zoom to max and back to fit, pan clamps at edges, centre-on-me within clamp (weak evidence: player near a corner), close via ✕/Esc/backdrop; mutant (clampView no-op) red. 5 runs (over budget, oracle calibration) |
-| minimap + world-map player arrow showing facing | graphics ✅ 08:48 (white chevron with dark outline, facing radians in canvas space, facingToMinimapAngle/tileDeltaToMinimapAngle; iso→grid 45° table; 2177 tests, mutant red; 8 facings previewed by graphics). hud facing ✅ 08:50 (trailFacing → player marker, persists on stop; mutant red) but TWO hud agents edited Minimap.tsx at once → cleanup ✅ 08:51 (already consistent: one trailFacing, one export each, tsc clean). ⏳ qa worldmap+arrow :5257 |
-| animation qa slices (USER: small slices): a chop f+b, b walk axes, c poses mine/net/rod, d Off/Reduced | ✅ a (chop) → a3 19/19 + A3-1, b (walk) → b3 17/17, c (poses) → c2 19/19, d/e (Off/Reduced) → e 33/45 + e2 9/9; all mutants red. Running toward/away arms: B2 row |
-| phone: minimize bottom sheet + chat (prefs, --hud-bottom-inset) | ⏳ 09:06 🔧 hud DONE: phone (<768px) sheet + chat collapsed by default, 48px chevron, Chat button + unread dot + 4 s toast, --hud-bottom-inset 46px/365px/0 desktop; ui tests 82, mutants red; pref keys pending → ✅ persistence fold-prefs 09:13 (hud.sheetFold/chatFold enum, default auto, no version bump: additive; 130 persistence tests, mutant red; app/prefs.test key list needs the 2 keys), ✅ 09:15 qa foldPersist 5/5: fresh = collapsed (auto), expanded/collapsed both survive reload with stored prefs, desktop with stored collapsed looks normal, 0 errors; mutant (no setPref) red f2/f3; app/prefs.test fixed 16/16. Not covered: mixed states, landscape, ✅ 09:14 qa collapse 6/6: fresh phone load collapsed, canvas hit-tests + tap walks, sheet/chat expand-collapse, targets ≥44px, inset 46→302→46 with the camera following (player above HUD), unread dot, desktop unchanged, 0 errors; mutant (auto=expanded) red c1/c2/c4. Not covered: 4 s toast, landscape (prev note: hud collapse USER; phone DEFAULT COLLAPSED, user 09:09) |
-| #31 phone camera inset (shore spot above HUD; live re-measure on HUD/chat change) | 🔧 09:08 graphics: boundsWithInsets/setCameraInsets + MutationObserver in watchVisibleArea; 4 unit tests, mutant red, own e2e tile (54,51) y 493→447. ✅ 09:14 qa cam-inset 9/9 desktop+phone: tile (54,51) canvas-on-top, tapping the live shore spot starts fishing, desktop bounds = world (inset 0), follow at the south edge max 9.8 px/frame and player never under the HUD, 0 errors; mutant (no inset) red on phone c1. 5 runs (over budget; script bugs). Not covered: right inset, landscape |
-| anim qa a: chop front/back | 🟡 09:08 INCOMPLETE 4/11 (harness bugs: lean node, never faced back, phone sampler). Front: two hands on the handle 127/127 ✅, wind-up overhead ✅. P3 A1 unconfirmed: impact elbow 11.6 vs 8.8 half-width on a 3/4 view. a2 09:17 FAIL/incomplete 4/11: phone two hands on handle 83/83 ✅, 0 errors ✅; back view never reached again (arrival facing not controllable), desktop freeze predicate never fired, wind-up assert miscalibrated (shot shows axe overhead). A1 CONFIRMED on 3/4 view (elbow 12.5 vs 8.9); main viewed phone-front-impact.png: near arm folds into a horizontal stub at the shoulder, far arm bulges out behind the torso → looks wrong, matches user's "end view arms look weird". ⏳ 09:23 animation A1 + two-handed mining slice, then a3 with facing forced via the animator API |
-| anim qa b: walk/run gait (#15/#16) | 🟡 09:12 PARTIAL: diagonal midline 0 px ✅, walk opposite-leg sync corr 0.78-0.83 all 8 facings ✅, mutant (sideways arms) red 10/15 ✅; final axis oracle never run green live; run-sync at back facing weak (0.2-0.4) → possible P3 animation; console desktop not asserted. b2 09:16 live 15/17: run-axis, midlines, walk+run sync, console (both views) PASS; walk-axis fail ONLY on arm floor fwd>=8 px (arms 6.15 px vs legs 9.9, lateral 0.7 → direction correct) = oracle miscalibrated (main decision: ratio arm ≥0.4×leg, ≥3 px). Run facing n corr 0.34-0.41 (sign right, back view shrinks the swing to 2.4 px) = optional P3 B2, not dispatched. ✅ 09:22 b3 17/17 desktop+phone with ratio oracle (walk arms 6.2 px ≥ 0.4×legs 9.9; run 12.2 ≥ 0.4×14), midlines 0 px, sync ~0.8, 0 errors; mutant (old sideways arm axis) red 10/17 incl. walk-axis via the lateral limit. Not mutation-proven: the new arm-forward floor clause itself (minor) |
-| anim qa c: mine/net/rod poses (+ rod catch hook) | 🟡 09:12 PASS numerically 17 checks desktop+phone: mine front (pick down at impact) + back (pick in back layer, arms hidden), net 39 px cast/haul, rod + upright line, rod pulse == catches (4/4), stop → idle, 0 errors; mutant (rodCatchLanded false) red on r2 ✅. Owed: visual close-ups (shots were idle), r3 phone fix rerun, m1 impact count maybe flaky. ✅ 09:23 c2 19/19 desktop+phone: r3 phone (interactTree) live ✅, m1 stable in 4 runs (impact ≥1, down 0.69) + keepalive, mid-session close-ups taken. Main viewed: mining wind-up is ONE-handed (other arm tucked) → 🔧 animation slice (two-handed mining with A1); rod rest points down at the sand, line off-frame (P3, parked); catch lift shows rod raised, line + red float ✅. Pick impact frame not capturable (<100 ms), proven numerically. 4 runs (over budget) |
-| anim qa e: motion Off/Reduced | 🟡 09:18 PARTIAL 33/45: Off = static pose (tool -105°, body still) chop/mine/net, front = back, no facing drift ✅; Reduced body still ✅; Reduced net small tap (32° vs On 64-144°) ✅; walk On swings / Reduced+Off still ✅; live toggle without reload (net) ✅; 0 errors; mutant (Off chopStyle swing) red 37/45 ✅. NOT proven (script bugs: ±180° angle wrap, sessions ending between phases): Reduced chop/mine tap + edge-down, live toggle for chop/mine. ✅ 09:47 e2 9/9 desktop+phone: Reduced chop tap 56° vs On 152°, mine 75° vs 176°, body still, live toggle on→reduced→off→on no reload (chop+mine), tap reaches the strike pose; mutant (reduced=swing) red 8/9. Not checked: edge-down in absolute screen terms |
-| BUG (USER): phone camera jerks while moving | 🔧 09:29 graphics FIXED: cause = startFollow on every re-follow reset the HUD follow offset → snap by the inset (phone 13 world px / 19.5 client px in 1 frame); MutationObserver/bounds/roundPixels ruled out by measurement; wrapper keeps the current followOffset; after: phone ≤1.01 px scroll, ≤0.9 px player step (1x + 4x throttle); unit test + mutant red. ❌ 09:36 qa camJerk FAIL: inset snap gone on phone (mutant red: 13-85 px), but EVERY re-follow (re-tap, gather start) still snaps ~5.8 world px / 6.6-8.7 client px on desktop+phone (startFollow throws away lerp lag) = CJ1 P2 → 🔧 09:39 graphics CJ1 fixed (skip startFollow when already following; restore scroll otherwise): scroll max 5.8 → 1.0-1.15 px, player step 2.0-2.4 px at walk onset (lerp, not snap); 2 unit tests, mutant red. Main decision: player-step oracle ≤ 3 px (snaps were 6.6-19+), scroll ≤ 2. ✅ 09:42 qa camJerk rerun: camera scroll ≤1.23 px/frame everywhere (no snap), walks + sheet toggles both states pass, player above HUD, 0 errors; mutant (CJ1 guard off) red 5/6 (scroll 5.2-5.8, step 6.4-8.6). One phone frame at gather start 3.23 px player step (scroll 0.72 = not the camera) → CJ2 P3 (player tween onset, animation), queued; threshold NOT raised again. (was: 09:21 graphics camjerk :5270 (suspects: #31 MutationObserver re-applying insets/bounds every HUD mutation; bounds clamp vs lerp; 9.8 px/frame jumps seen in qa cam-inset) → then qa |
-| #9 GATE (all e2e on one build) | ⏭️ 09:25 skipped by USER |
-| A1 chop/mine impact arms + two-handed mining wind-up | 🔧 09:36 animation: solveGrip mirror elbow (ELBOW_TUCK_MIN_Y), rear arm drawn over lead arm while gripping; 2252 tests, build ok, animation.e2e 42/42, animC 19/19, mutants red; main viewed the after-strip (both hands on the haft, V at impact, back view arms hidden). ✅ 09:53 qa a3 19/19 desktop+phone (fists on haft 100%, impact V, elbows 1.0-1.4 ≤ 8.9, lean 7-8°, back arms hidden), mutant red; e2 ✅. Main viewed: wind-up still read one-handed → 🔧 09:57 animation A3-1: wind-up hand gap 9 px (two fists visible, strip viewed), mutant red → ✅ 10:07 qa A3-1: animation.e2e 42/42, chopAnim 19 + c6 wind-up fist gap ~13 px (≥8) desktop+phone, two fists visible; mutant (gap 5) red; lint clean |
-| v0.1.2 release: changelog + version | ⏳ 09:36 USER asked: version 0.1.2 ✅ (package.json + lock, env/footer tests pass), changelog v0.1.2 entry written ✅ 09:42 (254/254 paths, Pending section lists open items + QA); awaiting user OK to commit/push |
-| rod rest pose over the water (was: tip in the sand, float off-screen) | ⏳ 09:40 🔧 09:44 animation: rod 23° up along facing, lift higher, line to the ground; tests + mutant red; main viewed strip → ✅ 09:56 qa rod: front rest ~19° up along facing, back ~37°, lift higher then returns, pulses == catches, back hides arms, 0 errors; mutant (-55) red. Not shown: float in the front crop |
-| B2 back-facing run: arms weakly synced to legs (corr 0.34-0.41) | ❌ 09:40 ⏳ 09:44 🔧 09:50 animation: armDepth 1.8 for run at n/s (walk unchanged), tests + mutant red; main viewed strip → ❌ 09:56 qa #47 FAIL: n/s run corr 0.34/0.56 (≥0.7 wanted; mutant 0.42/0.55 = phase unchanged), n swing 4.3 px ✅, regression se/sw lateral 3.57 > 3 → 🔧 10:06 animation retry: knee/depth fix at n/s, own gaitB 19/19 (n 0.90/0.85, s 0.88/0.87, diagonals OK), mutant red → ✅ 10:12 qa #47 rerun 19/19 desktop+phone: run n 0.86-0.88, s 0.87-0.88, hand swing 5.6 px, se/sw lateral ≤2.0, walk unchanged, 0 errors; mutant red on run-arms-ns |
-| BUG: coal rock examine says "It's a tree." | ⏳ 09:42 🔧 integrator done (09:43): coal + spot texts, neutral fallback, all-kinds test, mutant red → ✅ 09:46 qa examine 19/19 desktop+phone (tree, oak, copper, tin, iron, coal, net, bait each own text, none says tree), 0 errors, mutant red |
-| CJ2 P3: one 3.23 px player-sprite step at walk→gather on phone (camera fine) | ❌ 09:42 ⏳ 09:44 🔧 09:47 animation: pose blend 160 ms on state change (tests, mutant red); measured jump is the container (renderTrail) ; integrator 09:49: no renderTrail snap, camJerk 6/6 (step ≤2.38) → ✅ 09:52 qa #48 live 6/6 (step ≤2.13, scroll ≤1.2); body-offset sample added, mutant (blend off) red on gather (body 2.1, phone step 3.19). ✅ 09:55 live body offset 1.58-1.59 → MAX_BODY 1.7 (mutant 2.09), exit code verified (pass 0 / forced fail 1). Note: phone gather player step 3.13 once at 4x throttle (2.13 on rerun) = borderline-flaky test |
-| FLAKE-1 P3: playerAnimator.test "walk bob × ART_SCALE" failed once in a full run | ✅ 09:56 not reproduced (playerAnimator.test 43/43 twice) |
-| POSSIBLE BUG: depleted trees/rocks never respawn at real ticks (from qa e2 note) | ✅ 09:54 NOT A BUG: respawn exact (tree 12, copper 6, coal 14 ticks) at 600 ms and 60 ms ticks, nodes usable again, 0 errors; the e2 note was a script artifact |
+| Logs + XP survive reload; old versions upgrade; corrupt save backed up; two tabs don't clobber; far-world progress | ✅ | smoke e, saves |
+| Starter kits for new + old saves (pickaxe, net, rod, 500 bait), no save bump | ✅ | regression.test, metaSlice.test |

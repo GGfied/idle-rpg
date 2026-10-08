@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +8,7 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 import { defineConfig } from 'vite';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const portIdx = process.argv.indexOf('--port');
 const port = portIdx >= 0 ? process.argv[portIdx + 1] : `pid${process.pid}`;
 
@@ -21,6 +23,7 @@ const key = createHash('sha1').update(root).digest('hex').slice(0, 8);
 export default defineConfig({
   root,
   cacheDir: join(tmpdir(), `idle-rpg-vite-e2e-${port}-${key}`),
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) }, // same as vite.config.ts (footer shows it)
   plugins: [react(), tsconfigPaths()],
   server: { hmr: false, watch: { ignored: ['**/*'] } },
 });

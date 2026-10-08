@@ -4,6 +4,7 @@ import { emptyGroundItems } from '@core/items';
 import { createProgressionState, getLevel } from '@core/progression';
 import { createGatheringState } from '@core/skills';
 import { createFishingState } from '@features/skills/fishing';
+import { createCookingState } from '@features/skills/cooking';
 import { applyStarterKits } from '@app/game/starterKits';
 import { createPlayerHp } from '@features/combat';
 import { createMovementState } from '@features/movement';
@@ -38,6 +39,9 @@ function baseGame(content: Content, progression: GameState['progression']): Game
     gathering: createGatheringState(),
     fishing: createFishingState(),
     pendingFishing: null,
+    firemaking: { fires: [], nextId: 1, lighting: null },
+    cooking: createCookingState(),
+    pendingCook: null,
     pendingInteraction: null,
     pendingFacility: null,
     pendingNpc: null,

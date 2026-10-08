@@ -13,9 +13,12 @@ import {
   variantFor,
   type GroundKind,
 } from './groundTextures';
-import { shoreField } from './waterShade';
+import { isoProjection } from './projection';
+import { drawTinted, type FrameRect } from './canvasStamp';
+import { rendererHasGradients, shoreField } from './waterShade';
 import { bridgeSides, placeRail, railPlacements } from './bridge';
 import { paintGround, placeWall, regionBounds, type TileRegion } from './tilemap';
+import { WORLD_BACKDROP, edgeLayerAlphas, edgeLayerPoly } from './worldEdge';
 
 export interface ChunkRendererOptions {
   widthChunks: number;
@@ -79,6 +82,8 @@ interface ChunkRes {
 
 /** Ground diamonds overhang their tile by up to 2 px (seam grow); pad so chunk edges stay sealed. */
 const PAD = 2;
+/** PAD px overhang in tile units (a tile is 64 x 32 px, so 2 px is ~0.06 tile; rounded up). */
+const SKIRT_SEAM = 0.05;
 const GROUND_HALF_W = 32;
 const GROUND_HALF_H = 16;
 
@@ -143,6 +148,65 @@ export function createChunkRenderer(
     res.flowers.length = 0;
   };
 
+  /** Paint one region's ground (textured or flat) into a pooled RenderTexture; true if any wall was seen. */
+  const paintRt = (rt: Phaser.GameObjects.RenderTexture, r: TileRegion): boolean => {
+    const b = regionBounds(r, PAD);
+    g.clear();
+    rt.setPosition(b.x, b.y).setVisible(true).clear();
+    let anyWall: boolean;
+    if (textured) {
+      // Layers, bottom to top: shaded water base, ground texture stamps (queued by paintGround),
+      // then the vector layer (tufts, bridge, foam, wet sand).
+      waterG.clear();
+      queueKinds.length = 0;
+      queueXY.length = 0;
+      const webgl = rendererHasGradients(scene);
+      anyWall = paintGround(
+        g,
+        r,
+        b,
+        palette,
+        (kind, tx, ty, cx, cy) => {
+          queueKinds.push(kind);
+          queueXY.push(tx, ty, cx, cy);
+        },
+        {
+          base: waterG,
+          field: shoreField(r.kindAt, r.x0, r.y0, size, size),
+          gradient: webgl,
+        },
+      );
+      // CANVAS ignores batchDrawFrame's tint: multiply it in by hand (canvasStamp.ts).
+      const ctx = webgl ? null : (rt.texture as Phaser.Textures.DynamicTexture).context;
+      rt.draw(waterG);
+      rt.beginDraw();
+      for (let i = 0; i < queueKinds.length; i++) {
+        const kind = queueKinds[i]!;
+        const tx = queueXY[i * 4]!;
+        const ty = queueXY[i * 4 + 1]!;
+        const key = getGroundTexture(scene, kind, variantFor(tx, ty, kind));
+        const x = queueXY[i * 4 + 2]! - GROUND_HALF_W;
+        const y = queueXY[i * 4 + 3]! - GROUND_HALF_H;
+        const tint = tintFor(tx, ty, kind);
+        if (ctx) {
+          const f = scene.textures.getFrame(key);
+          drawTinted(
+            ctx,
+            f.source.image as CanvasImageSource,
+            f.canvasData as FrameRect,
+            x,
+            y,
+            tint,
+          );
+        } else rt.batchDrawFrame(key, undefined, x, y, 1, tint);
+      }
+      rt.endDraw();
+    } else anyWall = paintGround(g, r, b, palette);
+
+    rt.draw(g);
+    return anyWall;
+  };
+
   const cache: ChunkCache = createChunkCache<ChunkRes>(opts, {
     create: () => ({
       rt: scene.add
@@ -155,45 +219,7 @@ export function createChunkRenderer(
     }),
     paint(res, chunk) {
       const r = regionOf(chunk);
-      const b = regionBounds(r, PAD);
-      g.clear();
-      res.rt.setPosition(b.x, b.y).setVisible(true).clear();
-      let anyWall: boolean;
-      if (textured) {
-        // Layers, bottom to top: shaded water base, ground texture stamps (queued by paintGround),
-        // then the vector layer (tufts, bridge, foam, wet sand).
-        waterG.clear();
-        queueKinds.length = 0;
-        queueXY.length = 0;
-        anyWall = paintGround(
-          g,
-          r,
-          b,
-          palette,
-          (kind, tx, ty, cx, cy) => {
-            queueKinds.push(kind);
-            queueXY.push(tx, ty, cx, cy);
-          },
-          { base: waterG, field: shoreField(r.kindAt, r.x0, r.y0, size, size) },
-        );
-        res.rt.draw(waterG);
-        res.rt.beginDraw();
-        for (let i = 0; i < queueKinds.length; i++) {
-          const kind = queueKinds[i]!;
-          const tx = queueXY[i * 4]!;
-          const ty = queueXY[i * 4 + 1]!;
-          res.rt.batchDrawFrame(
-            getGroundTexture(scene, kind, variantFor(tx, ty, kind)),
-            undefined,
-            queueXY[i * 4 + 2]! - GROUND_HALF_W,
-            queueXY[i * 4 + 3]! - GROUND_HALF_H,
-            1,
-            tintFor(tx, ty, kind),
-          );
-        }
-        res.rt.endDraw();
-      } else anyWall = paintGround(g, r, b, palette);
-      res.rt.draw(g);
+      const anyWall = paintRt(res.rt, r);
       dropWalls(res);
       for (let y = r.y0; y < r.y0 + size; y++) {
         for (let x = r.x0; x < r.x0 + size; x++) {
@@ -229,17 +255,96 @@ export function createChunkRenderer(
     },
   });
 
+  // World-edge skirt: one extra ring of chunks of REAL ground (edge terrain continued outward), covered
+  // by nested backdrop layers so the map fades out instead of ending in a flat stripe (worldEdge.ts).
+  const cols = opts.widthChunks * size;
+  const rows = opts.heightChunks * size;
+  const clampKind = (x: number, y: number): string => {
+    const k = opts.terrainAt?.(
+      Math.min(cols - 1, Math.max(0, x)),
+      Math.min(rows - 1, Math.max(0, y)),
+    );
+    return k === undefined || k === 'wall' || k === 'flowers'
+      ? 'grass'
+      : k === 'bridge'
+        ? 'water'
+        : k;
+  };
+  const alphas = edgeLayerAlphas();
+  const skirt: ChunkCache | undefined = opts.terrainAt
+    ? createChunkCache<ChunkRes>(
+        { ...opts, widthChunks: opts.widthChunks + 2, heightChunks: opts.heightChunks + 2 },
+        {
+          create: () => ({
+            rt: scene.add
+              .renderTexture(0, 0, regionBoundsSize(size).width, regionBoundsSize(size).height)
+              .setOrigin(0, 0)
+              .setDepth(LAYERS.GROUND),
+            walls: [],
+            rails: [],
+            flowers: [],
+          }),
+          paint(res, chunk) {
+            const x0 = chunk.cx * size;
+            const y0 = chunk.cy * size;
+            const r: TileRegion = { x0, y0, width: size, height: size, kindAt: clampKind };
+            paintRt(res.rt, r);
+            const b = regionBounds(r, PAD);
+            // grown by the ground's PAD overhang so the overhanging pixels are faded too (else a light hairline
+            // shows along the chunk seams where a neighbour's unfaded overhang lands on faded ground)
+            const clip = {
+              x0: x0 - 0.5 - SKIRT_SEAM,
+              y0: y0 - 0.5 - SKIRT_SEAM,
+              x1: x0 + size - 0.5 + SKIRT_SEAM,
+              y1: y0 + size - 0.5 + SKIRT_SEAM,
+            };
+            g.clear();
+            for (let j = 0; j < alphas.length; j++) {
+              const q = edgeLayerPoly(j, cols, rows, clip);
+              if (!q || q.length === 0) continue;
+              g.fillStyle(WORLD_BACKDROP, alphas[j]!);
+              g.fillPoints(
+                q.map(([tx, ty]) => {
+                  const w = isoProjection.tileToWorld(tx, ty);
+                  return { x: w.x - b.x, y: w.y - b.y };
+                }),
+                true,
+              );
+            }
+            res.rt.draw(g);
+          },
+          release: (res) => res.rt.setVisible(false),
+          destroy: (res) => res.rt.destroy(),
+        },
+      )
+    : undefined;
+  const skirtChunk: GetChunk = (i, j) => ({ cx: i - 1, cy: j - 1, size, tiles: [] });
+
   return {
     ensureAround: (tx, ty, radius, getChunk) => cache.ensureAround(tx, ty, radius ?? 1, getChunk),
-    ensureVisible: (view, margin, getChunk) =>
-      cache.ensureChunks(visibleChunks(view, opts, margin), getChunk),
-    invalidate: () => cache.invalidate(),
+    ensureVisible: (view, margin, getChunk) => {
+      cache.ensureChunks(visibleChunks(view, opts, margin), getChunk);
+      // skirt cache coords are shifted by +1 chunk so they start at 0; interior chunks belong to `cache`
+      skirt?.ensureChunks(
+        visibleChunks(view, opts, margin, 1)
+          .filter(
+            (c) => c.cx < 0 || c.cy < 0 || c.cx >= opts.widthChunks || c.cy >= opts.heightChunks,
+          )
+          .map((c) => ({ cx: c.cx + 1, cy: c.cy + 1 })),
+        skirtChunk,
+      );
+    },
+    invalidate: () => {
+      cache.invalidate();
+      skirt?.invalidate();
+    },
     loaded: () => cache.loadedKeys().length,
     flowers: () => [...active],
     created: () => cache.created(),
     destroyAll() {
       scene.events.off('update', onSwayUpdate);
       cache.destroyAll();
+      skirt?.destroyAll();
       wallPool.forEach((w) => w.destroy());
       wallPool.length = 0;
       railPool.forEach((w) => w.destroy());

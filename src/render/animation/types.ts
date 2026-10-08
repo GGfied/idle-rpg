@@ -1,6 +1,7 @@
 import type { Facing8 } from '@render/index';
 
-export type AnimState = 'idle' | 'walk' | 'chop' | 'mine' | 'fishNet' | 'fishRod';
+export type AnimState =
+  'idle' | 'walk' | 'chop' | 'mine' | 'fishNet' | 'fishRod' | 'lighting' | 'cooking';
 
 /** Plain state the integrator passes each frame. Never game logic. */
 export interface AnimInput {
@@ -93,6 +94,11 @@ export interface Pose {
   gripY: number;
   /** Chop only: 0..1 shoulder turn (shoulders narrow by TWIST_NARROW * twist). */
   twist: number;
+  /**
+   * True when the arms are already solved in view space (hands on a tool or prop): chop-like swings and the
+   * lighting/cooking acts. The animator then skips the walk-swing projection and draws the rear arm over the front.
+   */
+  armsSolved: boolean;
 }
 
 /** Rig measurements the arm/leg solvers need, art px (from the look's pivots, never hardcoded to one body). */

@@ -3,8 +3,12 @@ import type { ChopEase, ChopKey, SwingState } from './data';
 import type { MotionParams, Pose, RigGeom } from './types';
 
 const DEG = Math.PI / 180;
+/** Width of the phase window (fraction of the cycle) over which the elbow crosses from the trailing to the tucked solution. */
+export const ELBOW_BLEND_PHASE = 0.04;
+/** Most a hand can leave its handle while the elbow crosses over (measured 3.5); keyframes themselves stay exact. */
+export const ELBOW_BLEND_HAND_DRIFT_PX = 4;
 
-const EASE: Readonly<Record<ChopEase, (t: number) => number>> = {
+export const EASE: Readonly<Record<ChopEase, (t: number) => number>> = {
   inOut: (t) => t * t * (3 - 2 * t),
   in: (t) => t * t,
   step: () => 0,
@@ -36,17 +40,60 @@ export function solveArm(
   return ik;
 }
 
+/** How far the elbow sits inside the (leaned) shoulder line, in art px: negative = poking out of the silhouette. */
+export function elbowClearance(
+  g: RigGeom,
+  shoulderAbs: number,
+  upper: number,
+  lean: number,
+): number {
+  const x = shoulderAbs - g.elbowY * Math.sin(upper);
+  const y = g.elbowY * Math.cos(upper);
+  return g.shoulderX * Math.cos(lean) - Math.abs(x * Math.cos(lean) - y * Math.sin(lean));
+}
+
+/**
+ * 1 when a grip at (tx, ty) from a shoulder at torso x = `shoulderAbs` needs the tucked (mirror) elbow, else 0: the hand is
+ * low (ty >= ELBOW_TUCK_MIN_Y) and the trailing elbow would poke out of the leaned shoulder line. The silhouette is what the
+ * player sees, so the elbow is judged in the leaned (world) frame.
+ */
+export function tuckAt(
+  g: RigGeom,
+  shoulderAbs: number,
+  tx: number,
+  ty: number,
+  lean: number,
+): 0 | 1 {
+  if (ty < ELBOW_TUCK_MIN_Y) return 0;
+  const r = solveArm(g.elbowY, g.handY, tx, ty);
+  return elbowClearance(g, shoulderAbs, r.upper, lean) < 0 ? 1 : 0;
+}
+
 /**
  * solveArm for an arm whose shoulder sits at torso x = `shoulderAbs`. The elbow trails (flexes forward) as usual, except
- * when the hand is low (ty >= ELBOW_TUCK_MIN_Y) and that puts the elbow outside the shoulder line (|x| > `limit`): then the
- * mirror solution is used, so a low grip reads as a V with the elbows over the torso, not one arm bulging out.
+ * for a low grip that would poke the elbow out of the shoulder line: that uses the mirror solution (tuck 1), so a low grip
+ * reads as a V with the elbows over the torso, not one arm bulging out. `tuck` (0..1) blends the two solutions; leave it
+ * out to decide from the pose alone (tuckAt). chopPose passes a tuck eased between the two keyframes' decisions, so the
+ * elbow moves continuously (no one-frame snap) and the hand is exact at every keyframe; between keys it may drift a little.
  */
-function solveGrip(g: RigGeom, shoulderAbs: number, tx: number, ty: number): typeof ik {
-  const r = solveArm(g.elbowY, g.handY, tx, ty);
-  if (ty < ELBOW_TUCK_MIN_Y) return r;
-  const x = shoulderAbs - g.elbowY * Math.sin(r.upper);
-  if (Math.abs(x) <= g.shoulderX) return r;
-  return solveArm(g.elbowY, g.handY, tx, ty, -1);
+export function solveGrip(
+  g: RigGeom,
+  shoulderAbs: number,
+  tx: number,
+  ty: number,
+  lean = 0,
+  tuck: number = tuckAt(g, shoulderAbs, tx, ty, lean),
+): typeof ik {
+  if (tuck <= 0) return solveArm(g.elbowY, g.handY, tx, ty);
+  if (tuck >= 1) return solveArm(g.elbowY, g.handY, tx, ty, -1);
+  // solveArm reuses one scratch object, so keep the trailing solution's angles before solving the mirror one.
+  const trail = solveArm(g.elbowY, g.handY, tx, ty);
+  const upper = trail.upper;
+  const fore = trail.fore;
+  const r = solveArm(g.elbowY, g.handY, tx, ty, -1);
+  r.upper = upper + (r.upper - upper) * tuck;
+  r.fore = fore + (r.fore - fore) * tuck;
+  return r;
 }
 
 /** Hand position (x forward, y down, relative to the shoulder) for forward-positive upper/forearm angles. */
@@ -95,6 +142,33 @@ export function handGapAt(
 }
 
 /**
+ * 0..1 weight for moving from key A's tuck decision to key B's: a smoothstep ELBOW_BLEND_PHASE wide centred on the middle of
+ * the span, so the grip is exact (untouched) for most of it and the elbow only crosses over in a short window.
+ */
+export function tuckRamp(phaseA: number, phaseB: number, phase: number): number {
+  const p = ((phase % 1) + 1) % 1;
+  const u = (p - (phaseA + phaseB) / 2) / ELBOW_BLEND_PHASE + 0.5;
+  const c = u < 0 ? 0 : u > 1 ? 1 : u;
+  return c * c * (3 - 2 * c);
+}
+
+/** The tuck decision (tuckAt) for one arm at a keyframe's own pose: what that key alone would pick. */
+function keyTuck(g: RigGeom, k: ChopKey, reach: number, lead: boolean): 0 | 1 {
+  const theta = foreshortenSwing(k.theta * DEG, reach);
+  const gx = k.gx * reach;
+  const gap = k.gap ?? AXE_HAND_GAP;
+  const sx = g.shoulderX * (1 - TWIST_NARROW * k.twist);
+  if (lead) return tuckAt(g, sx, gx - sx, k.gy, k.lean * DEG);
+  return tuckAt(
+    g,
+    -sx,
+    gx + gap * Math.sin(theta) + sx,
+    k.gy - gap * Math.cos(theta),
+    k.lean * DEG,
+  );
+}
+
+/**
  * Fill the two-handed swing part (chop, or mine with `tool`) of `out` for a swing phase (0..1): body lean, twist, dip (with the knees that make it),
  * the handle angle and both arms, solved so each hand sits on the handle (lead near the head, rear near the
  * butt) all the way through. `reach` foreshortens the swing plane's sideways part (back view).
@@ -118,6 +192,7 @@ export function chopPose(
   const gx = mix(a.gx, b.gx, t) * reach;
   const gy = mix(a.gy, b.gy, t);
   out.axeVisible = true;
+  out.armsSolved = true;
   out.axeAngle = theta;
   out.gripX = gx;
   out.gripY = gy;
@@ -131,10 +206,13 @@ export function chopPose(
   const rx = gx + gap * Math.sin(theta);
   const ry = gy - gap * Math.cos(theta);
   const sx = g.shoulderX * (1 - TWIST_NARROW * out.twist);
-  const lead = solveGrip(g, sx, gx - sx, gy);
+  const ramp = tuckRamp(a.phase, b.phase, phase);
+  const tl = mix(keyTuck(g, a, reach, true), keyTuck(g, b, reach, true), ramp);
+  const tr = mix(keyTuck(g, a, reach, false), keyTuck(g, b, reach, false), ramp);
+  const lead = solveGrip(g, sx, gx - sx, gy, out.lean, tl);
   out.armUpperFront = -lead.upper;
   out.armAngle = -lead.fore;
-  const rear = solveGrip(g, -sx, rx + sx, ry);
+  const rear = solveGrip(g, -sx, rx + sx, ry, out.lean, tr);
   out.armUpperBack = -rear.upper;
   out.armAngleBack = -rear.fore;
 }
@@ -143,7 +221,7 @@ export function chopPose(
  * Bend both knees so the hips drop `drop` px while the feet stay put (negative drop = rise on the toes is
  * ignored: legs stay straight). Thigh forward-positive, knee fold >= 0, same convention as the gait.
  */
-function legDip(g: RigGeom, drop: number, out: Pose): void {
+export function legDip(g: RigGeom, drop: number, out: Pose): void {
   if (drop <= 0) return;
   const l1 = g.kneeY - g.hipY;
   const l2 = -g.kneeY;

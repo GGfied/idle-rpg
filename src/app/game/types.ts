@@ -7,6 +7,8 @@ import type { PlayerHpState } from '@features/combat';
 import type { MovementState } from '@features/movement';
 import type { PrayerPointsState } from '@features/skills/prayer';
 import type { FishingState } from '@features/skills/fishing';
+import type { CookingState } from '@features/skills/cooking';
+import type { FireState } from '@features/facilities';
 
 export interface ChatLine {
   /** Increasing id, so React keys stay stable while old lines scroll off. */
@@ -29,6 +31,23 @@ export interface PendingFacility {
   optionId: string;
 }
 
+/** A "light logs" action in progress on the player's tile (not saved). */
+export interface LightingState {
+  logsId: string;
+  /** Where the fire will be (the tile the player stood on when they started). */
+  tile: { x: number; y: number };
+  ticksLeft: number;
+  /** Whether `fireLightStarted` has been emitted yet. */
+  announced: boolean;
+}
+
+/** Transient fires and the lighting action (not saved: a reload clears them). */
+export interface FiremakingState {
+  fires: FireState[];
+  nextId: number;
+  lighting: LightingState | null;
+}
+
 /** The whole game, joined from every feature's slice. Plain data. */
 export interface GameState {
   inventory: InventoryState;
@@ -42,6 +61,12 @@ export interface GameState {
   fishing: FishingState;
   /** The fishing spot the player is walking to (not saved). */
   pendingFishing: { spotId: string } | null;
+  /** Fires on the ground + the lighting action (not saved). */
+  firemaking: FiremakingState;
+  /** Cooking session on a fire (not saved). */
+  cooking: CookingState;
+  /** The fire the player is walking to so they can cook (rawId absent = first cookable item). */
+  pendingCook: { fireId: string; rawId?: string } | null;
   /** The tree the player is walking to so they can chop it. */
   pendingInteraction: { nodeId: string } | null;
   /** The facility (bank booth, ...) the player is walking to; its option's intent runs on arrival. */

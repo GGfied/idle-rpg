@@ -114,14 +114,12 @@ export function createBuildingRenderer(
         roof.fillStyle(f.color, 1).fillPoints(f.points, true);
         roof.lineStyle(1, 0x000000, 0.28).strokePoints(f.points, true);
         for (const [x0, y0, x1, y1] of f.lines) {
-          roof.lineStyle(1, 0x000000, 0.14).lineBetween(x0, y0, x1, y1);
+          roof.lineStyle(1, 0x000000, 0.2).lineBetween(x0, y0, x1, y1);
         }
       }
       const trim = roofTrim(b, projection);
-      if (trim) {
-        roof.lineStyle(2, trim.color, 1);
-        for (const [x0, y0, x1, y1] of trim.lines) roof.lineBetween(x0, y0, x1, y1);
-      }
+      roof.lineStyle(2, trim.color, 1);
+      for (const [x0, y0, x1, y1] of trim.lines) roof.lineBetween(x0, y0, x1, y1);
       const walls: Entry['walls'] = [];
       for (const part of plan.walls) {
         if (part.gap) continue;

@@ -39,7 +39,7 @@ const zone = (files, patterns, paths = []) => ({
 const pathsFor = (names, message) => names.map((name) => ({ name, message }));
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'coverage', 'docs', '.claude'] },
+  { ignores: ['dist', 'node_modules', 'coverage', 'docs', '.claude', '.wrangler', '**/.shots*'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   prettier,
@@ -157,6 +157,12 @@ export default tseslint.config(
     [noParentRelative, ...deepImports],
     pathsFor(PHASER, 'Phaser is not for app/ui.'),
   ),
+
+  // Tooling scripts run in Node.
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
+  },
 
   // Browser e2e scripts run in Node (dependency-free, no `globals` package).
   {

@@ -1,7 +1,15 @@
 /* global console */
 // Buildings with roofs: roof/front-wall fade on entering, instant when Animations Off, depth, no duplicate walls, bank from inside.
-import process from 'node:process';
-import { check, expect, forEachViewport, withGame } from './lib.mjs';
+// FAST BASE: desktop and phone run as parallel children, ?tickMs=30, waits on state (fades are real time, so each
+// "faded?" check waits for the target alpha instead of a fixed sleep). Run: node tests/e2e/buildings.e2e.mjs (base port 7731)
+import { check, expect, forEachCombo, runParallel, withGame } from './lib.mjs';
+
+const PORT = 7731;
+const BUDGET_MS = 60e3;
+const COMBOS = await runParallel(import.meta.url, PORT, {
+  viewports: ['desktop', 'phone'],
+  budgetMs: BUDGET_MS,
+});
 
 const B = {
   willowbrook_bank: { door: [13, 14], in: [13, 11], rect: { x: 9, y: 7, w: 9, h: 8 } },
@@ -13,6 +21,7 @@ const st = (g, id) =>
 const pos = (g) => g.state('movement.position');
 const close = (a, b) => Math.abs(a - b) < 0.011;
 const walkTo = async (g, x, y) => {
+  await g.settle(); // the follow camera eases after a walk: tap the final screen point
   await g.tapTile(x, y);
   await g.waitFor(
     async () => {
@@ -21,15 +30,19 @@ const walkTo = async (g, x, y) => {
     },
     { timeoutMs: 20000, label: `reach ${x},${y}` },
   );
-  await g.sleep(500);
 };
 
+// Wait until the building reaches a state (fade done); the check's own expect() then judges the final state.
+const until = (g, id, pred, label) =>
+  g.waitFor(async () => pred(await st(g, id)), { timeoutMs: 4000, label }).catch(() => undefined);
+
 await withGame(
-  { port: 5211 },
-  forEachViewport(['desktop', 'phone'], async (g, vp) => {
+  // tickMs 30 = the DEV hook's fastest tick (20x)
+  { port: PORT, budgetMs: BUDGET_MS, tickMs: 30 },
+  forEachCombo(COMBOS, async (g, vp) => {
     for (const [id, b] of Object.entries(B)) {
       const [dx, dy] = b.door;
-      await g.teleport(dx + 3, dy + 3, { settleMs: 1500 });
+      await g.teleportSettled(dx + 3, dy + 3);
       await g.update(`({ ...g, bankOpen: false })`);
       await check(`out-${id}`, `${id}: outside roof 1 / walls 1`, async () => {
         const s = await st(g, id);
@@ -40,6 +53,12 @@ await withGame(
       await check(`in-${id}`, `${id}: tap door, tap interior -> roof 0, walls 0.2`, async () => {
         await walkTo(g, dx, dy);
         await walkTo(g, ...b.in);
+        await until(
+          g,
+          id,
+          (q) => q.inside && close(q.roofAlpha, 0) && close(q.frontWallAlpha, 0.2),
+          'faded in',
+        );
         const s = await st(g, id);
         expect(
           s.inside && close(s.roofAlpha, 0) && close(s.frontWallAlpha, 0.2),
@@ -61,7 +80,7 @@ await withGame(
         await walkTo(g, dx, dy);
         await walkTo(g, dx, dy + 2);
         await g.waitFor(async () => (await st(g, id)).roofAlpha === 1, { label: 'roof back' });
-        await g.sleep(700);
+        await until(g, id, (q) => q.frontWallAlpha === 1 && !q.inside, 'walls back');
         const s = await st(g, id);
         expect(s.roofAlpha === 1 && s.frontWallAlpha === 1 && !s.inside, JSON.stringify(s));
         return JSON.stringify(s);
@@ -89,7 +108,7 @@ await withGame(
         `behind-${id}`,
         `${id}: player north of building drawn behind roof/walls`,
         async () => {
-          await g.teleport(dx, b.rect.y - 2);
+          await g.teleport(dx, b.rect.y - 2, { settleMs: 200 });
           const r =
             await g.eval(`(() => { const h = window.__idleRpg.scene(); const sc = h.camera.scene;
           const s = sc.buildings.state(${JSON.stringify(id)}); const imgs = sc.children.list.filter((o) => o.type === 'Image' && String(o.texture.key).startsWith('bld_wall'));
@@ -104,7 +123,7 @@ await withGame(
 
     await check('anim-off', 'Animations Off: roof/wall change is instant (On is not)', async () => {
       const [dx, dy] = B.willowbrook_bank.door;
-      await g.teleport(dx, dy + 3);
+      await g.teleportSettled(dx, dy + 3);
       const mid =
         await g.eval(`(async () => { const s = window.__idleRpg.store; const sc = window.__idleRpg.scene().camera.scene;
         s.getState().setPref({ visuals: { animations: 'on' } });
@@ -130,8 +149,7 @@ await withGame(
     });
 
     await check('bank-inside', 'tap booth from inside opens the bank', async () => {
-      await g.teleport(12, 11);
-      await g.sleep(300);
+      await g.teleportSettled(12, 11);
       await g.tapObject('bank_booth_1');
       await g.waitFor(async () => (await g.state('bankOpen')) === true, {
         timeoutMs: 15000,
@@ -146,11 +164,15 @@ await withGame(
       'area banner vs NPC nameplates when entering (P3 if overlap)',
       async () => {
         await g.update(`({ ...g, bankOpen: false })`);
-        await g.teleport(16, 17, { settleMs: 1500 });
+        await g.teleportSettled(16, 17);
         await g.walkTo(13, 14); // store shortcut for travel only
         await g.waitFor(async () => (await pos(g)).y === 14, { timeoutMs: 15000, label: 'door' });
-        await g.sleep(1500);
         await walkTo(g, 13, 11);
+        await g
+          .waitFor(() => g.eval(`!!document.querySelector('.area-banner-title')`), {
+            timeoutMs: 3000,
+          })
+          .catch(() => undefined);
         const r =
           await g.eval(`(() => { const t = document.querySelector('.area-banner-title'); if (!t) return { banner: null };
         const br = t.getBoundingClientRect(); const sc = window.__idleRpg.scene().camera.scene; const cam = sc.cameras.main; const cv = sc.game.canvas.getBoundingClientRect();
@@ -166,4 +188,3 @@ await withGame(
     );
   }),
 );
-process.exit(0);

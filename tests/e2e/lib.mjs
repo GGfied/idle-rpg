@@ -3,19 +3,53 @@
 //   import { withGame, forEachViewport, check, report } from './lib.mjs';
 // Page-side helpers live in window.__e (installed before every page load). All state setters go through
 // the DEV hook window.__idleRpg (preconditions only); behaviour under test is driven with g.tap*/drag/wheel.
+//
+// FAST BASE (start every new test from TEMPLATE.e2e.mjs; budget < 60 s, enforced by `budgetMs`):
+//   runParallel(import.meta.url, port, {viewports, renderers, budgetMs})
+//       One child process per viewport x renderer ("desktop:webgl", "phone:canvas"...), each on port+i with its own
+//       vite + Chrome; wall time = slowest combo. Returns this process's combos; feed them to forEachCombo.
+//   forEachCombo(combos, async (g, vp, renderer) => {...})   fresh load per combo (viewport + renderer applied).
+//   withCombos(opts, combos, async (g, vp, renderer) => {...})   withGame + forEachCombo with ONE page load per child
+//       (forEachCombo reloads after withGame's own boot); falls back to forEachCombo when several combos run here.
+//       One vite is started by the parent and shared by all children (E2E_URL). {split:false} = tiny file: combos run
+//       sequentially in one process (no per-child Chrome/boot floor). OPT-IN for now (default = old per-child): E2E_SHARED_VITE=1 / E2E_SHARED_CHROME=1.
+//       The parent also starts ONE Chrome; children attach with an own browser context (E2E_CHROME_PORT).
+//   withGame({port, budgetMs, tickMs, realTime, renderer, initScripts}, fn)   ?tickMs=60 by default (10x ticks, rules unchanged).
+//       initScripts: [pageSource] spies registered before the first load (no extra Page.reload per spy).
+//       realTime:true (600 ms ticks) ONLY when timing is what's tested; or g.realTime(fn) / g.setTickMs(n) for one
+//       phase. Gather sessions end in ~1 s at 60 ms: use g.setTickMs(150) or the g.every(ms, tapAgain) keep-alive.
+//       renderer:'canvas' injects the pre-boot WebGL-getContext-null so Phaser.AUTO falls back to CANVAS.
+//       budgetMs adds a failing 'budget' check if the whole script (vite+Chrome boot included) runs longer.
+//   g.synth: synthetic time. g.synth.freeze() sleeps Phaser's loop (game tick only slowed to 600 ms: hook clamps 30-600); g.synth.step(ms) runs full frames
+//       (update+render) at chosen times; g.synth.frames([t...], {name}) = ONE screenshot per chosen frame (screenshots
+//       stall rendering ~650 ms, so never loop them on wall-clock); g.synth.animSeries(...) drives the animator by hand
+//       (animE approach); g.synth.thaw() restores. Use for animations, VFX, anything that "changes over time".
+//   g.waitFor(pred) / g.waitState(path, 'v => ...') / g.waitChat(/re/) / g.waitIdle() / g.settle() (camera still)
+//       replace fixed sleeps. g.teleportSettled(x, y) = teleport + settle (no 700 ms sleep).
+//   Preconditions, never grinding: g.teleport/teleportSettled, g.setInventory, g.setLevels({skill: lvl}), g.setXp.
 import { dirname, resolve } from 'node:path';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { performance } from 'node:perf_hooks';
 import {
+  activity,
   hardTimeout,
   killChild,
   launchChrome,
+  startChrome,
   runMain,
   sleep,
   spawnTracked,
   waitFor,
 } from './cdp.mjs';
+
+// Pre-boot: WebGL contexts return null, so Phaser.AUTO falls back to the CANVAS renderer (the user's black-water case).
+const NOGL = `(() => { const o = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (t, ...a) { return /webgl/.test(t) ? null : o.call(this, t, ...a); }; })();`;
+export const RENDERERS = ['webgl', 'canvas'];
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const VIEWPORTS = {
@@ -27,6 +61,87 @@ export const VIEWPORTS = {
 export const expect = (c, m) => {
   if (!c) throw new Error(typeof m === 'function' ? m() : m);
 };
+
+// ---- load meter: makes wall-clock budgets/timeouts meaningful on a busy machine ----------------
+// Every ~1.5 s this process spins 40 ms and compares CPU time to wall time: cpuShare = cpu/wall is the fraction of a core
+// the OS actually gives us (1.0 idle machine, 0.1 when ~10 runnable threads compete per core). slowdown = 1/cpuShare is
+// measured DIRECTLY (not the lagging load average), so the same file gets the same verdict at load 50 and at load 200:
+// effective budget = budgetMs x max(1, slowdown). An idle-but-slow file (fixed sleeps) keeps slowdown ~1 and stays red.
+export const loadMeter = {
+  cpuMax: new Map(), // pid -> max cputime seen (s) for this process and all its descendants (vite, Chrome, children)
+  w: 0,
+  c: 0,
+  n: 0,
+  timer: null,
+  sample() {
+    const w0 = performance.now();
+    const c0 = process.cpuUsage();
+    while (performance.now() - w0 < 40);
+    const w = performance.now() - w0;
+    const c = process.cpuUsage(c0);
+    this.w += w;
+    this.c += Math.min((c.user + c.system) / 1000, w);
+    this.n++;
+    this.sampleTree();
+  },
+  /** Sum of CPU seconds used by this process + every descendant (per-pid max, so exited ones stay counted). */
+  sampleTree() {
+    const r = spawnSync('ps', ['-axo', 'pid=,ppid=,cputime='], { encoding: 'utf8' });
+    if (r.status !== 0) return;
+    const rows = r.stdout
+      .trim()
+      .split('\n')
+      .map((l) => l.trim().split(/\s+/))
+      .map(([pid, ppid, t]) => ({
+        pid: +pid,
+        ppid: +ppid,
+        sec: t.split(':').reduce((a, x) => a * 60 + parseFloat(x), 0),
+      }));
+    const kids = new Map();
+    for (const x of rows) (kids.get(x.ppid) ?? kids.set(x.ppid, []).get(x.ppid)).push(x);
+    const byPid = new Map(rows.map((x) => [x.pid, x]));
+    const stack = [process.pid];
+    while (stack.length) {
+      const pid = stack.pop();
+      const x = byPid.get(pid);
+      if (x) this.cpuMax.set(pid, Math.max(this.cpuMax.get(pid) ?? 0, x.sec));
+      for (const k of kids.get(pid) ?? []) stack.push(k.pid);
+    }
+  },
+  cpuSec() {
+    this.sampleTree();
+    let t = 0;
+    for (const v of this.cpuMax.values()) t += v;
+    return t;
+  },
+  start() {
+    if (this.timer) return;
+    for (let i = 0; i < 4; i++) this.sample();
+    this.timer = setInterval(() => this.sample(), 1500);
+    this.timer.unref();
+  },
+  slowdown() {
+    return this.n ? Math.max(1, this.w / Math.max(this.c, this.w * 0.02)) : 1;
+  },
+  describe() {
+    const s = this.slowdown();
+    return `load1=${os.loadavg()[0].toFixed(0)}/${os.cpus().length}cores cpuShare=${(1 / s).toFixed(2)} slowdown=${s.toFixed(1)}x samples=${this.n}`;
+  },
+};
+/** Load-scaled wall budget verdict: {ok, text}. The text always carries the load numbers. */
+export function budgetVerdict(tookMs, baseMs, what = 'script', cpuUnits = 1) {
+  const sd = loadMeter.slowdown();
+  const eff = Math.round(baseMs * sd);
+  const cpu = loadMeter.cpuSec();
+  const cpuMax = (baseMs / 1000) * cpuUnits; // load-invariant: CPU-seconds of the whole process tree (node + vite + Chrome)
+  const wallOk = tookMs <= eff;
+  const cpuOk = cpu <= cpuMax;
+  const ok = wallOk && cpuOk;
+  return {
+    ok,
+    text: `BUDGET ${ok ? 'ok' : 'FAIL'}: ${what} wall ${tookMs} ms vs ${eff} ms (base ${baseMs} ms x slowdown ${sd.toFixed(1)}) cpu ${cpu.toFixed(1)} s vs ${cpuMax.toFixed(0)} s ${ok ? '' : wallOk ? '(CPU over: genuinely heavy)' : cpuOk ? '(wall over at measured load: sleeps/waits)' : '(both over)'} [${loadMeter.describe()}]`,
+  };
+}
 
 // ---- check() / report() -----------------------------------------------------------------------
 const results = [];
@@ -106,6 +221,39 @@ const PAGE = `(() => {
     chat: () => H().store.getState().game.chat.map((l) => l.text),
     rect: (sel) => { const e = document.querySelector(sel); if (!e) return null; e.scrollIntoView({ block: 'nearest' }); const r = e.getBoundingClientRect();
       return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height, left: r.left, top: r.top }; },
+    // FRACTIONAL scroll: worldView is integer-rounded, so the follow glide's last 1 px step looks 'settled' there (Q4b: chat 282->283 landed 19 ms after waitStill returned).
+    camXY: () => { const c = scene().camera; return { x: c.scrollX, y: c.scrollY }; },
+    camView: () => { const v = scene().camera.worldView; return { x: v.x, y: v.y }; },
+    rendererName: () => (world().game.renderer.type === 2 ? 'webgl' : 'canvas'),
+  };
+  // Synthetic time: Phaser's own loop + the game tick are put to sleep, frames are stepped by hand.
+  const S = (window.__e.synth = { frozen: false, t: 0, base: 0, prevTick: 600, saved: null });
+  S.game = () => world().game;
+  S.freeze = () => {
+    if (S.frozen) return S.t;
+    const g = S.game();
+    S.prevTick = H().tickMs();
+    H().setTickMs(600); // the DEV hook clamps to 30..600 ms: ticks cannot be stopped, only slowed to real time
+    g.loop.sleep();
+    S.t = g.loop.now; S.base = S.t; S.frozen = true;
+    return S.t;
+  };
+  /** Run n full frames (update + render) of dt ms each; returns the synthetic time. */
+  S.step = (dt, n) => { for (let i = 0; i < (n || 1); i++) { S.t += dt; S.game().step(S.t, dt); } return S.t; };
+  /** Step ONE frame to offset ms after freeze(). */
+  S.stepTo = (offset) => { const dt = Math.max(0.001, S.base + offset - S.t); S.t += dt; S.game().step(S.t, dt); return S.t; };
+  S.thaw = () => { if (!S.frozen) return; S.frozen = false; S.restoreAnim(); S.game().loop.wake(); H().setTickMs(S.prevTick); };
+  /** Mute the scene's own animator update/setState so animSeries owns the clock. */
+  S.muteAnim = () => { const a = scene().animator; if (S.saved) return; S.saved = { a, u: a.update, s: a.setState }; a.update = () => {}; a.setState = () => {}; };
+  S.restoreAnim = () => { if (!S.saved) return; const { a, u, s } = S.saved; a.update = u; a.setState = s; S.saved = null; };
+  /** animSeries(state, opts, times, sampleSrc): set animator state, update at T0 (warm-up) then at each offset, sample after each. */
+  S.animSeries = (state, opts, times, sampleSrc) => {
+    S.muteAnim();
+    const { a, u, s } = S.saved, sample = (0, eval)(sampleSrc), T = 1e6, rows = [];
+    s.call(a, state, opts); u.call(a, T);
+    for (const t of times) { u.call(a, T + t); rows.push(sample(t)); }
+    s.call(a, 'idle', { facing: opts && opts.facing }); u.call(a, T + 1e5);
+    return rows;
   };
 })();`;
 
@@ -117,7 +265,17 @@ async function startVite(port, origin) {
     ['--config', cfg, '--port', String(port), '--strictPort', '--host', '127.0.0.1'],
     { cwd: ROOT, stdio: 'ignore' },
   );
-  for (let i = 0; i < 150; i++) {
+  // load-aware: 30 s x measured slowdown (cap 150 s); a busy machine must not look like a dead vite
+  const startMs = Math.min(150000, Math.round(30000 * loadMeter.slowdown()));
+  const t0 = Date.now();
+  for (let beat = t0; Date.now() - t0 < startMs;) {
+    activity('waitFor vite start');
+    if (Date.now() - beat > 15000) {
+      beat = Date.now();
+      console.log(
+        `[wait] vite on ${port} ${Date.now() - t0}/${startMs} ms (${loadMeter.describe()})`,
+      );
+    }
     try {
       if ((await fetch(origin)).ok) return proc;
     } catch {
@@ -126,7 +284,9 @@ async function startVite(port, origin) {
     await sleep(200);
   }
   killChild(proc);
-  throw new Error(`vite did not start on ${port} (port busy? lsof -i :${port})`);
+  throw new Error(
+    `VITE_START_TIMEOUT vite did not start on ${port} within ${startMs} ms (port busy? lsof -i :${port}; ${loadMeter.describe()}); no checks ran for this combo`,
+  );
 }
 
 /**
@@ -137,12 +297,14 @@ async function startVite(port, origin) {
 export function withGame(opts, fn) {
   return runMain(async () => {
     hardTimeout(6 * 60e3);
+    const startedAt = Date.now();
+    loadMeter.start();
     // E2E_URL=http://127.0.0.1:5300/ or E2E_SHARED=1 (= :5300) reuses the warm live server (warmServer.mjs); no own vite.
     const sharedUrl =
       process.env.E2E_URL ?? (process.env.E2E_SHARED ? 'http://127.0.0.1:5300/' : '');
     const port = Number(process.env.E2E_PORT ?? opts.port);
     const origin = sharedUrl ? sharedUrl.replace(/\/?$/, '/') : `http://127.0.0.1:${port}/`;
-    const tickMs = opts.tickMs ?? 60;
+    const tickMs = opts.tickMs ?? (opts.realTime ? 600 : 60);
     let vite = null;
     if (sharedUrl) {
       if (
@@ -152,9 +314,19 @@ export function withGame(opts, fn) {
         ))
       )
         throw new Error(`shared server ${origin} is down: run node tests/e2e/warmServer.mjs`);
-    } else vite = await startVite(port, origin);
+    }
     const vp = opts.viewport ?? 'desktop';
-    const cdp = await launchChrome({ width: VIEWPORTS[vp].width, height: VIEWPORTS[vp].height });
+    // Chrome launch (~2-7 s) overlaps vite startup instead of following it.
+    const [viteProc, cdp] = await Promise.all([
+      sharedUrl ? null : startVite(port, origin),
+      launchChrome({
+        width: VIEWPORTS[vp].width,
+        height: VIEWPORTS[vp].height,
+        attach: Number(process.env.E2E_CHROME_PORT ?? 0), // set by runParallel (opt-in): join the shared Chrome in an own context
+      }),
+    ]);
+    vite = viteProc;
+    const chromeMs = Date.now() - startedAt;
     const errors = [];
     cdp.on((m) => {
       if (m.method === 'Runtime.exceptionThrown')
@@ -170,6 +342,19 @@ export function withGame(opts, fn) {
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: PAGE });
+    let renderer = process.env.E2E_RENDERER ?? opts.renderer ?? 'webgl';
+    let nogl = null;
+    const applyRenderer = async () => {
+      if (nogl) await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: nogl });
+      nogl =
+        renderer === 'canvas'
+          ? (await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: NOGL })).identifier
+          : null;
+    };
+    await applyRenderer();
+    // opts.initScripts: page sources (spies) registered BEFORE the first load, so no extra reload is needed. Additive.
+    for (const source of opts.initScripts ?? [])
+      await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source });
     let touch = false;
     const E = (expr) => cdp.eval(`window.__e.${expr}`);
     const J = JSON.stringify;
@@ -204,6 +389,115 @@ export function withGame(opts, fn) {
       store: (expr) =>
         cdp.eval(`(() => { const s = window.__idleRpg.store.getState(); return ${expr}; })()`),
 
+      get renderer() {
+        return renderer;
+      },
+      get tickMs() {
+        return tickMs;
+      },
+      /** 'canvas' | 'webgl' for the NEXT load() (use forEachCombo, which also reloads). */
+      async setRenderer(name) {
+        expect(RENDERERS.includes(name), `unknown renderer ${name}`);
+        renderer = name;
+        await applyRenderer();
+      },
+      /** Renderer Phaser actually booted with (webgl | canvas). */
+      rendererName: () => E('rendererName()'),
+      /** Change the game tick for the rest of the run (60 fast; 120-200 for gather sessions; 600 real time). */
+      setTickMs: (ms) => cdp.eval(`window.__idleRpg.setTickMs(${ms})`),
+      /** Run `fn` every `ms` (not overlapping) until the returned stop(): keep-alive re-tap for gather sessions. */
+      every(ms, fn) {
+        let on = true;
+        let busy = false;
+        const id = setInterval(async () => {
+          if (!on || busy) return;
+          busy = true;
+          try {
+            await fn();
+          } catch {
+            /* the test's own checks report real failures */
+          }
+          busy = false;
+        }, ms);
+        return () => {
+          on = false;
+          clearInterval(id);
+        };
+      },
+      /** Synthetic time (see header). frames() takes ONE screenshot per chosen frame offset (ms after freeze). */
+      synth: {
+        freeze: () => E('synth.freeze()'),
+        step: (dt = 16.7, n = 1) => E(`synth.step(${dt}, ${n})`),
+        stepTo: (offset) => E(`synth.stepTo(${offset})`),
+        thaw: () => E('synth.thaw()'),
+        muteAnim: () => E('synth.muteAnim()'),
+        /** Drive the animator by hand: sampleSrc is a page function source `(t) => ({...})`; returns its rows. */
+        animSeries: (state, animOpts, times, sampleSrc) =>
+          E(`synth.animSeries(${J(state)}, ${J(animOpts)}, ${J(times)}, ${J(sampleSrc)})`),
+        /** Step to each offset and screenshot once. Returns [{t, file, bytes, b64?}]; keep:true includes base64. */
+        async frames(offsets, { name = 'frame', clip, keep = false } = {}) {
+          const out = [];
+          await E('synth.freeze()');
+          for (const t of offsets) {
+            await E(`synth.stepTo(${t})`);
+            const { data } = await cdp.send('Page.captureScreenshot', {
+              format: 'png',
+              ...(clip ? { clip: { scale: 1, ...clip } } : {}),
+            });
+            let file = null;
+            if (process.env.SHOTS_DIR) {
+              const { mkdirSync, writeFileSync } = await import('node:fs');
+              mkdirSync(process.env.SHOTS_DIR, { recursive: true });
+              file = resolve(process.env.SHOTS_DIR, `${name}-${t}.png`);
+              writeFileSync(file, Buffer.from(data, 'base64'));
+            }
+            out.push({ t, file, bytes: data.length, ...(keep ? { b64: data } : {}) });
+          }
+          return out;
+        },
+      },
+
+      // ---- wait on state, not sleeps
+      /** Wait until predSrc (page function source, e.g. 'p => p.x === 3') is truthy for game state at `path`. */
+      waitState: (path, predSrc, { timeoutMs = 15000, label } = {}) =>
+        waitFor(
+          () =>
+            cdp.eval(`(${predSrc})(window.__e.game()${path ? '.' + path : ''})`).catch(() => false),
+          { timeoutMs, label: label ?? `${path} ${predSrc}`, intervalMs: 40 },
+        ),
+      /** Wait for a chat line matching a RegExp or containing a string; returns the line. */
+      async waitChat(re, { timeoutMs = 15000 } = {}) {
+        const m = (t) => (typeof re === 'string' ? t.includes(re) : re.test(t));
+        let hit = null;
+        await waitFor(
+          async () => {
+            hit = (await E('chat()')).find(m) ?? null;
+            return hit;
+          },
+          { timeoutMs, label: `chat ${re}`, intervalMs: 40 },
+        );
+        return hit;
+      },
+      /** Wait until the player has no path and no pending interaction (walk finished). */
+      waitIdle: ({ timeoutMs = 15000 } = {}) =>
+        g.waitState('', 'g => g.movement.path.length === 0 && !g.pendingInteraction', {
+          timeoutMs,
+          label: 'player idle',
+        }),
+      /** Wait for the follow camera to stop easing (replaces a fixed settle sleep). */
+      settle: () =>
+        waitStill(() => E('camXY()'), { intervalMs: 80, stable: 3, eps: 0.02, max: 120 }),
+      async teleportSettled(tx, ty) {
+        await g.teleport(tx, ty, { settleMs: 0 });
+        return g.settle();
+      },
+      /** Set several skill levels at once: g.setLevels({woodcutting: 30, cooking: 15}). */
+      async setLevels(map) {
+        await cdp.eval(`(async () => { const P = await import('/src/core/progression/index.ts'); const s = window.__idleRpg.store; const g = s.getState().game;
+          const xp = { ...g.progression.xp }; for (const [k, l] of Object.entries(${J(map)})) xp[k] = P.xpForLevel(l);
+          s.setState({ game: { ...g, progression: { ...g.progression, xp } } }); })()`);
+      },
+
       // ---- loading / viewport
       async setViewport(name) {
         const v = VIEWPORTS[name];
@@ -230,10 +524,37 @@ export function withGame(opts, fn) {
         });
         await cdp.send('Page.navigate', { url: `${origin}?tickMs=${tickMs}${query}` });
         const t0 = Date.now();
-        await waitFor(() => E('ready()').catch(() => false), {
-          timeoutMs: 25000,
-          label: 'game ready (DEV hook)',
-        });
+        const readyMs = Math.min(150000, Math.round(25000 * loadMeter.slowdown()));
+        try {
+          // own poll loop (not waitFor): heartbeat output keeps a runParallel parent's idle watchdog fed
+          let beat = Date.now();
+          for (;;) {
+            activity('waitFor game ready (DEV hook)');
+            if (await E('ready()').catch(() => false)) break;
+            if (Date.now() - t0 > readyMs) throw new Error('not ready');
+            if (Date.now() - beat > 15000) {
+              beat = Date.now();
+              console.log(
+                `[wait] game ready ${Date.now() - t0}/${readyMs} ms (${loadMeter.describe()})`,
+              );
+            }
+            await sleep(100);
+          }
+        } catch (e) {
+          // LOUD: a combo that never boots is a named FAIL + summary, never silently missing checks/shots.
+          const url = await cdp.eval('location.href').catch(() => '?');
+          const why = `GAME_READY_TIMEOUT [${phase || vp}:${renderer}] game ready (DEV hook) did not fire in ${readyMs} ms (page ${url}; ${loadMeter.describe()}); no checks ran for this combo`;
+          results.push({
+            phase,
+            id: 'game-ready',
+            title: 'game ready (DEV hook)',
+            status: 'FAIL',
+            ev: why,
+          });
+          console.log(`FAIL [${phase}] game-ready game ready (DEV hook)\n     ${why}`);
+          report();
+          throw new Error(why, { cause: e });
+        }
         g.lastReadyMs = Date.now() - t0;
         if (process.env.E2E_TIMING) console.log(`[timing] game ready ${g.lastReadyMs} ms`);
         await sleep(800);
@@ -330,6 +651,20 @@ export function withGame(opts, fn) {
         return r;
       },
       rect: (css) => E(`rect(${J(css)})`),
+      /** Rect (centre x,y + w/h) of css WITHOUT scrolling it into view, once it stops moving (scroll/layout settled); null if absent. */
+      async settleRect(css) {
+        const read = () =>
+          cdp.eval(
+            `(() => { const e = document.querySelector(${J(css)}); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height, left: r.left, top: r.top }; })()`,
+          );
+        if (!(await read())) return null;
+        await waitStill(async () => (await read()) ?? { x: NaN, y: NaN }, {
+          intervalMs: 60,
+          stable: 2,
+          max: 40,
+        });
+        return read();
+      },
       /** Client px of a tile centre (+dy world px, negative = up the sprite). */
       tileClient: (tx, ty, dy = 0) => E(`tileClient(${tx}, ${ty}, ${dy})`),
       /** Tap a tile's centre (checks the point is on the canvas, not a HUD panel). */
@@ -430,11 +765,27 @@ export function withGame(opts, fn) {
     try {
       await g.setViewport(vp);
       await g.load();
+      console.log(
+        `[boot] ${phase || vp} vite+chrome ${chromeMs} ms${sharedUrl ? ' (shared vite)' : ''}, first game-ready ${g.lastReadyMs} ms, total-to-ready ${Date.now() - startedAt} ms`,
+      );
       const r = await fn(g);
       await check('console', 'no console errors / exceptions', () => {
         expect(errors.length === 0, errors.join(' | '));
         return '0 errors';
       });
+      if (opts.budgetMs) {
+        const took = Date.now() - startedAt;
+        await check(
+          'budget',
+          `script finished within ${opts.budgetMs / 1000} s (load-scaled)`,
+          () => {
+            const v = budgetVerdict(took, opts.budgetMs);
+            expect(v.ok, v.text);
+            return v.text;
+          },
+        );
+      }
+      console.log(`[timing] ${phase || vp} total ${Date.now() - startedAt} ms`);
       return typeof r === 'number' && r !== 0 ? r : report();
     } finally {
       await cdp.close().catch(() => {});
@@ -455,4 +806,157 @@ export function forEachViewport(names, fn) {
       await fn(g, name);
     }
   };
+}
+
+/**
+ * forEachCombo(combos, async (g, vp, renderer) => {...}): like forEachViewport but combos are "viewport:renderer"
+ * strings (from runParallel) or plain viewport names. Each combo gets a fresh load with the viewport + renderer applied.
+ */
+export function forEachCombo(combos, fn) {
+  return async (g) => {
+    for (const combo of combos) {
+      const [vp, r = g.renderer] = combo.split(':');
+      await g.setViewport(vp);
+      await g.setRenderer(r);
+      await g.load();
+      await fn(g, vp, r);
+    }
+  };
+}
+
+/**
+ * withCombos(opts, combos, async (g, vp, renderer) => {...}): withGame + forEachCombo WITHOUT the second page load.
+ * withGame already boots one page; when this process owns a single combo (the runParallel child case) that boot is
+ * used directly (viewport + renderer from the combo), saving one full game load (~5-15 s under load). Several combos
+ * (E2E_NO_SPLIT=1) fall back to forEachCombo (fresh load each).
+ */
+export function withCombos(opts, combos, fn) {
+  if (combos.length !== 1) return withGame(opts, forEachCombo(combos, fn));
+  const [vp, r] = combos[0].split(':');
+  return withGame({ ...opts, viewport: vp, ...(r ? { renderer: r } : {}) }, (g) =>
+    fn(g, vp, g.renderer),
+  );
+}
+
+/**
+ * runParallel(import.meta.url, basePort, {viewports, renderers, budgetMs, prefix, plain}): the parent (no
+ * E2E_COMBO/E2E_VP) spawns one child per viewport x renderer with E2E_COMBO=vp:renderer, E2E_RENDERER, E2E_PORT=base+i,
+ * prefixes their output, and exits with the worst code (budgetMs also fails the PARENT wall time). A child gets back just
+ * its own combo. E2E_NO_SPLIT=1 runs every combo in this one process, sequentially. plain:true returns bare viewport
+ * names (the old splitViewports contract).
+ */
+export async function runParallel(
+  fileUrl,
+  defaultPort,
+  {
+    viewports = ['desktop', 'phone'],
+    renderers = ['webgl'],
+    budgetMs = 0,
+    prefix = true,
+    plain = false,
+    split = true,
+  } = {},
+) {
+  const all = viewports.flatMap((v) => renderers.map((r) => `${v}:${r}`));
+  const out = (l) => (plain ? l.map((c) => c.split(':')[0]) : l);
+  const one =
+    process.env.E2E_COMBO ?? (process.env.E2E_VP ? `${process.env.E2E_VP}:${renderers[0]}` : '');
+  if (one) return out([one]);
+  // split:false = tiny file: all combos run sequentially in THIS process (one vite + one Chrome, no per-child floor).
+  if (process.env.E2E_NO_SPLIT || !split || all.length < 2) return out(all);
+  const { spawn } = await import('node:child_process');
+  const base = Number(process.env.E2E_PORT ?? defaultPort);
+  const file = fileURLToPath(fileUrl);
+  const t0 = Date.now();
+  loadMeter.start();
+  const kids = new Set();
+  const seen = {}; // per combo: SUMMARY line (from prefixed child output)
+  // ONE vite for all children (they get E2E_URL): N vites cost N cold dep-optimizes + N x CPU under load.
+  // OPT-IN (E2E_SHARED_VITE=1) until proven; default stays one vite per child.
+  const ownUrl = process.env.E2E_URL || process.env.E2E_SHARED || !process.env.E2E_SHARED_VITE;
+  const sharedOrigin = `http://127.0.0.1:${base}/`;
+  // ONE Chrome too: each child opens its own isolated browser context (own localStorage) in it. OPT-IN: E2E_SHARED_CHROME=1.
+  const ownChrome = process.env.E2E_CHROME_PORT || !process.env.E2E_SHARED_CHROME;
+  const [, chrome] = await Promise.all([
+    ownUrl ? null : startVite(base, sharedOrigin),
+    ownChrome ? null : startChrome(),
+  ]);
+  // SIGTERM: a child's hook then kills its OWN vite + Chrome (SIGKILL orphaned 3 vites on 6620-6622 in Q4b)
+  const killKids = () => kids.forEach((c) => c.kill('SIGTERM'));
+  process.on('exit', killKids);
+  setTimeout(() => {
+    killKids();
+    process.exit(2);
+  }, 6 * 60e3).unref();
+  const codes = await Promise.all(
+    all.map(
+      (combo, i) =>
+        new Promise((done) => {
+          const [vp, r] = combo.split(':');
+          const c = spawn(process.execPath, [file], {
+            stdio: prefix ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+            env: {
+              ...process.env,
+              E2E_COMBO: combo,
+              E2E_VP: vp,
+              E2E_RENDERER: r,
+              E2E_PORT: String(ownUrl ? base + i : base), // shared vite: every child's port = base (files that build their own URL from it)
+              ...(ownUrl ? {} : { E2E_URL: sharedOrigin }),
+              ...(chrome ? { E2E_CHROME_PORT: String(chrome.port) } : {}),
+            },
+          });
+          kids.add(c);
+          if (prefix)
+            for (const [stream, sink] of [
+              [c.stdout, process.stdout],
+              [c.stderr, process.stderr],
+            ]) {
+              let buf = '';
+              stream.on('data', (d) => {
+                activity(`child ${combo}`);
+                buf += d;
+                const lines = buf.split('\n');
+                buf = lines.pop();
+                for (const l of lines) {
+                  sink.write(`[${combo}] ${l}\n`);
+                  const sc = (seen[combo] ??= {});
+                  if (/^SUMMARY:/.test(l)) sc.summary = l;
+                  const m = /(GAME_READY_TIMEOUT|VITE_START_TIMEOUT)/.exec(l);
+                  if (m) sc.boot = m[1];
+                  if (/^FAIL \[[^\]]*\] budget /.test(l)) sc.budget = true;
+                }
+              });
+              stream.on('end', () => buf && sink.write(`[${combo}] ${buf}\n`));
+            }
+          c.on('exit', (code) => done(code ?? 1));
+        }),
+    ),
+  );
+  const wall = Date.now() - t0;
+  console.log(`[timing] parallel wall ${wall} ms for ${all.length} combos (${all.join(', ')})`);
+  let code = Math.max(...codes);
+  // Name EVERY reason for a non-zero exit, so "0 FAIL" + rc=1 can never be silent.
+  const reasons = [];
+  all.forEach((combo, i) => {
+    const sc = seen[combo] ?? {};
+    if (sc.boot) reasons.push(`${combo}: ${sc.boot} (combo never booted, no checks/shots)`);
+    else if (codes[i] !== 0 && prefix && !sc.summary)
+      reasons.push(
+        `${combo}: child exit ${codes[i]} before any SUMMARY (crash/watchdog: exit 2 hard timeout, 3 global, 4 STUCK)`,
+      );
+    else if (codes[i] !== 0)
+      reasons.push(
+        `${combo}: child exit ${codes[i]} (${sc.summary ?? 'its own FAIL lines above'}${sc.budget ? '; includes its own BUDGET FAIL' : ''})`,
+      );
+  });
+  if (budgetMs) {
+    const v = budgetVerdict(wall, budgetMs, 'parallel', all.length);
+    console.log(v.text);
+    if (!v.ok) {
+      code = Math.max(code, 1);
+      reasons.push(`${reasons.length ? 'also ' : 'BUDGET ONLY (all checks passed): '}${v.text}`);
+    }
+  }
+  console.log(`RESULT rc=${code}: ${reasons.length ? reasons.join(' | ') : 'all combos passed'}`);
+  process.exit(code);
 }

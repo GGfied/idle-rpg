@@ -71,6 +71,8 @@ export const GATHER_STATE_BY_TOOL: Readonly<Record<string, AnimState>> = {
   pickaxe: 'mine',
   net: 'fishNet',
   rod: 'fishRod',
+  lighting: 'lighting',
+  cooking: 'cooking',
 };
 
 /** Walking beats gathering (moving cancels a session); gathering beats idle. */
@@ -91,6 +93,14 @@ export const ANIM_STATES: Readonly<Record<AnimState, AnimStateDef>> = {
   fishRod: {
     priority: 1,
     applies: (i: AnimInput) => i.gathering && GATHER_STATE_BY_TOOL[i.toolKind ?? ''] === 'fishRod',
+  },
+  lighting: {
+    priority: 1,
+    applies: (i: AnimInput) => i.gathering && GATHER_STATE_BY_TOOL[i.toolKind ?? ''] === 'lighting',
+  },
+  cooking: {
+    priority: 1,
+    applies: (i: AnimInput) => i.gathering && GATHER_STATE_BY_TOOL[i.toolKind ?? ''] === 'cooking',
   },
   walk: { priority: 2, applies: (i: AnimInput) => i.moving },
 };
@@ -306,15 +316,16 @@ export const CHOP_KEYS: Readonly<Record<MotionParams['chopStyle'], readonly Chop
     { phase: 0.86, ease: 'inOut', gx: 3.5, gy: 12.5, theta: -100, lean: 6, twist: 0, dip: 0.25 },
     { phase: 1, ease: 'inOut', gx: 4.5, gy: 10.5, theta: -125, lean: 3, twist: 0, dip: 0 },
   ],
+  // Reduced: one step down to the SAME strike pose the swing reaches at 0.70 (tool angle, lean, grip), no wind-up.
   tap: [
     { phase: 0, ease: 'step', gx: 5, gy: 9, theta: -105, lean: 0, twist: 0, dip: 0 },
     {
       phase: SWING_IMPACT_PHASE,
       ease: 'step',
-      gx: 4.5,
-      gy: 11,
-      theta: -75,
-      lean: 0,
+      gx: 4,
+      gy: 14.7,
+      theta: -78.7,
+      lean: 10.7,
       twist: 0,
       dip: 0,
     },
@@ -386,10 +397,10 @@ export const MINE_KEYS: Readonly<Record<MotionParams['chopStyle'], readonly Chop
     {
       phase: SWING_IMPACT_PHASE,
       ease: 'step',
-      gx: 5,
-      gy: 11,
-      theta: -62,
-      lean: 0,
+      gx: 6,
+      gy: 15.2,
+      theta: -60,
+      lean: 12.3,
       twist: 0,
       dip: 0,
     },
@@ -575,3 +586,176 @@ export const FLOWER_VIEW_MARGIN = 48;
  * long instead of snapping (a run's 9 deg lean to a chop's 3 deg moved the body ~1.5 art px in one frame).
  */
 export const POSE_BLEND_MS = 160;
+
+// ---------------------------------------------------------------------------------------------------------------
+// Acts: lighting a fire and cooking over it (one hand on a prop, not a two-handed swing; see act.ts).
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Ticks a lighting action lasts. Mirrors facilities' LIGHT_TICKS (render cannot import features; a test pins both). */
+export const LIGHT_TICKS = 3;
+/** Ticks per cooked item. Mirrors cooking's TICKS_PER_COOK. */
+export const TICKS_PER_COOK = 4;
+
+/**
+ * One act pose in the TORSO frame (art px, +x forward, +y down, origin between the shoulders), same frame as ChopKey.
+ * `gx, gy` = the front (prop) hand, `bx, by` = the back hand, `theta` = the prop's angle (degrees, Phaser rotation: 0 =
+ * hanging straight down the forearm axis, negative = tip forward/up). `dip` = hips drop in px; `kneel` 0..1 puts the
+ * back knee on the ground (thigh upright, shin folded back) instead of a plain two-leg squat.
+ */
+export interface ActKey {
+  phase: number;
+  ease: ChopEase;
+  gx: number;
+  gy: number;
+  bx: number;
+  by: number;
+  theta: number;
+  lean: number;
+  twist: number;
+  dip: number;
+  kneel: number;
+}
+
+/** Arms hanging straight down (shoulder at torso x = +-6): the pose idle and the ends of a lighting cycle use. */
+const ACT_HANG = { gx: 6, gy: 16, bx: -6, by: 16, theta: 0, twist: 0 } as const;
+/**
+ * Kneeling over the log pile: the box held low and CLOSE to the chest (gx 4.5: the back hand, 10.5 px from its shoulder,
+ * reaches it with the upper arm hanging along the torso, so it neither crosses the body nor rises like a wing), the
+ * back hand cocked / striking it a little behind it.
+ */
+const LIGHT_KNEEL = { dip: 5.6, kneel: 1, gx: 4.5, gy: 9, theta: 0, twist: 0 } as const;
+const LIGHT_COCK = { ...LIGHT_KNEEL, bx: 3, by: 3, lean: 30 } as const;
+const LIGHT_HIT = { ...LIGHT_KNEEL, bx: 4, by: 9, lean: 34 } as const;
+
+/**
+ * Lighting, one-shot over LIGHT_TICKS: kneel down (0..0.18), four short flint strokes on the tinderbox (cock, hit every
+ * 0.08), hold a beat, stand back up (0.8..0.97) so the pose ends on the idle one.
+ */
+export const LIGHT_KEYS: Readonly<Record<MotionParams['chopStyle'], readonly ActKey[]>> = {
+  swing: [
+    { phase: 0, ease: 'inOut', ...ACT_HANG, lean: 0, dip: 0, kneel: 0 },
+    { phase: 0.18, ease: 'inOut', ...LIGHT_COCK },
+    { phase: 0.26, ease: 'inOut', ...LIGHT_HIT },
+    { phase: 0.34, ease: 'inOut', ...LIGHT_COCK },
+    { phase: 0.42, ease: 'inOut', ...LIGHT_HIT },
+    { phase: 0.5, ease: 'inOut', ...LIGHT_COCK },
+    { phase: 0.58, ease: 'inOut', ...LIGHT_HIT },
+    { phase: 0.66, ease: 'inOut', ...LIGHT_COCK },
+    { phase: 0.74, ease: 'inOut', ...LIGHT_HIT },
+    { phase: 0.8, ease: 'inOut', ...LIGHT_HIT, lean: 32 },
+    { phase: 0.97, ease: 'inOut', ...ACT_HANG, lean: 0, dip: 0, kneel: 0 },
+    { phase: 1, ease: 'inOut', ...ACT_HANG, lean: 0, dip: 0, kneel: 0 },
+  ],
+  tap: [{ phase: 0, ease: 'step', ...LIGHT_HIT }],
+  static: [{ phase: 0, ease: 'step', ...LIGHT_HIT, dip: 0, kneel: 0, lean: 6 }],
+};
+
+const COOK_HOLD = { bx: -1, by: 14, twist: 0, kneel: 0 } as const;
+/** Skewer held out and a little down, the food above the flames. */
+const COOK_OVER = { ...COOK_HOLD, gx: 19.5, gy: 8, theta: -54, lean: 9, dip: 2.4 } as const;
+/** The poke: hand and food dip into the flame (one per cook tick, TICKS_PER_COOK pokes per cycle minus the check). */
+const COOK_POKE = { ...COOK_HOLD, gx: 19, gy: 9.2, theta: -66, lean: 10, dip: 2.7 } as const;
+/**
+ * Cooking, looping over TICKS_PER_COOK: crouch with the skewer held out over the flames, a small poke into the fire every
+ * tick (0.25 of the cycle), and at the last tick a lift-and-check.
+ */
+export const COOK_KEYS: Readonly<Record<MotionParams['chopStyle'], readonly ActKey[]>> = {
+  swing: [
+    { phase: 0, ease: 'inOut', ...COOK_OVER },
+    { phase: 0.12, ease: 'inOut', ...COOK_POKE },
+    { phase: 0.25, ease: 'inOut', ...COOK_OVER },
+    { phase: 0.37, ease: 'inOut', ...COOK_POKE },
+    { phase: 0.5, ease: 'inOut', ...COOK_OVER },
+    { phase: 0.58, ease: 'inOut', ...COOK_POKE },
+    { phase: 0.68, ease: 'inOut', ...COOK_HOLD, gx: 12, gy: 1.5, theta: -104, lean: 5, dip: 1.6 },
+    { phase: 0.78, ease: 'inOut', ...COOK_HOLD, gx: 11.5, gy: 1.2, theta: -108, lean: 4, dip: 1.5 },
+    { phase: 0.92, ease: 'inOut', ...COOK_OVER },
+    { phase: 1, ease: 'inOut', ...COOK_OVER },
+  ],
+  tap: [{ phase: 0, ease: 'step', ...COOK_OVER }],
+  static: [{ phase: 0, ease: 'step', ...COOK_OVER, lean: 4, dip: 0 }],
+};
+
+/**
+ * Per act state, how the arms are solved. `frontSide` is the front arm's elbow side (1 = elbow trails back, -1 = elbow
+ * forward and down: a held-close hand then reads as a V with the elbow below the shoulder, not the upper arm swung back
+ * above the horizontal). `backUpperWorld` clamps the BACK upper arm to within this many degrees of straight DOWN in the
+ * world (the torso lean is added back, so a 30 degree kneeling lean cannot lift the arm like a wing); the forearm then
+ * re-aims at the hand target.
+ */
+export const ACT_ARMS: Readonly<Record<ActState, { frontSide: 1 | -1; backUpperWorld: number }>> = {
+  lighting: { frontSide: -1, backUpperWorld: 20 },
+  cooking: { frontSide: 1, backUpperWorld: 90 },
+};
+
+/** Keys per act state. */
+export const ACT_KEYS = { lighting: LIGHT_KEYS, cooking: COOK_KEYS } as const;
+export type ActState = keyof typeof ACT_KEYS;
+
+/** Per act state: cycle length, whether it loops (false = plays once and holds its last pose), and the named prop in the hand. */
+export const ACT_PLAN: Readonly<
+  Record<ActState, { periodMs: number; loop: boolean; prop: string; rects: () => AxeRect[] }>
+> = {
+  lighting: {
+    periodMs: LIGHT_TICKS * TICK_MS,
+    loop: false,
+    prop: 'tinderbox',
+    rects: tinderboxRects,
+  },
+  cooking: { periodMs: TICKS_PER_COOK * TICK_MS, loop: true, prop: 'food', rects: foodRects },
+};
+
+/** The tinderbox in the fist (origin at the hand): a dark box, a lighter lid and a steel striker on top. */
+export function tinderboxRects(): AxeRect[] {
+  return [
+    { x: -3, y: -1, w: 6, h: 4, color: 0x4a3321, alpha: 1 },
+    { x: -3, y: -1, w: 6, h: 1, color: 0x7a5a3a, alpha: 1 },
+    { x: 1, y: -2, w: 2, h: 1, color: 0xbfc5cc, alpha: 1 },
+  ];
+}
+
+/**
+ * Food on a skewer (origin at the hand, +y along the stick): a dark-edged stick with a plump pale-pink fish at its tip.
+ * The dark rim keeps it readable against orange flames and sand, on every facing.
+ */
+export function foodRects(): AxeRect[] {
+  return [
+    { x: -0.5, y: -2, w: 1, h: 10, color: 0x4a3018, alpha: 1 },
+    { x: -5, y: 5, w: 10, h: 6, color: 0x4a2a1c, alpha: 1 },
+    { x: -4, y: 6, w: 8, h: 4, color: 0xf2a58c, alpha: 1 },
+    { x: -4, y: 6, w: 8, h: 1, color: 0xffd2bd, alpha: 1 },
+    { x: -4, y: 9, w: 8, h: 1, color: 0xc4684a, alpha: 1 },
+  ];
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Fire flicker (see flame.ts)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Per layer flicker rates in Hz, from the outermost flame (slow) to the inner tongues (fast). Layers past the end reuse the last. */
+export const FLAME_RATES_HZ: readonly number[] = [2.3, 3.4, 4.7, 6.1];
+/** Second noise octave: its rate relative to the first (incommensurate, so the pattern never visibly repeats). */
+export const FLAME_OCTAVE = 2.37;
+/** Peak flicker at amp 1 and a layer's rank 1 (the innermost layer; outer layers get less). */
+export const FLAME_SCALE_Y = 0.16;
+export const FLAME_SCALE_X = 0.08;
+export const FLAME_ALPHA = 0.15;
+/** Slow sideways sway of the flame tips (art px at the topmost layer) and its rate. */
+export const FLAME_SWAY_PX = 0.9;
+export const FLAME_SWAY_HZ = 0.45;
+/** Glow behind the fire: alpha and scale pulse, slow. */
+export const FLAME_GLOW_ALPHA = 0.18;
+export const FLAME_GLOW_SCALE = 0.05;
+export const FLAME_GLOW_HZ = 1.25;
+/** The dying fire (last stretch of its burn): lower amplitude, smaller flames, dimmer glow, slower. Blends over this long. */
+export const FLAME_DYING = { amp: 0.45, scale: 0.78, glow: 0.55, rate: 0.7 } as const;
+export const FLAME_DYING_BLEND_MS = 800;
+
+/** Flicker per motion mode: amplitude, rate and sway multipliers (off = flames stand still at their base pose). */
+export const FLAME_MOTION: Readonly<
+  Record<MotionMode, { amp: number; rate: number; sway: number }>
+> = {
+  on: { amp: 1, rate: 1, sway: 1 },
+  reduced: { amp: 0.3, rate: 0.5, sway: 0 },
+  off: { amp: 0, rate: 0, sway: 0 },
+};

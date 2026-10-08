@@ -6,3 +6,8 @@ coverage
 .wrangler
 tests/e2e/.shots-*/
 tests/e2e/*.log
+# screenshots from qa/agents (never commit; real assets live in src/assets and public)
+/*.png
+tests/e2e/**/*.png
+**/.shots*/
+tests/e2e/timings.json

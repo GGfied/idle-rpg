@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { ISO, LAYERS, isoProjection } from '@render/index';
-import { BLOCKED_TEXT, EFFECTS, EVENT_VFX } from './data';
+import { BLOCKED_TEXT, EFFECTS, EVENT_VFX, LIMITS_DESKTOP, LIMITS_MOBILE } from './data';
 import {
   resolveXpColor,
   ballistic,
   blockedLabel,
+  createEmitBudget,
+  createKeyedRegistry,
   createPool,
   createThrottle,
   diamondPoints,
@@ -204,7 +206,7 @@ describe('modes', () => {
   });
   it('reduced shortens kept effects and removes jitter', () => {
     const ring = resolveEffect('levelUpRing', 'reduced');
-    expect(ring?.lifeMs).toBeLessThan(600);
+    expect((ring as { lifeMs: number }).lifeMs).toBeLessThan(600);
     expect(resolveEffect('clickMarker', 'reduced')).toBeDefined();
     const burst = resolveEffect('woodChips', 'on');
     expect(burst).toBeDefined();
@@ -371,6 +373,33 @@ describe('fishing spotMoved ripples', () => {
   });
 });
 
+describe('several spots hopping close together', () => {
+  // The world has 4 fishing spots; their hops can land within one ripple lifetime (fast ticks, or the same tick).
+  const HOPS = ['s1', 's1', 's1', 's1'];
+  for (const [name, limits] of [
+    ['desktop', LIMITS_DESKTOP],
+    ['mobile', LIMITS_MOBILE],
+  ] as const) {
+    it(`${name} ring pool keeps both ends of every hop`, () => {
+      const rings = createPool<{ id: number }>({
+        cap: limits.rings,
+        create: () => ({ id: 0 }),
+        reset: () => undefined,
+        dispose: () => undefined,
+      });
+      const kept: { id: number }[] = [];
+      for (const spotId of HOPS) {
+        const plan = planEvent({ type: 'spotMoved', spotId, from: 1, to: 3 }, spotCtx);
+        plan.forEach(() => kept.push(rings.acquire()));
+      }
+      expect(kept.length).toBe(16);
+      // Every acquired ring is still active (none recycled early): all 16 distinct and active.
+      expect(new Set(kept).size).toBe(16);
+      expect(rings.activeCount()).toBe(16);
+    });
+  }
+});
+
 describe('ore tint and anchors', () => {
   it('tints the sparkle from the rock art ore colour', () => {
     const p = planEvent(
@@ -438,5 +467,108 @@ describe('pool reuse under the new bursts', () => {
     for (let i = 0; i < 12; i++) pool.acquire();
     expect(pool.totalCount()).toBe(4);
     expect(pool.activeCount()).toBe(4);
+  });
+});
+
+describe('firemaking and cooking events', () => {
+  const tile = { x: 12, y: 7 };
+  const feet = isoProjection.tileToWorld(12, 7);
+  const plan = (e: Record<string, unknown>, mode: 'on' | 'reduced' | 'off' = 'on') =>
+    planEvent({ type: 'x', ...e }, ctx, EVENT_VFX, { mode, xpDrops: true });
+
+  it('fireLightStarted plays repeating sparks and a wisp at the tile', () => {
+    const out = plan({ type: 'fireLightStarted', tile });
+    expect(out.map((p) => p.effect)).toEqual(['strikeSparks', 'lightWisp']);
+    expect(out[0]).toMatchObject({ x: feet.x, feetY: feet.y });
+    expect((EFFECTS.strikeSparks as { repeat?: { times: number } }).repeat?.times).toBe(3);
+  });
+  it('fireLit flares and starts the smoke column keyed by fireId', () => {
+    const out = plan({ type: 'fireLit', fireId: 'f1', tile, logsId: 'logs' });
+    expect(out.map((p) => p.effect)).toEqual([
+      'ignitionBloom',
+      'ignitionGlow',
+      'ignitionSparks',
+      'fireSmoke',
+    ]);
+    expect(out[3]?.persist).toEqual({ action: 'start', key: 'f1' });
+  });
+  it('fireBurnedOut stops the column and plays ember fade + ash', () => {
+    const out = plan({ type: 'fireBurnedOut', fireId: 'f1', tile, logsId: 'logs' });
+    expect(out.map((p) => p.effect)).toEqual(['fireSmoke', 'emberFade', 'ashPuff']);
+    expect(out[0]?.persist).toEqual({ action: 'stop', key: 'f1' });
+  });
+  it('itemCooked: steam when cooked, dark smoke + flecks when burnt', () => {
+    expect(plan({ type: 'itemCooked', burnt: false, tile }).map((p) => p.effect)).toEqual([
+      'steamPuff',
+    ]);
+    expect(plan({ type: 'itemCooked', burnt: true, tile }).map((p) => p.effect)).toEqual([
+      'burntSmoke',
+      'burntFlecks',
+    ]);
+  });
+  it('plays nothing without a valid tile, or a persistent cue without its key', () => {
+    expect(plan({ type: 'itemCooked', burnt: false })).toEqual([]);
+    expect(plan({ type: 'itemCooked', burnt: false, tile: { x: NaN, y: 1 } })).toEqual([]);
+    expect(plan({ type: 'fireLit', tile }).map((p) => p.effect)).not.toContain('fireSmoke');
+    expect(plan({ type: 'cookingStopped', reason: 'noRawFood' })).toEqual([]);
+  });
+  it('reduced and off modes drop the fire effects', () => {
+    expect(plan({ type: 'fireLit', fireId: 'f1', tile }, 'reduced')).toEqual([]);
+    expect(plan({ type: 'itemCooked', burnt: true, tile }, 'reduced')).toEqual([]);
+    expect(plan({ type: 'fireLit', fireId: 'f1', tile }, 'off')).toEqual([]);
+  });
+  it('smoke sorts above the tile, flare in front of it', () => {
+    const out = plan({ type: 'fireLit', fireId: 'f1', tile });
+    expect(effectDepth('overhead', feet.x, feet.y)).toBe(LAYERS.VFX);
+    expect(out[0]?.depth).toBe(effectDepth('world', feet.x, feet.y));
+    expect(out[1]?.depth).toBe(effectDepth('ground', feet.x, feet.y));
+  });
+});
+
+describe('createKeyedRegistry (fires by fireId)', () => {
+  it('starts once per key and stops cleanly, leaving nothing behind', () => {
+    const disposed: string[] = [];
+    const reg = createKeyedRegistry<string>(3, (s) => disposed.push(s));
+    expect(reg.start('a', () => 'A')).toBe(true);
+    expect(reg.start('a', () => 'A2')).toBe(false);
+    expect(reg.size()).toBe(1);
+    expect(reg.stop('a')).toBe(true);
+    expect(reg.stop('a')).toBe(false);
+    expect(reg.size()).toBe(0);
+    expect(disposed).toEqual(['A']);
+  });
+  it('stops the oldest when over the cap, and stopAll disposes everything', () => {
+    const disposed: string[] = [];
+    const reg = createKeyedRegistry<string>(2, (s) => disposed.push(s));
+    for (const k of ['a', 'b', 'c']) reg.start(k, () => k);
+    expect(reg.has('a')).toBe(false);
+    expect(disposed).toEqual(['a']);
+    reg.stopAll();
+    expect(reg.size()).toBe(0);
+    expect(disposed).toEqual(['a', 'b', 'c']);
+  });
+  it('a zero cap never starts anything', () => {
+    const reg = createKeyedRegistry<string>(0, () => undefined);
+    expect(reg.start('a', () => 'A')).toBe(false);
+  });
+});
+
+describe('createEmitBudget (per-fire particle cap)', () => {
+  it('refuses past the cap and frees slots as particles expire', () => {
+    const b = createEmitBudget(2);
+    expect(b.tryEmit(0, 100)).toBe(true);
+    expect(b.tryEmit(10, 100)).toBe(true);
+    expect(b.tryEmit(20, 100)).toBe(false);
+    expect(b.live(20)).toBe(2);
+    expect(b.tryEmit(100, 100)).toBe(true);
+    expect(b.live(105)).toBe(2);
+    expect(b.live(500)).toBe(0);
+  });
+  it('a zero cap emits nothing', () => {
+    expect(createEmitBudget(0).tryEmit(0, 10)).toBe(false);
+  });
+  it('mobile caps are smaller than desktop by data', () => {
+    expect(LIMITS_MOBILE.fireParticles).toBeLessThan(LIMITS_DESKTOP.fireParticles);
+    expect(LIMITS_MOBILE.fires).toBeLessThan(LIMITS_DESKTOP.fires);
   });
 });

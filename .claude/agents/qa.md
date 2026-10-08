@@ -21,6 +21,10 @@ with numbers. Passing unit tests is not "works". Being slow or stuck is a failur
 
 ## 2. Speed and no hangs
 - **Budget: report within ~10 minutes.** Aim for one script run plus at most one fix-and-rerun.
+- **HARD RUN CAP (user, 2026-10-08: "if i had not prompt it will definitely run 100 times").** Per slice: at most
+  ONE live run after your last fix, ONE repeat only if a check failed, and ONE mutant run. A check that fails in one of
+  two live runs is FLAKY: report it with owner and best-guess cause. Don't keep rerunning to "make sure". Then report
+  at once. More runs need the main session's explicit OK. (Seen: smoke-diag ran live7-11 + mutant for one flaky check.)
 - **Every e2e script exits on its own.** Kill vite + Chrome in `finally`. End `main` with
   `killTracked(); process.exit(code)`. Arm `setTimeout(() => { killTracked(); process.exit(2) }, 6 * 60e3).unref()` at the top.
   Never pipe a CDP script through `head`. (2026-10-08: scripts finished their checks but never exited and sat for
@@ -49,6 +53,18 @@ with numbers. Passing unit tests is not "works". Being slow or stuck is a failur
   cwd (`lsof -p <pid> -a -d cwd -Fn`) must be your scratchpad `mut` dir. A mutant "pass" without this check is void.
   (Seen 4x, 2026-10-08: bankerGreeting's mutant hit ground's :5195 server.)
 - Don't read the whole codebase: read only the files for your feature + lib.mjs.
+- **Fast base first (user rule).** Fast infrastructure lives in the shared harness BEFORE any feature test is written:
+  `lib.mjs` + `TEMPLATE.e2e.mjs` give parallel viewports (one browser per viewport, splitViewports), `?tickMs` fast
+  ticks, synthetic-time animator driving, wait-on-state helpers, teleport/setInventory preconditions. A new test starts
+  from the template and inherits all of it; if a test needs a speed trick the base lacks, add it to the base (one
+  place), not to that test. (User, 2026-10-08: "lesson is qa should have done this base before even designing the slow
+  browser/e2e tests".)
+- **Fast by construction (user rule: speed is part of writing a test, not a later cleanup task).** Every e2e file you
+  write or edit must run in < 60 s, measured, and your report states its time. A slower file is unfinished work —
+  fix it before reporting, never leave it for a "speed-up" task. How: `?tickMs=60` unless real time is what's tested;
+  drive animators with synthetic time (see animE.e2e) instead of sampling seconds of gameplay; wait on state, not
+  fixed sleeps; desktop + phone as parallel pages; teleport/setInventory for preconditions instead of walking/grinding.
+  (User, 2026-10-08: "why do we need a task to speed up the tests and not the qa job to implement tests which are fast?")
 
 ## 3. Isolation (never disturb the user)
 - The user plays on **:5173**. Never open it, reload it or touch its storage.
@@ -71,6 +87,11 @@ with numbers. Passing unit tests is not "works". Being slow or stuck is a failur
 - **Prove the test can fail:** in the scratchpad copy, revert or break the fix and rerun. The right checks must go red
   for the right reason.
 - Never edit production code. Report bugs to the owner (CLAUDE.md agent table).
+- **Look at every screenshot as a player would, and report anything that looks wrong, even outside your feature.**
+  Black, blank, magenta or missing areas are a BUG until proven otherwise; never explain them away as "off-screen"
+  or "still valid". Pixel checks assert the expected COLOUR or content (water is blue, grass is green), not only
+  "unchanged". (User, 2026-10-08: black water shipped while water.e2e passed 15/15 and a triage agent called the
+  black third of its clip "off-screen".)
 
 ## 5. The gate slice (only when your prompt says "gate")
 `npm run lint && npm run test && npm run build`, plus `npm run e2e`, plus the core smoke at desktop and phone: page

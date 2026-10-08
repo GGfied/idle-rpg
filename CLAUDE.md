@@ -20,7 +20,8 @@ Work must be resumable by a fresh session at any point.
    they're made, including anything the user decided.
 4. **New requests mid-task** go into the runbook as tasks straight away, so nothing is lost if
    the session ends.
-5. **When everything is done:** set the status to `done` and keep the file as history.
+5. **When everything is done:** set the status to `done` and move the file to `docs/runbooks/done/` as history.
+   Old tracking history lives in `docs/archive/` (qa-coverage, qa-log, agent-progress as of 2026-10-08).
 6. Subagents don't edit runbooks. They report back, and the main session updates the runbook.
 
 ```markdown
@@ -81,8 +82,8 @@ Work must be resumable by a fresh session at any point.
   working, until `qa` has checked it in the browser and reported. **One qa agent per feature** (user: "always 1 slice
   each"), all in parallel on their own ports; a qa agent that finds its feature too big reports a split at once and
   the main session dispatches the parts. Lint/test/build + `npm run e2e` + core smoke run once per round as their own
-  **gate** slice, not inside every feature slice. Never cut a qa run short; a run with no progress for 2 minutes is
-  stuck, so kill it and fix the cause. Every integrator round is followed by
+  **gate** slice, not inside every feature slice. Never cut a qa run short; a run with no progress for 7 minutes is
+  stuck, so kill it and fix the cause. (User, 2026-10-08: "7mins is the given duration not 2".) Every integrator round is followed by
   a `qa` round; its findings go to the owners, and the fix gets another `qa` round. The main session's own
   browser checks add to qa; they don't replace it. (User, 2026-10-08: "we need enforce qa always".)
 - **Money is not an item (user rule).** Coins/currency are a player balance (a "wallet" save slice owned by `economy`:
@@ -100,12 +101,26 @@ Work must be resumable by a fresh session at any point.
   "same as integrator i think it will take very long if not sliced".) Each integrator slice is followed at once by
   its OWN small qa slice that checks just that wiring in the browser. Don't batch them into a later qa round. (User,
   2026-10-08: "integrator qa too".)
+- **Look at the game, not just the numbers (user rule).** Every qa report and every main-session check includes
+  looking at screenshots of the world as a player would: black, blank, magenta or missing areas are bugs until
+  proven otherwise, never "off-screen" or "still valid". `tests/e2e/visualSmoke.e2e.mjs` (colour sanity at key
+  spots) runs every round and the main session views its shots. (User, 2026-10-08: "all that qa but i need to spot
+  issues for you" — black water shipped while water.e2e passed 15/15.)
+- **Build the shared base first (user rule).** Before writing many of anything (tests, panels, skills, effects), the
+  owner first builds the shared base that makes each one right by default (fast test harness, shared component,
+  machinery in core/), then writes the instances on top. Fixing 40 slow tests afterwards is the cost of skipping this.
+  (User, 2026-10-08: "qa should have done this base before even designing the slow browser/e2e tests".)
+- **Complete beats fast (user rule).** Never cut an agent short, time-limit it, or have it report partial work.
+  Speed comes from slicing and parallel agents up front. (User, 2026-10-08: "i hate incomplete work more than slow
+  work".)
 - **Toggles are positive (user rule).** A setting's label names the thing, and On means it's active or shown
   ("Sound", "Show HUD", "Minimap"); never negative labels like "Mute", "Hide" or "Disable". (User, 2026-10-08.)
 - **Locked things stay visible (user rule).** Unlock lists, achievements, quests and perk nodes show
   locked entries greyed with their exact requirements and the player's current value ("Requires
   Woodcutting 15 (you: 5)"); secrets show as "???" (optional hint) until revealed. Requirement status
   comes only from `core`'s generic Requirement evaluator (met/unmet, reason, current value).
+  Skill unlock tree: a locked node never reveals what it is; it shows "Unknown" + a "?" glyph and its requirement.
+  (User, 2026-10-08: "we should not show if user hasn't unlocked … unknown".)
 - **Never break the live dev server.** The user plays on the dev server while agents work, and Vite hot-reloads
   every saved file. Only save edits that compile (`npx tsc --noEmit` after each save). Do break-and-restore
   "prove the test fails" checks in a copy, never in the live tree. Recipe (seconds, works with uncommitted
@@ -115,34 +130,38 @@ Work must be resumable by a fresh session at any point.
   Every e2e or mutant vite server must use its own `cacheDir`, never the default `node_modules/.vite`. Because the
   scratch copy symlinks node_modules, that cache is shared with the user's :5173 server. When a test server
   re-optimizes deps, it breaks the live game on fresh loads (HUD crash "null reading useContext"; seen 2026-10-08).
-  Start test servers only through `tests/e2e/vite.frozen.config.mjs`. Use absolute paths in generated edit scripts. (Seen 3×, 2026-10-08: integrator's stray CSS file,
-  the half-built sidebar, animation's mangled data.ts.)
+  Start test servers only through `tests/e2e/vite.frozen.config.mjs`. Name every scratch mutant copy uniquely
+  (`$SCRATCH/mut_<slice>`, never plain `mut`) and grep that the mutation is still there right before and after the
+  run: parallel agents share the session scratchpad and a shared `mut` was overwritten mid-run (2026-10-08). Use
+  absolute paths in generated edit scripts. (Seen 3×, 2026-10-08: integrator's stray CSS file, the half-built
+  sidebar, animation's mangled data.ts.)
 - **Every agent runs e2e scripts in the FOREGROUND** (`node tests/e2e/<x>.e2e.mjs`, Bash timeout 420000) and reads the
   output directly. Never background a test and poll a log for a word (a `until grep -q SUMMARY` loop waited forever on a
   finished run that printed "13/15 checks passed"; 2026-10-08). The harness exits by itself.
 - **Clean up background processes.** Any agent that starts a dev server or headless browser kills it when done (also on
-  failure), by its own PID only, never `pkill`/`killall` by pattern (other agents' browsers die too); headless Chrome always runs with `--mute-audio`. (2026-10-08: orphaned test browsers played game audio on the
-  user's speakers; the main session had to kill 7.)
+  failure), by its own PID only, never `pkill`/`killall` by pattern (other agents' browsers die too); headless Chrome
+  always runs with `--mute-audio`. (2026-10-08: orphaned test browsers played game audio on the user's speakers; the
+  main session had to kill 7.)
 - **Wire as you go.** A finished module isn't done until `integrator` has wired it into the running game
   and it's visible. Don't queue several finished modules for one big integration round later. (User,
   2026-10-08: "sound, graphics, vfx, animations require integrator too? because i don't see it".)
-
 - **Absolute paths, never `cd`-then-write.** Create folders with `mkdir -p <absolute path>` and write
   files by absolute path. A failed `cd X && …` silently runs the rest in the project root, where
   parallel agents overwrite each other's files. (Seen by `items` and `equipment`, 2026-10-08.)
-
-- **QA results are recorded in real time (user rule).** Every qa/balance/performance run appends one line to
-  `docs/qa-log.md` (single `>>`, append-only) the moment it finishes, before its report. The main session updates
-  `docs/qa-coverage.md` in the same response as each log line or report it sees (⏳ with port when dispatched, the
-  result when it lands), never batched to the end of a round. Reason: when the session hits its usage limit, results
-  that were only in an agent's head are lost and must be re-run. (User, 2026-10-08, after the 04:55 restart.)
-- **Always update qa-coverage.md AND the task list (user rule).** In the same response as EVERY agent report (code-only
-  too, not just qa), every dispatch and every new user request, the main session updates both. In
-  `docs/qa-coverage.md`, update the feature's row (🔧 = code done but browser check owed, ⏳ + port = running,
-  ✅ = qa passed + mutant red, ❌ = queued) and keep the "Running now" / "Still open" lines current. In the task list
-  (TaskCreate/TaskUpdate), add a task for each new item, and flip each task to in_progress/completed the moment it
-  changes. Never batch these or let them go stale. (User, 2026-10-08: "please always remember to update these 2".)
-
+- **Record QA results and status in real time (user rules).** Every qa/balance/performance run appends one line to
+  `docs/qa-log.md` (single `>>`, append-only) the moment it finishes, before its report. In the same response as EVERY
+  agent report (code-only too), every dispatch and every new user request, the main session updates both
+  `docs/qa-coverage.md` (the feature's row: 🔧 = code done but browser check owed, ⏳ + port = running, ✅ = qa passed +
+  mutant red, ❌ = queued; keep the "Open now" table current, move closed rows to `docs/archive/`) and the task list
+  (TaskCreate/TaskUpdate: a task per new item, flipped the moment it changes). Never batch these or let them go stale.
+  Reason: when the session hits its usage limit, results only in an agent's head are lost and must be re-run. (User,
+  2026-10-08: after the 04:55 restart; "please always remember to update these 2".)
+- **Small slices, watched from dispatch (user rule).** Keep each slice small enough to finish in about 10 minutes, and split
+  bigger work into more slices up front. Never time-box or cut an agent short ("Complete beats fast" still holds). Every Agent prompt
+  lists its checks in priority order and asks for a progress line every 5 min. The main session starts a stall watcher at
+  dispatch, acts only on its alarms (it doesn't relay every tick to the user), and keeps about 3 agents running at once, since load
+  over 100 made e2e and lint crawl. (User, 2026-10-08: "why do i need to chase and give deadlines…"; then "this is not right" when
+  a time box cut a slice short.)
 - **Agents report progress as they go (user rule).** Every agent appends one dated line to `docs/agent-progress.md`
   (single `>>`, append-only, format `- HH:MM <agent> <item#>: <what happened> — next: <next step>`) at each milestone:
   started, first compiling save, tests green, mutant result, blocked, done. Also send these as interim notes rather

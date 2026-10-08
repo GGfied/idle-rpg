@@ -224,6 +224,20 @@ describe('one icon source per item (inventory === bank === ground)', () => {
       'small_fishing_net',
       'fishing_rod',
       'fishing_bait',
+      'tinderbox',
+      'ashes',
+      'shrimps',
+      'anchovies',
+      'sardine',
+      'herring',
+      'trout',
+      'mackerel',
+      'burnt_fish',
+      'raw_chicken',
+      'raw_beef',
+      'cooked_chicken',
+      'cooked_beef',
+      'burnt_meat',
     ];
     expect(itemIconIds()).toEqual([...IDS].sort());
   });

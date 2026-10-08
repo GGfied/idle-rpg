@@ -1,15 +1,25 @@
 // Minimap region part labels + boundary lines e2e (task #58).
 // 1 Wilds label appears when walking south from spawn  2 every region label drawn, inside circle, disjoint
 // 3 font ~10 CSS px at dpr 1 and 3  4 region boundary lines really painted (pixel brightness along known edges).
-// Run: node tests/e2e/minimapRegions.e2e.mjs   (port 5192; E2E_PORT overrides)
-import { check, expect, withGame } from './lib.mjs';
+// Run: node tests/e2e/minimapRegions.e2e.mjs   (port 9025 +1 per combo; E2E_PORT overrides)
+// Fast base: desktop (dpr 1) + phone (dpr 3) as parallel children, ?tickMs=60, frame-driven settle (no sleeps), budget 60 s.
+// The minimap is a 2D canvas drawn by the HUD, not by Phaser: one renderer (webgl) is enough.
+import { check, expect, forEachCombo, runParallel, withGame } from './lib.mjs';
+
+const PORT = 9025;
+const BUDGET_MS = 60e3;
+const COMBOS = await runParallel(import.meta.url, PORT, {
+  viewports: ['desktop', 'phone'],
+  renderers: ['webgl'],
+  budgetMs: BUDGET_MS,
+});
 
 const SPY = `(() => {
   const P = CanvasRenderingContext2D.prototype, oc = P.clearRect, of = P.fillText;
   window.__mm = { frame: [] };
   P.clearRect = function (...a) { if (this.canvas.className === 'minimap') window.__mm.frame = []; return oc.apply(this, a); };
   P.fillText = function (t, x, y) { if (this.canvas.className === 'minimap') {
-    window.__mm.frame.push({ t, x, y, font: this.font, align: this.textAlign, w: this.measureText(t).width }); }
+    window.__mm.frame.push({ t, x, y, a: this.globalAlpha, font: this.font, align: this.textAlign, w: this.measureText(t).width }); }
     return of.call(this, t, x, y); };
 })();`;
 
@@ -27,10 +37,37 @@ const SNAP = `(async () => {
 const boxOf = (f) => {
   const px = Number(/(\d+(?:\.\d+)?)px/.exec(f.font)[1]);
   const left = f.align === 'center' ? f.x - f.w / 2 : f.x;
-  return { t: f.t, left, right: left + f.w, top: f.y - px / 2, bottom: f.y + px / 2, px };
+  return {
+    t: f.t,
+    left,
+    right: left + f.w,
+    top: f.y - px / 2,
+    bottom: f.y + px / 2,
+    px,
+    a: f.a ?? 1,
+  };
 };
-const snap = async (g) => (await g.sleep(250), g.cdp.eval(SNAP));
-const tp = async (g, x, y) => (await g.teleport(x, y, { settleMs: 2700 }), snap(g));
+const raf = (g, n = 2) =>
+  g.cdp.eval(
+    `new Promise((r) => { const f = (k) => (k <= 0 ? r(1) : requestAnimationFrame(() => f(k - 1))); f(${n}); })`,
+  );
+const snap = (g) => g.cdp.eval(SNAP);
+// Wait for the minimap trail glide to end (drawn frame unchanged for 3 samples, 5 frames apart) instead of sleeps.
+const settleFrame = async (g) => {
+  let last = '',
+    same = 0;
+  for (let i = 0; i < 60 && same < 3; i++) {
+    await raf(g, 5);
+    const cur = await g.cdp.eval('JSON.stringify(window.__mm.frame)');
+    same = cur === last && cur !== '[]' ? same + 1 : 0;
+    last = cur;
+  }
+};
+const tp = async (g, x, y) => (
+  await g.teleport(x, y, { settleMs: 0 }),
+  await settleFrame(g),
+  snap(g)
+);
 
 function frameChecks(s, tag) {
   const boxes = s.frame.map(boxOf);
@@ -113,9 +150,12 @@ async function runViewport(g, vp, dsf) {
     vp === 'phone'
       ? { width: 390, height: 844, mobile: true }
       : { width: 1280, height: 800, mobile: false };
-  await g.setViewport(vp);
-  await g.cdp.send('Emulation.setDeviceMetricsOverride', { ...v, deviceScaleFactor: dsf });
-  await g.load();
+  // forEachCombo loaded at the lib's dpr (desktop 1, phone 2): the font check needs dpr 3 on phone, so reload there.
+  const cur = await g.cdp.eval('window.devicePixelRatio');
+  if (cur !== dsf) {
+    await g.cdp.send('Emulation.setDeviceMetricsOverride', { ...v, deviceScaleFactor: dsf });
+    await g.load();
+  }
 
   await check(
     `${tag}-wilds-walk`,
@@ -153,6 +193,7 @@ async function runViewport(g, vp, dsf) {
           () => g.cdp.eval('window.__idleRpg.store.getState().game.movement.path.length === 0'),
           { timeoutMs: 15000, label: 'walk done' },
         );
+        await settleFrame(g); // trail glide finished (was a fixed 250 ms)
         s = await snap(g);
       }
       const f = s.frame.find((x) => x.t === 'The Wilds' && isNear(x, near));
@@ -164,7 +205,8 @@ async function runViewport(g, vp, dsf) {
       for (const cx of [b.left, b.right])
         expect(Math.hypot(cx - s.r, f.y - s.r) <= s.r, 'label outside circle');
       // the layout nudges a label up to 2 rows / 0.4 widths off its anchor to keep the box inside the circle
-      expect((await whitePixels(g, [b])) === 1, 'label has no white text pixels');
+      // A label forced under the player marker is drawn at alpha 0.4 on purpose (layoutLabels): never pure white.
+      if (b.a >= 0.99) expect((await whitePixels(g, [b])) === 1, 'label has no white text pixels');
       return `anchor ${near.x},${near.y} (${d0.toFixed(0)} tiles from spawn, drawnAtSpawn=${drawnAtSpawn}); drawn after ${steps - 1} taps at pos ${s.pos.x.toFixed(1)},${s.pos.y.toFixed(1)}, label px ${f.x.toFixed(0)},${f.y.toFixed(0)} r=${s.r}`;
     },
   );
@@ -186,7 +228,8 @@ async function runViewport(g, vp, dsf) {
           (a, b) => Math.hypot(a.x - s.r, a.y - s.r) - Math.hypot(b.x - s.r, b.y - s.r),
         )[0];
         const boxes = frameChecks(s, `#${l.i}`);
-        expect((await whitePixels(g, boxes)) === boxes.length, 'some labels have no white pixels');
+        const solid = boxes.filter((b) => b.a >= 0.99); // faded (under the player, alpha 0.4) labels are never pure white
+        expect((await whitePixels(g, solid)) === solid.length, 'some labels have no white pixels');
         return `${boxes.length} labels drawn, "${l.text}" centre offset ${Math.round(nearest.x - s.r)},${Math.round(nearest.y - s.r)}; font ${boxes[0].px}px/dpr${s.dpr}`;
       },
     );
@@ -196,13 +239,7 @@ async function runViewport(g, vp, dsf) {
   );
 }
 
-await withGame({ port: Number(process.env.E2E_PORT) || 5192 }, async (g) => {
-  await g.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: SPY });
-  await runViewport(g, 'desktop', 1);
-  await runViewport(g, 'phone', 3);
-  const errs = g.consoleErrors();
-  await check('console', 'no console errors', async () => {
-    expect(errs.length === 0, errs.join('; '));
-    return '0 console errors';
-  });
-});
+await withGame(
+  { port: PORT, budgetMs: BUDGET_MS, initScripts: [SPY] },
+  forEachCombo(COMBOS, (g, vp) => runViewport(g, vp, vp === 'phone' ? 3 : 1)),
+);

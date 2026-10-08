@@ -13,6 +13,7 @@ import { InventoryPanel } from '@app/ui/panels/InventoryPanel';
 import { SkillsPanel } from '@app/ui/panels/SkillsPanel';
 import { useHud, useSetPref } from '@app/ui/prefs';
 import { useFold } from '@app/ui/hudFold';
+import { selectTab } from '@app/ui/tabSelect';
 import { useHudInset } from '@app/ui/useHudInset';
 import { SettingsButton, SettingsPanel, useSettingsOpen } from '@app/ui/panels/SettingsPanel';
 
@@ -47,7 +48,6 @@ function MenuLayer() {
 export function Hud() {
   const tab = useApp((s) => s.tab);
   const open = useApp((s) => s.panelOpen);
-  const setTab = useApp((s) => s.setTab);
   const { audio, store } = useRuntime();
   const [folded, setFolded] = useFold('sheetFold');
   const [chatMin] = useFold('chatFold');
@@ -102,12 +102,9 @@ export function Hud() {
               aria-selected={!settings && tab === t.id}
               onClick={() => {
                 audio.play('uiClick');
-                setTab(t.id);
-                if (folded) {
-                  setFolded(false);
-                  // A tap on the already-open tab would toggle the body shut; a tap that expands must show it.
-                  if (!store.getState().panelOpen) store.getState().togglePanel();
-                }
+                const wasFolded = folded;
+                selectTab(() => store.getState(), t.id, wasFolded);
+                if (wasFolded) setFolded(false);
               }}
             >
               {t.label}

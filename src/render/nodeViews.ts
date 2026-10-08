@@ -17,8 +17,8 @@ export const isSpotKind = (k: NodeKind): k is SpotKind => k === 'net_spot' || k 
 
 /** Idle timing (ms). Exposed so `animation` can reproduce or replace the built-in loop. */
 export const NODE_IDLE = {
-  /** One ripple/bubble loop of a fishing spot. */
-  spotLoopMs: 840,
+  /** One full loop of a fishing spot (24 frames: ripples repeat 4x, bait fish jumps once). */
+  spotLoopMs: 3360,
   /** A rock glints once per period, for `glintMs`. */
   glintPeriodMs: 3400,
   glintMs: 600,

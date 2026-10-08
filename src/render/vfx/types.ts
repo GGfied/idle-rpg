@@ -14,7 +14,19 @@ export interface EffectBase {
  * 'node' = the event's nodeId (or spotId); 'from' / 'to' = the tile index in the event's `from` / `to`
  * field on that node (fishing spotMoved), resolved by `VfxContext.tileWorld`.
  */
-export type VfxAnchor = 'player' | 'node' | 'from' | 'to';
+export type VfxAnchor = 'player' | 'node' | 'from' | 'to' | 'tile';
+
+/** Event field values a cue can test. */
+export type CueValue = string | number | boolean;
+
+/**
+ * Start or stop a long-running effect (a fire's smoke column) bound to the event field `keyField`
+ * (e.g. `fireId`). Starting an already running key does nothing; stopping an unknown key does nothing.
+ */
+export interface PersistRef {
+  action: 'start' | 'stop';
+  keyField: string;
+}
 
 /** One thing to play when an event arrives. `effect` is a key of `EFFECTS`. */
 export interface VfxCue {
@@ -22,9 +34,11 @@ export interface VfxCue {
   /** Where to play it. 'node' falls back to the player when the node position is unknown. */
   at: VfxAnchor;
   /** Only play when every listed event field equals the value (e.g. `{ reason: 'noTool' }`). */
-  when?: Readonly<Record<string, string>>;
+  when?: Readonly<Record<string, CueValue>>;
   /** Skip when any listed event field equals the value (e.g. rock depletion must not play tree dust). */
-  unless?: Readonly<Record<string, string>>;
+  unless?: Readonly<Record<string, CueValue>>;
+  /** For `fire` effects: start/stop the effect bound to an event key instead of playing once. */
+  persist?: PersistRef;
   /** Shift the 'node' anchor this many px toward the player (the face of the trunk that is struck). */
   towardPlayer?: number;
   /** Tint the effect with `ITEM_TINT[event[tintField]]` (e.g. ore colour from the gathered itemId). */
@@ -65,6 +79,16 @@ export interface BurstEffect extends EffectBase {
   lifeMs: number;
   /** Round puff (Arc) instead of square chip. */
   round?: boolean;
+  /** Additive blend (glows: sparks, embers, flares). */
+  additive?: boolean;
+  /** Starting alpha (default 1) for soft puffs. */
+  alpha?: number;
+  /** End scale (default 1.8 for round puffs, 0.6 for chips). */
+  grow?: number;
+  /** Constant sideways push in px (wind), added to the random spread. */
+  drift?: number;
+  /** Play this many times, `everyMs` apart (the first plays at once). */
+  repeat?: { times: number; everyMs: number };
   /** Start spread, so a burst is not a single point. */
   jitter: number;
 }
@@ -122,8 +146,52 @@ export interface BlockedTextEffect extends EffectBase {
   shakes: number;
 }
 
+/**
+ * A persistent effect bound to a key (a burning fire): one timer emits soft smoke puffs that drift, grow and
+ * fade, and now and then an ember. Emission is capped per fire by `VfxLimits.fireParticles`.
+ */
+export interface FireEffect extends EffectBase {
+  kind: 'fire';
+  /** Decorative only: not played in 'reduced' mode. */
+  decorative?: boolean;
+  /** Emit interval in ms. */
+  tickMs: number;
+  /** Smoke sorts here (it rises above the tile); embers use `layer`. */
+  smokeLayer: EffectLayer;
+  /** Smoke starts this many px above the feet point. */
+  smokeLift: number;
+  smoke: {
+    colors: readonly number[];
+    size: readonly [number, number];
+    /** Upward travel in px over the puff's life. */
+    rise: number;
+    /** Steady wind push in px, plus a random sway of up to `sway` px either way. */
+    drift: number;
+    sway: number;
+    lifeMs: number;
+    alpha: number;
+    /** End scale. */
+    grow: number;
+  };
+  /** Chance per tick of one ember. */
+  emberChance: number;
+  ember: {
+    colors: readonly number[];
+    size: readonly [number, number];
+    rise: number;
+    sway: number;
+    lifeMs: number;
+  };
+}
+
 export type EffectDef =
-  BurstEffect | RingEffect | XpDropEffect | MarkerEffect | CrossEffect | BlockedTextEffect;
+  | BurstEffect
+  | RingEffect
+  | XpDropEffect
+  | MarkerEffect
+  | CrossEffect
+  | BlockedTextEffect
+  | FireEffect;
 
 /** Minimal event shape the runner reads. */
 export interface VfxEvent {
@@ -141,6 +209,10 @@ export interface VfxContext {
 export interface VfxLimits {
   texts: number;
   particles: number;
+  /** Fires that smoke at once (the oldest stops when exceeded). */
+  fires: number;
+  /** Live smoke + ember particles one fire may have. */
+  fireParticles: number;
   rings: number;
   markers: number;
 }

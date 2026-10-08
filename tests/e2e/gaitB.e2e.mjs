@@ -1,14 +1,25 @@
 // QA anim-b: WALK/RUN limb swing runs along the facing in all 8 facings (runbook big-world items 15/16).
-// Port 5259 (E2E_PORT overrides). Real 600 ms ticks. Measures hand/foot END POINTS in screen space against the
-// real travel direction: forward travel >> lateral travel, no limb end crosses the body midline, arm ~ opposite leg.
+// Measures hand/foot END POINTS in screen space against the real travel direction: forward travel >> lateral travel,
+// no limb end crosses the body midline, arm ~ opposite leg.
+// FAST BASE: walk and run, desktop and phone = 4 parallel runParallel children (withCombos: one page load each), waits
+// on state (camera settled, player moved, drawn player still) instead of sleeps, budget 60 s.
+// Run: node tests/e2e/gaitB.e2e.mjs (base port 9576; E2E_PORT overrides)
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
-import { check, expect, forEachViewport, withGame } from './lib.mjs';
+import { VIEWPORTS, check, expect, runParallel, waitStill, withCombos } from './lib.mjs';
 
 const SHOTS = process.env.SHOTS_DIR ?? resolve(process.cwd(), 'tests/e2e/.shots-animB');
-const PORT = Number(process.env.E2E_PORT ?? 5259);
+// The walk and run halves are independent (own lanes, own checks): each viewport runs them as two parallel children.
+VIEWPORTS.desktopRun = { ...VIEWPORTS.desktop };
+VIEWPORTS.phoneRun = { ...VIEWPORTS.phone };
+const PORT = 9576;
+const BUDGET_MS = 60e3;
+const COMBOS = await runParallel(import.meta.url, PORT, {
+  viewports: ['desktop', 'desktopRun', 'phone', 'phoneRun'],
+  budgetMs: BUDGET_MS,
+});
 const SAMPLER = `(() => {
   const H = window.__idleRpg, S = (window.__S = { rows: [], on: false });
   const pv = () => H.scene().playerView;
@@ -45,6 +56,12 @@ const SAMPLER = `(() => {
   S.player = () => { const c = pv().container; return window.__e.toClient(c.x, c.y); };
 })()`;
 
+// 200 ms ticks, not real time: the gait cycle is wall-clock (WALK_CYCLE_MS 520, RUN_CYCLE_MS 340) and every number is a
+// limb end relative to its body pivot, so travel speed does not change what is measured, only how long a lane takes.
+// Lanes are long enough that the steady window (moving, minus one tick each end) still holds > 2 full cycles:
+// walk 8 tiles = 8 ticks -> 1.2 s (2.3 walk cycles); run 12 tiles = 6 ticks -> 0.8 s (2.4 run cycles).
+const TICK = 200;
+const LANE_TILES = { walk: 8, run: 12 };
 const LANES = [
   [1, 0],
   [0, 1],
@@ -79,7 +96,7 @@ function movingWindow(rows) {
   const first = mv.indexOf(true),
     last = mv.lastIndexOf(true);
   expect(first >= 0, 'player never moved');
-  return rows.filter((r) => r.t >= rows[first].t + 600 && r.t <= rows[last].t - 600);
+  return rows.filter((r) => r.t >= rows[first].t + TICK && r.t <= rows[last].t - TICK);
 }
 const compass = (dx, dy) =>
   ['e', 'se', 's', 'sw', 'w', 'nw', 'n', 'ne'][
@@ -119,159 +136,168 @@ function analyse(w) {
   return out;
 }
 
-await withGame(
-  { port: PORT },
-  forEachViewport(['desktop', 'phone'], async (g, vp) => {
-    await g.eval(SAMPLER);
-    const walk = async (dx, dy, K, run, shot) => {
-      const lane = await g.eval(`window.__S.lane(${dx}, ${dy}, ${K})`);
-      expect(lane, `no lane ${dx},${dy}`);
-      await g.teleport(lane.start.x, lane.start.y);
-      await g.setMovement(`running: ${run}, runEnergy: 10000`);
-      await g.sleep(900);
-      await g.eval('window.__S.go()');
-      await g.walkTo(lane.end.x, lane.end.y);
-      if (shot) {
-        await g.sleep(2000);
-        await clip(g, shot);
-      }
-      await g.waitFor(
-        async () => {
-          const p = await g.state('movement.position');
-          return p.x === lane.end.x && p.y === lane.end.y;
-        },
-        { timeoutMs: 25000, label: 'arrive' },
+await withCombos({ port: PORT, budgetMs: BUDGET_MS, tickMs: TICK }, COMBOS, async (g, combo) => {
+  const vp = combo.replace(/Run$/, '');
+  const modes = combo.endsWith('Run') ? [true] : [false];
+  await g.eval(SAMPLER);
+  const drawn = () =>
+    g.eval(
+      `(() => { const c = window.__idleRpg.scene().playerView.container; return { x: c.x, y: c.y }; })()`,
+    );
+  const walk = async (dx, dy, K, run, shot) => {
+    const lane = await g.eval(`window.__S.lane(${dx}, ${dy}, ${K})`);
+    expect(lane, `no lane ${dx},${dy}`);
+    // teleport, then wait for the camera and the drawn player to come to rest (was a fixed 400-900 ms)
+    await g.teleportSettled(lane.start.x, lane.start.y);
+    await g.setMovement(`running: ${run}, runEnergy: 10000`);
+    await waitStill(drawn, { intervalMs: 60, stable: 2 });
+    await g.eval('window.__S.go()');
+    await g.walkTo(lane.end.x, lane.end.y);
+    if (shot) {
+      // mid-stride: 3 tiles into the lane (was a fixed 2 s / 700 ms)
+      await g.waitState(
+        'movement.position',
+        `p => Math.max(Math.abs(p.x - ${lane.start.x}), Math.abs(p.y - ${lane.start.y})) >= 3`,
+        { label: 'mid-lane' },
       );
-      await g.sleep(150);
-      return analyse(movingWindow(await g.eval('window.__S.stop()')));
-    };
-    await g.realTime(async () => {
-      for (const run of [false, true]) {
-        const res = [];
-        for (const [dx, dy] of LANES) {
-          const shot =
-            !run && dx === 1 && dy === 0
-              ? `${vp}-walk-se`
-              : run && dx === -1 && dy === -1
-                ? `${vp}-run-n`
-                : null;
-          res.push(await walk(dx, dy, run ? 8 : 6, run, shot));
-        }
-        const m = run ? 'run' : 'walk';
-        const K4 = ['arf', 'arb', 'lgf', 'lgb'];
-        const table = res
-          .map(
-            (r) =>
-              `${r.facing} ` +
-              K4.map((k) => `${k} ${f(r[k].fwd, 1)}/${f(r[k].lat, 1)}/x${f(r[k].cross, 1)}`).join(
-                ' ',
-              ),
-          )
-          .join(' | ');
-        const by = Object.fromEntries(res.map((r) => [r.facing, r]));
-        await check(
-          `${m}-axis`,
-          `${m}: side-on leg fwd >= 8 px, arm fwd >= max(3, 0.4*leg) px; diagonals lateral <= 3 px; s/n lateral <= 1 px; all fwd > 0.5 px`,
-          async () => {
-            expect(Object.keys(by).length === 8, `facings seen ${Object.keys(by)}`);
-            const bad = [];
-            for (const k of K4) {
-              for (const fc of ['e', 'w']) {
-                const legFwd = Math.max(by[fc].lgf.fwd, by[fc].lgb.fwd);
-                if (k.startsWith('lg')) {
-                  if (by[fc][k].fwd < 8) bad.push(`${fc}:${k} fwd ${f(by[fc][k].fwd)}`);
-                } else if (by[fc][k].fwd < Math.max(3, 0.4 * legFwd))
-                  bad.push(`${fc}:${k} fwd ${f(by[fc][k].fwd)} < max(3, 0.4*leg ${f(legFwd)})`);
-              }
-              for (const fc of ['se', 'sw', 'ne', 'nw'])
-                if (by[fc][k].lat > 3) bad.push(`${fc}:${k} lat ${f(by[fc][k].lat)}`);
-              for (const fc of ['s', 'n'])
-                if (by[fc][k].lat > 1) bad.push(`${fc}:${k} lat ${f(by[fc][k].lat)}`);
-              for (const fc of ['s', 'n', 'se', 'sw', 'ne', 'nw'])
-                if (!(by[fc][k].fwd > 0.5))
-                  bad.push(`${fc}:${k} no forward swing ${f(by[fc][k].fwd)}`);
+      await clip(g, shot);
+    }
+    await g.waitFor(
+      async () => {
+        const p = await g.state('movement.position');
+        return p.x === lane.end.x && p.y === lane.end.y;
+      },
+      { timeoutMs: 25000, label: 'arrive' },
+    );
+    // the drawn player trails the tile by a tick: sample until it has stopped (was a fixed 150 ms)
+    await waitStill(drawn, { intervalMs: 60, stable: 2 });
+    return analyse(movingWindow(await g.eval('window.__S.stop()')));
+  };
+  {
+    for (const run of modes) {
+      const res = [];
+      for (const [dx, dy] of LANES) {
+        const shot =
+          !run && dx === 1 && dy === 0
+            ? `${vp}-walk-se`
+            : run && dx === -1 && dy === -1
+              ? `${vp}-run-n`
+              : null;
+        res.push(await walk(dx, dy, run ? LANE_TILES.run : LANE_TILES.walk, run, shot));
+      }
+      const m = run ? 'run' : 'walk';
+      const K4 = ['arf', 'arb', 'lgf', 'lgb'];
+      const table = res
+        .map(
+          (r) =>
+            `${r.facing} ` +
+            K4.map((k) => `${k} ${f(r[k].fwd, 1)}/${f(r[k].lat, 1)}/x${f(r[k].cross, 1)}`).join(
+              ' ',
+            ),
+        )
+        .join(' | ');
+      const by = Object.fromEntries(res.map((r) => [r.facing, r]));
+      await check(
+        `${m}-axis`,
+        `${m}: side-on leg fwd >= 8 px, arm fwd >= max(3, 0.4*leg) px; diagonals lateral <= 3 px; s/n lateral <= 1 px; all fwd > 0.5 px`,
+        async () => {
+          expect(Object.keys(by).length === 8, `facings seen ${Object.keys(by)}`);
+          const bad = [];
+          for (const k of K4) {
+            for (const fc of ['e', 'w']) {
+              const legFwd = Math.max(by[fc].lgf.fwd, by[fc].lgb.fwd);
+              if (k.startsWith('lg')) {
+                if (by[fc][k].fwd < 8) bad.push(`${fc}:${k} fwd ${f(by[fc][k].fwd)}`);
+              } else if (by[fc][k].fwd < Math.max(3, 0.4 * legFwd))
+                bad.push(`${fc}:${k} fwd ${f(by[fc][k].fwd)} < max(3, 0.4*leg ${f(legFwd)})`);
             }
-            expect(bad.length === 0, bad.join('; ') + ' || ' + table);
-            return 'fwd/lat/cross px: ' + table;
-          },
-        );
-        await check(
-          `${m}-midline`,
-          `${m}: on diagonals no hand/foot crosses the vertical body midline (> 0.5 px)`,
-          async () => {
-            const bad = [];
             for (const fc of ['se', 'sw', 'ne', 'nw'])
-              for (const k of K4)
-                if (by[fc][k].cross > 0.5) bad.push(`${fc}:${k} ${f(by[fc][k].cross)}px`);
-            expect(bad.length === 0, bad.join('; '));
-            return (
-              'diagonal max cross ' +
-              f(
-                Math.max(
-                  ...['se', 'sw', 'ne', 'nw'].flatMap((fc) => K4.map((k) => by[fc][k].cross)),
-                ),
-              ) +
-              ' px'
-            );
-          },
-        );
+              if (by[fc][k].lat > 3) bad.push(`${fc}:${k} lat ${f(by[fc][k].lat)}`);
+            for (const fc of ['s', 'n'])
+              if (by[fc][k].lat > 1) bad.push(`${fc}:${k} lat ${f(by[fc][k].lat)}`);
+            for (const fc of ['s', 'n', 'se', 'sw', 'ne', 'nw'])
+              if (!(by[fc][k].fwd > 0.5))
+                bad.push(`${fc}:${k} no forward swing ${f(by[fc][k].fwd)}`);
+          }
+          expect(bad.length === 0, bad.join('; ') + ' || ' + table);
+          return 'fwd/lat/cross px: ' + table;
+        },
+      );
+      await check(
+        `${m}-midline`,
+        `${m}: on diagonals no hand/foot crosses the vertical body midline (> 0.5 px)`,
+        async () => {
+          const bad = [];
+          for (const fc of ['se', 'sw', 'ne', 'nw'])
+            for (const k of K4)
+              if (by[fc][k].cross > 0.5) bad.push(`${fc}:${k} ${f(by[fc][k].cross)}px`);
+          expect(bad.length === 0, bad.join('; '));
+          return (
+            'diagonal max cross ' +
+            f(
+              Math.max(...['se', 'sw', 'ne', 'nw'].flatMap((fc) => K4.map((k) => by[fc][k].cross))),
+            ) +
+            ' px'
+          );
+        },
+      );
+      await check(
+        `${m}-sync`,
+        `${m}: arm forward with the OPPOSITE leg, not the same-side leg`,
+        async () => {
+          const [lo, hi] = run ? [0.2, -0.1] : [0.7, -0.7];
+          const bad = [],
+            ev = [];
+          for (const r of res) {
+            const opp = corr(r.arf.fwdS, r.lgb.fwdS),
+              same = corr(r.arf.fwdS, r.lgf.fwdS),
+              opp2 = corr(r.arb.fwdS, r.lgf.fwdS);
+            ev.push(`${r.facing} ${f(opp)}/${f(same)}/${f(opp2)}`);
+            if (!(opp > lo && opp2 > lo && same < hi))
+              bad.push(`${r.facing} opp ${f(opp)} same ${f(same)} opp2 ${f(opp2)}`);
+          }
+          process.stdout.write(`CORR ${vp} ${m} (arf~lgb/arf~lgf/arb~lgf): ${ev.join(' | ')}\n`);
+          expect(bad.length === 0, bad.join('; '));
+          return ev.join(' | ');
+        },
+      );
+      if (run)
         await check(
-          `${m}-sync`,
-          `${m}: arm forward with the OPPOSITE leg, not the same-side leg`,
+          'run-arms-ns',
+          'run facing n/s: arm ~ opposite leg corr >= 0.7 (both arms), n hand swing >= 4 client px',
           async () => {
-            const [lo, hi] = run ? [0.2, -0.1] : [0.7, -0.7];
             const bad = [],
               ev = [];
-            for (const r of res) {
-              const opp = corr(r.arf.fwdS, r.lgb.fwdS),
-                same = corr(r.arf.fwdS, r.lgf.fwdS),
-                opp2 = corr(r.arb.fwdS, r.lgf.fwdS);
-              ev.push(`${r.facing} ${f(opp)}/${f(same)}/${f(opp2)}`);
-              if (!(opp > lo && opp2 > lo && same < hi))
-                bad.push(`${r.facing} opp ${f(opp)} same ${f(same)} opp2 ${f(opp2)}`);
+            for (const fc of ['n', 's']) {
+              const r = by[fc],
+                c1 = corr(r.arf.fwdS, r.lgb.fwdS),
+                c2 = corr(r.arb.fwdS, r.lgf.fwdS);
+              ev.push(
+                `${fc} corr ${f(c1)}/${f(c2)} hand swing ${f(r.arf.fwd, 1)}/${f(r.arb.fwd, 1)} px`,
+              );
+              if (!(c1 >= 0.7 && c2 >= 0.7)) bad.push(`${fc} corr ${f(c1)}/${f(c2)} < 0.7`);
+              if (fc === 'n' && !(Math.max(r.arf.fwd, r.arb.fwd) >= 4))
+                bad.push(`n hand swing ${f(r.arf.fwd)}/${f(r.arb.fwd)} < 4 px`);
             }
-            process.stdout.write(`CORR ${vp} ${m} (arf~lgb/arf~lgf/arb~lgf): ${ev.join(' | ')}\n`);
-            expect(bad.length === 0, bad.join('; '));
+            expect(bad.length === 0, bad.join('; ') + ' || ' + ev.join(' | '));
             return ev.join(' | ');
           },
         );
-        if (run)
-          await check(
-            'run-arms-ns',
-            'run facing n/s: arm ~ opposite leg corr >= 0.7 (both arms), n hand swing >= 4 client px',
-            async () => {
-              const bad = [],
-                ev = [];
-              for (const fc of ['n', 's']) {
-                const r = by[fc],
-                  c1 = corr(r.arf.fwdS, r.lgb.fwdS),
-                  c2 = corr(r.arb.fwdS, r.lgf.fwdS);
-                ev.push(
-                  `${fc} corr ${f(c1)}/${f(c2)} hand swing ${f(r.arf.fwd, 1)}/${f(r.arb.fwd, 1)} px`,
-                );
-                if (!(c1 >= 0.7 && c2 >= 0.7)) bad.push(`${fc} corr ${f(c1)}/${f(c2)} < 0.7`);
-                if (fc === 'n' && !(Math.max(r.arf.fwd, r.arb.fwd) >= 4))
-                  bad.push(`n hand swing ${f(r.arf.fwd)}/${f(r.arb.fwd)} < 4 px`);
-              }
-              expect(bad.length === 0, bad.join('; ') + ' || ' + ev.join(' | '));
-              return ev.join(' | ');
-            },
-          );
-      }
-      await g.setMovement('running: false');
-      await check('console-' + vp, 'no console errors', async () => {
-        const e = g.consoleErrors();
-        expect(e.length === 0, e.join(' | '));
-        return '0 errors';
-      });
+    }
+    await g.setMovement('running: false');
+    await check('console-' + vp, 'no console errors', async () => {
+      const e = g.consoleErrors();
+      expect(e.length === 0, e.join(' | '));
+      return '0 errors';
+    });
+    if (!modes[0])
       await check(
         'shot-se',
         'close-up screenshot mid-stride facing se',
         async () => `${SHOTS}/${vp}-walk-se.png`,
       );
-    });
-  }),
-);
+  }
+});
 
 async function clip(g, name) {
   const p = await g.eval('window.__S.player()');

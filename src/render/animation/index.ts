@@ -41,7 +41,15 @@ export {
   MINE_KEYS,
   AXE_HAND_GAP,
   FACING_SWING,
+  LIGHT_TICKS,
+  TICKS_PER_COOK,
+  LIGHT_KEYS,
+  COOK_KEYS,
+  ACT_PLAN,
 } from './data';
+export { actPose, actPhase } from './act';
+export { createFlameFlicker, flameSample, glowSample } from './flame';
+export type { FlameFlicker, FlameLayer, FlameNode, FlameSample, FlameTarget } from './flame';
 export { createPlayerAnimator } from './playerAnimator';
 export type { PlayerAnimator } from './playerAnimator';
 export { createFlowerSway } from './flowerSway';

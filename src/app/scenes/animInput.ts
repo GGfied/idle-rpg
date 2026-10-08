@@ -7,6 +7,8 @@ export interface AnimInputArgs {
   /** Tool kind of the active fishing method (undefined when not fishing). */
   fishToolKind: string | undefined;
   fishing: boolean;
+  /** 'lighting' | 'cooking' while the player does that (their tool kind for the animator); null/absent otherwise. */
+  fireAction?: 'lighting' | 'cooking' | null;
 }
 
 export interface PlayerAnimInput {
@@ -17,6 +19,7 @@ export interface PlayerAnimInput {
 
 /** Fishing has its own session, so it counts as gathering with the method's tool kind; gather path is unchanged. */
 export function playerAnimInput(a: AnimInputArgs): PlayerAnimInput {
+  if (a.fireAction) return { moving: a.moving, gathering: true, toolKind: a.fireAction };
   if (a.fishing) return { moving: a.moving, gathering: true, toolKind: a.fishToolKind };
   return { moving: a.moving, gathering: a.gathering, toolKind: a.gatherToolKind };
 }

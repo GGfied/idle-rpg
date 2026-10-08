@@ -121,6 +121,64 @@ export function waterCornerColor(field: ShoreField, cx: number, cy: number): num
 export interface WaterBase {
   base: Phaser.GameObjects.Graphics;
   field: ShoreField;
+  /** False under Phaser's CANVAS renderer, which ignores fillGradientStyle and fills black. Default true. */
+  gradient?: boolean;
+}
+
+/** Phaser.CANVAS (the renderer type constant; render/ imports Phaser as a type only). */
+const RENDERER_CANVAS = 1;
+
+/** True when `scene`'s renderer draws fillGradientStyle (WebGL). Unknown renderer (test fakes) = true. */
+export function rendererHasGradients(scene: Phaser.Scene): boolean {
+  return scene.sys?.game?.renderer?.type !== RENDERER_CANVAS;
+}
+
+/** Sub-cells per tile side of the CANVAS fallback (colour steps are 1/FLAT_N of a tile apart). */
+const FLAT_N = 4;
+/** Overlap of neighbouring flat sub-cells (px) so Canvas antialiasing leaves no hairline seams. */
+const FLAT_GROW = 0.6;
+
+const channel = (c: number, sh: number): number => (c >> sh) & 255;
+
+/**
+ * CANVAS fallback for the two-triangle gradient: the tile as FLAT_N x FLAT_N tiny diamonds, each one
+ * flat colour bilinearly interpolated from the four shared corner colours (u along +x, v along +y in
+ * tile space: top = (0,0), right = (1,0), bottom = (1,1), left = (0,1)).
+ */
+function paintFlatSubCells(
+  g: Phaser.GameObjects.Graphics,
+  top: number,
+  right: number,
+  bottom: number,
+  left: number,
+  cx: number,
+  cy: number,
+  hw: number,
+  hh: number,
+): void {
+  const n = FLAT_N;
+  for (let j = 0; j < n; j++)
+    for (let i = 0; i < n; i++) {
+      const u = (i + 0.5) / n;
+      const v = (j + 0.5) / n;
+      let col = 0;
+      for (const sh of [16, 8, 0]) {
+        const k =
+          channel(top, sh) * (1 - u) * (1 - v) +
+          channel(right, sh) * u * (1 - v) +
+          channel(bottom, sh) * u * v +
+          channel(left, sh) * (1 - u) * v;
+        col = (col << 8) | Math.round(k);
+      }
+      // Sub-cell centre, half-extents (grown a little).
+      const sx = cx + (u - v) * hw;
+      const sy = cy - hh + (u + v) * hh;
+      const dw = hw / n + FLAT_GROW * 2;
+      const dh = hh / n + FLAT_GROW;
+      g.fillStyle(col, 1)
+        .fillTriangle(sx, sy - dh, sx + dw, sy, sx - dw, sy)
+        .fillTriangle(sx - dw, sy, sx + dw, sy, sx, sy + dh);
+    }
 }
 
 /**
@@ -141,6 +199,10 @@ export function paintWaterTile(
   const right = waterCornerColor(w.field, x + 0.5, y - 0.5);
   const bottom = waterCornerColor(w.field, x + 0.5, y + 0.5);
   const left = waterCornerColor(w.field, x - 0.5, y + 0.5);
+  if (w.gradient === false) {
+    paintFlatSubCells(w.base, top, right, bottom, left, cx, cy, hw, hh);
+    return;
+  }
   // vertex order is TL, TR, BL of fillGradientStyle: top/right/left, then left/right/bottom
   w.base
     .fillGradientStyle(top, right, left, left, 1)

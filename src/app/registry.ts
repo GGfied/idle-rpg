@@ -43,6 +43,10 @@ import {
 } from '@features/skills/woodcutting';
 import { MINING_ITEMS, MINING_NODES, MINING_TOOLS } from '@features/skills/mining';
 import { FISHING_ITEMS, FISHING_TOOLS } from '@features/skills/fishing';
+import { COOKING_ITEMS } from '@features/skills/cooking';
+import type { CookingEvent } from '@features/skills/cooking';
+import { FACILITY_ITEMS } from '@features/facilities';
+import type { FireEvent } from '@features/facilities';
 import type { FishingEvent } from '@features/skills/fishing';
 import { spawnNpcs } from '@features/npc';
 import type { NpcInstance } from '@features/npc';
@@ -57,6 +61,10 @@ import {
 } from '@features/world';
 import type { FishingSpotSpawn, ObjectSpawn, RockSpawn, TreeSpawn } from '@features/world';
 import { createFishingSystem } from '@app/game/fishing';
+import { createCookingSystem } from '@app/game/cooking';
+import type { ItemCookedEvent } from '@app/game/cooking';
+import { createFiremakingSystem } from '@app/game/firemaking';
+import type { FireLightStartedEvent, FireLitEvent } from '@app/game/firemaking';
 import { createGroundSystem } from '@app/game/ground';
 import {
   createFacilitySystem,
@@ -77,7 +85,12 @@ export type AppEvent =
   | ProgressionEvent
   | CombatEvent
   | PrayerEvent
-  | GroundItemEvent;
+  | GroundItemEvent
+  | CookingEvent
+  | FireEvent
+  | FireLightStartedEvent
+  | FireLitEvent
+  | ItemCookedEvent;
 
 export interface Content {
   items: ItemRegistry;
@@ -105,7 +118,13 @@ interface SpawnVars {
 }
 
 export const CONTENT: Content = {
-  items: createItemRegistry(WOODCUTTING_ITEMS, MINING_ITEMS, FISHING_ITEMS),
+  items: createItemRegistry(
+    WOODCUTTING_ITEMS,
+    MINING_ITEMS,
+    FISHING_ITEMS,
+    FACILITY_ITEMS,
+    COOKING_ITEMS,
+  ),
   tools: createToolRegistry(WOODCUTTING_TOOLS, MINING_TOOLS, FISHING_TOOLS),
   gatherDefs: new Map([...WOODCUTTING_NODES, ...MINING_NODES].map((d) => [d.id, d])),
   grid: createWorldCollisionGrid(WORLD_NPC_SPAWNS),
@@ -142,6 +161,8 @@ export const SYSTEMS: readonly System<GameState, AppEvent>[] = [
   createFishingSystem(CONTENT),
   createFacilitySystem(CONTENT),
   createNpcSystem(CONTENT),
+  createFiremakingSystem(CONTENT),
+  createCookingSystem(CONTENT),
   playTimeSystem,
   hpSystem,
   prayerSystem,

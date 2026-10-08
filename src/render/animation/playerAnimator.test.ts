@@ -175,7 +175,7 @@ describe('player animator arm chain', () => {
     for (const n of ['armBackUpper', 'armBackFore', 'armFrontUpper', 'armFrontFore'])
       expect(find(nodes, n)).toBeDefined();
     expect(find(nodes, 'armFrontUpper').add).toHaveBeenCalledWith(find(nodes, 'armFrontFore'));
-    expect(find(nodes, 'armFrontFore').add).toHaveBeenCalledTimes(6); // arm art + axe, pick, net, rod, rodLine
+    expect(find(nodes, 'armFrontFore').add).toHaveBeenCalledTimes(8); // arm art + axe, pick, net, rod, rodLine, tinderbox, food
   });
   it('walking: shoulder = upper swing, elbow = forearm relative to it, arm opposite the thigh', () => {
     const { a, nodes } = setup();
@@ -424,5 +424,78 @@ describe('walk to gather transition (CJ2)', () => {
   it('ends exactly on the new pose after the blend', () => {
     const p = frames('walk', 'chop', true);
     expect(Number.isFinite(p[p.length - 1]![0]!)).toBe(true);
+  });
+});
+
+describe('player animator acts (lighting, cooking)', () => {
+  const prop = (nodes: ReturnType<typeof setup>['nodes'], name: string) =>
+    nodes.find((n) => n.name === name)!;
+  it('builds a named tinderbox and food prop in the forearm, shown only in their own state', () => {
+    const { a, nodes } = setup();
+    const tin = prop(nodes, 'tinderbox');
+    const food = prop(nodes, 'food');
+    expect(tin).toBeDefined();
+    expect(food).toBeDefined();
+    a.setState('lighting', { facing: 'e' });
+    a.update(0);
+    a.update(700);
+    expect([tin.visible, food.visible]).toEqual([true, false]);
+    a.setState('cooking', { facing: 'e' });
+    a.update(800);
+    a.update(1500);
+    expect([tin.visible, food.visible]).toEqual([false, true]);
+    a.setState('idle', { facing: 'e' });
+    a.update(1600);
+    expect([tin.visible, food.visible]).toEqual([false, false]);
+  });
+  it.each(['e', 'se', 's', 'sw', 'w', 'nw', 'n', 'ne'] as Facing8[])(
+    'cooking %s: the food prop is visible, in the front forearm (in front of the body), never in the layer below it',
+    (f) => {
+      const { a, nodes } = setup();
+      const food = prop(nodes, 'food');
+      a.setState('cooking', { facing: f });
+      a.update(0);
+      a.update(300);
+      expect(food.visible).toBe(true);
+      const parents = nodes.filter((n) => n.add.mock.calls.some((c: unknown[]) => c[0] === food));
+      expect(parents).toHaveLength(1);
+      expect(parents[0]!.args).toBeDefined();
+      // the parent is the front forearm: the one that also holds the arm art and every other hand prop
+      expect(parents[0]!.add.mock.calls.length).toBe(8);
+      // and it holds the food at its rotated, solved angle (finite) every facing
+      expect(Number.isFinite(food.setRotation.mock.calls.at(-1)![0])).toBe(true);
+    },
+  );
+  it('kneeling lowers the body and bends the legs; the arms come out solved (rear arm over the front)', () => {
+    const { a, nodes, rig } = setup();
+    a.setState('lighting', { facing: 'e' });
+    a.update(0);
+    a.update(0.4 * 1800);
+    const rot = (n: string) => prop(nodes, n).setRotation.mock.calls.at(-1)![0] as number;
+    expect(Number.isFinite(rot('armFrontFore'))).toBe(true);
+    expect(rig.moveTo).toHaveBeenCalled();
+    const p = computePose('lighting', 0.4 * 1800, makePose(), 1, 1800);
+    expect(p.bodyBobY).toBeGreaterThan(4);
+  });
+});
+
+describe('shoulders ride with the leaning body', () => {
+  it('kneeling at lighting: the back shoulder pivot sits on the body shoulder (the rotated body point), not above it', () => {
+    const s = setup();
+    s.a.setState('lighting', { facing: 'e' });
+    s.a.update(0);
+    s.a.update(0.4 * 1800);
+    const lean = s.body.setRotation.mock.calls.at(-1)![0] as number;
+    expect(lean).toBeGreaterThan(0.4); // a deep lean (30 deg+), where the offset is several px
+    const piv = figureArmPivots(PLAYER_LOOK);
+    const back = s.nodes.find((n) => n.name === 'armBackUpper')!;
+    const [px, py] = back.setPosition.mock.calls.at(-1)! as number[];
+    // The body point (-shoulderX, shoulderY) after the body's own rotation + shift, in container px.
+    const bx = -piv.shoulderX * SCALE;
+    const by = piv.shoulderY * SCALE;
+    const wx = bx * Math.cos(lean) - by * Math.sin(lean) + s.body.x;
+    const wy = bx * Math.sin(lean) + by * Math.cos(lean) + s.body.y;
+    expect(px! * SCALE).toBeCloseTo(wx, 0);
+    expect(py! * SCALE + s.rig.y).toBeCloseTo(wy, 0);
   });
 });

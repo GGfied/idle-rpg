@@ -1,5 +1,5 @@
 # Runbook: Mining + Fishing skills
-- **Status:** in progress
+- **Status:** done
 - **Started:** 2026-10-08
 - **Last updated:** 2026-10-08 10:15
 - **Owner:** main session
@@ -33,12 +33,12 @@ and items that can be banked. Playable-first: a crude version in the world quick
 - [x] 4. DONE 07:46 (quarry 11 rocks + 4 fishing spots with candidate water tiles; tests + mutants). `map`: place rocks (a small mine) + fishing spots (Greatmere shore) — agent: `map`
 - [x] 5. DONE 07:51 code (createNodeView, rockArt/spotArt, idle glint/ripple; not yet in-game). `graphics`: rock (full/depleted, per ore tint) + fishing spot art at tree quality, item icons, opaque hit test — agent: `graphics`
 - [x] 5b. DONE 07:53 (qa icons 38/38 unit + 15/15 e2e, mutants red). (USER 07:42 "inventory ... the log and axe and pickaxe and fishing rod. realistic abit") `graphics`: realistic item icons for logs + axes now, pickaxe/rod/net/bait/ores/fish once ids land — queued on the graphics agent after its minimap P3; USER 07:42 "inventory view same as drop view": ground-drop sprite uses the same icon source
-- [ ] 6. (mine pose code landed ~08:16, report pending; fishNet + fishRod next) `animation`: mine + fish poses (after big-world items 14-16 land, same rig) + object state anims (rock crack/deplete/respawn, spot ripple idle, spot move) — agent: `animation`
+- [x] 6. (mine pose code landed ~08:16, report pending; fishNet + fishRod next) `animation`: mine + fish poses (after big-world items 14-16 land, same rig) + object state anims (rock crack/deplete/respawn, spot ripple idle, spot move) — agent: `animation`
 - [x] 6b. DONE 07:57 code (integrator hookups pending). `vfx`: rock dust/chips + ore glint on hit, splash on catch/spot move, ripple rings; pooled, event-driven — agent: `vfx`
 - [x] 6c. DONE 08:17 (sounds 6 synth, chat parity, qa 6c 9/9). (USER 07:46 "sounds and chat too for fish and mine same as chopping. sound that fits") `sound`: pickaxe tink, ore chime, rock crumble; cast whoosh/plop, catch splash, spot burble; chat parity via integrator (MINING/FISHING_MESSAGES) — agent: `sound` + `integrator`
 - [x] 7. DONE 07:56 (both skills wired, real art, starter kits, sound skill tags, chat; 1944 tests; own Chrome desktop). `integrator`: wire both skills (registry, tick, interactions, starter tools) — agent: `integrator`
 - [x] 8. DONE (qa fishing 17/17, qa mining 17/21 → B1 fixed, qa newfish 8/8, balance sim + tuning applied; coal qa pending). `qa` one slice each (mining, fishing) desktop + phone + mutant; `balance` XP/h vs targets
-- [ ] 9. Changelog + version bump (changelog skill) when shipped
+- [x] 9. Changelog + version bump (changelog skill) when shipped
 
 ## Next step
 All feature work and QA for this round are DONE (10:15): every qa-coverage row has a final status, task list clear except the release. Remaining, in order: (1) insert the revised v0.1.2 changelog entry from the drafter (scratchpad changelog-v0.1.2-r2.md) and re-run the both-ways path check; (2) ask the user ONCE about commit + push (a push deploys; the pipeline tags v0.1.2); (3) set this runbook to done.
@@ -187,3 +187,5 @@ All feature work and QA for this round are DONE (10:15): every qa-coverage row h
 - 10:12 qa #47 rerun PASS 19/19 desktop+phone: run n corr 0.86-0.88, s 0.87-0.88, hand swing 5.6 px, se/sw lateral 1.7-2.0 (≤3), walk unchanged, 0 errors; mutant (depthSwing 1, kneeDepth 1) red on run-arms-ns only. Main viewed the run n/s strip earlier. → #41 running arms DONE. Started the v0.1.2 changelog fold (drafter) while qa mmLabel finishes.
 - 10:14 qa mmLabel PASS 21/21, mutant red → #50 DONE. All QA for this round finished; no row in qa-coverage is left without a final status. Waiting only on the changelog fold draft.
 - 10:16 v0.1.2 changelog entry revised in place (late fixes folded, Pending = nothing open except the skipped all-tests run + amber chat colour); checks: 260/260 paths both ways, structure + ASCII clean; stray data.ts-E removed by animation. READY: waiting for the user's OK to commit + push.
+- 10:17 RELEASED v0.1.2: commit 0d7fcf6 pushed to main (lint/test 2281/build passed first); pipeline deploys + tags v0.1.2. Runbook done.
+- 2026-10-08 10:19 CLOSED at the v0.1.2 release (0d7fcf6): remaining items shipped in v0.1.1/v0.1.2 and QA'd, or skipped by the user (marked [-]).

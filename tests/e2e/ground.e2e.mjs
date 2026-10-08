@@ -1,9 +1,11 @@
 // Flowers (sway, Off pref, no tap blocking) + textured ground (variance, no magenta/black, no chunk seams).
-// Run: node tests/e2e/ground.e2e.mjs  (own vite on :5195, ?tickMs=60 via lib.mjs)
+// Run: node tests/e2e/ground.e2e.mjs  (base port E2E_PORT or 9055; desktop + phone x WebGL + CANVAS as parallel children)
+// Fast base: ?tickMs=60, sway sampled on synthetic frames (g.synth) instead of seconds of wall clock, camera waits are
+// waitStill/settle, teleports never sleep.
 import { Buffer } from 'node:buffer';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import process from 'node:process';
-import { check, expect, forEachViewport, waitStill, withGame } from './lib.mjs';
+import { check, expect, forEachCombo, runParallel, waitStill, withGame } from './lib.mjs';
 
 const PAGE = `(() => {
   const world = () => window.__idleRpg.scene().camera.scene;
@@ -56,17 +58,51 @@ const PAGE = `(() => {
   };
 })()`;
 
-const shot = async (g) => {
-  const { data } = await g.cdp.send('Page.captureScreenshot', { format: 'png' });
+// half = a half-resolution capture (clip scale 0.5): 4x fewer pixels to encode/decode, for the coarse magenta/black scans
+const shot = async (g, half = false) => {
+  const { data } = await g.cdp.send(
+    'Page.captureScreenshot',
+    half
+      ? {
+          format: 'png',
+          clip: {
+            x: 0,
+            y: 0,
+            width: await g.eval('window.innerWidth'),
+            height: await g.eval('window.innerHeight'),
+            scale: 0.5,
+          },
+        }
+      : { format: 'png' },
+  );
   return g.eval(`window.__f.load(${JSON.stringify(data)})`);
 };
 const S = 'window.__f';
 if (process.env.SHOTS_DIR) mkdirSync(process.env.SHOTS_DIR, { recursive: true });
 
+const PORT = Number(process.env.E2E_PORT ?? 9055);
+const BUDGET_MS = 60e3;
+// Ground art is drawn: run both renderers (the user's black-water bug was CANVAS-only).
+const COMBOS = await runParallel(import.meta.url, PORT, {
+  viewports: ['desktop', 'phone'],
+  renderers: ['webgl', 'canvas'],
+  budgetMs: BUDGET_MS,
+});
+// Max |rotation| (deg) of on-screen flowers over `spanMs` of synthetic frames (every `dt` ms), loop frozen.
+const SWAY_MAX = (
+  spanMs,
+  dt,
+) => `(() => { const S = window.__e.synth, cam = window.__idleRpg.scene().camera; let m = 0;
+  for (let t = 0; t <= ${spanMs}; t += ${dt}) { S.step(${dt}); const v = cam.worldView;
+    for (const o of window.__f.flowers()) if (o.visible && o.x > v.x && o.x < v.right && o.y > v.y && o.y < v.bottom) m = Math.max(m, Math.abs(o.rotation)); }
+  return (m * 180) / Math.PI; })()`;
+const ZERO = `(() => { const a = window.__f.flowers().filter((o) => o.visible); return { n: a.length, nonzero: a.filter((o) => o.rotation !== 0).length }; })()`;
+
 await withGame(
-  { port: 5195 },
-  forEachViewport(['desktop', 'phone'], async (g, vp) => {
+  { port: PORT, budgetMs: BUDGET_MS },
+  forEachCombo(COMBOS, async (g, vp, renderer) => {
     await g.eval(PAGE);
+    vp = `${vp}/${renderer}`;
     const stats = () => g.eval(`${S}.stats()`);
     const px = async () => g.state('movement.position');
 
@@ -77,9 +113,12 @@ await withGame(
     });
 
     await check('f2', 'Animations On: visible flower rotations change over 1 s', async () => {
+      // 1 s of synthetic frames (20 x 50 ms, update + render) instead of a 1 s wall-clock sleep
+      await g.synth.freeze();
       const a = await stats();
-      await g.sleep(1000);
+      await g.synth.step(50, 20);
       const b = await stats();
+      await g.synth.thaw();
       const key = (s) => s.data.map((d) => d.tx + ',' + d.ty);
       const n = Math.min(a.rots.length, b.rots.length);
       let changed = 0;
@@ -93,8 +132,8 @@ await withGame(
       // spawn flowers can sit under the phone HUD: stand 2 tiles from one first
       const s0 = await stats();
       const d0 = s0.data[0];
-      await g.teleport(d0.tx + 2, d0.ty + 2);
-      await waitStill(() => g.tileClient(d0.tx, d0.ty));
+      await g.teleport(d0.tx + 2, d0.ty + 2, { settleMs: 0 });
+      await g.settle();
       const s = await stats();
       const flowerPos = (d) =>
         g.eval(
@@ -120,7 +159,7 @@ await withGame(
         },
         { label: `walk to flower tile ${f.tx},${f.ty}`, timeoutMs: 20000 },
       );
-      await waitStill(() => g.tileClient(f.tx, f.ty));
+      await g.settle();
       let t = null;
       for (const [i, j] of [
         [1, 0],
@@ -164,8 +203,7 @@ await withGame(
       'g5c',
       '8-way drag pan far: no magenta, no black ground, camera moved',
       async () => {
-        await g.teleport(64, 48);
-        await waitStill(() => g.eval(`${S}.worldView()`));
+        await g.teleportSettled(64, 48);
         const r = await g.eval(`${S}.canvasRect()`);
         const cx = (r.left + r.right) / 2,
           cy = (r.top + r.bottom) / 2;
@@ -189,18 +227,32 @@ await withGame(
           [0, -1],
           [1, -1],
         ]) {
-          // a same-tile teleport does not recentre the follow camera: hop away first
-          await g.teleport(60, 44);
-          await waitStill(() => g.eval(`${S}.worldView()`));
-          await g.teleport(64, 48);
-          await waitStill(() => g.eval(`${S}.worldView()`));
+          // a same-tile teleport does not recentre the follow camera: alternate between two tiles (one hop per direction)
+          const wv0 = await g.eval(`${S}.worldView()`);
+          await g.teleport(...(out.length % 2 ? [64, 48] : [60, 44]), { settleMs: 0 });
+          // Before the first drag the follow camera is attached and recentres on the hop: wait until it has STARTED
+          // moving (else a still-sample can pass first; phone:canvas went red that way), then settle. After a drag-pan
+          // the camera stays detached until the player walks (camera.ts re-follow), so a store teleport does not move
+          // it: the pans are cumulative, exactly as in the original file (whose 700 ms hop sleep did not recentre either).
+          if (out.length === 0)
+            await g.waitFor(
+              async () => {
+                const v = await g.eval(`${S}.worldView()`);
+                return Math.hypot(v.x - wv0.x, v.y - wv0.y) > 5;
+              },
+              { timeoutMs: 5000, label: 'camera follows the first teleport' },
+            );
+          await waitStill(() => g.eval(`${S}.worldView()`), { intervalMs: 80, stable: 2, eps: 1 });
           const before = await g.eval(`${S}.worldView()`);
           for (let k = 0; k < 2; k++)
-            await g.drag(cx - dx * span, cy - dy * span, cx + dx * span, cy + dy * span, 10);
-          await g.sleep(250);
-          const after = await g.eval(`${S}.worldView()`);
+            await g.drag(cx - dx * span, cy - dy * span, cx + dx * span, cy + dy * span, 6); // same travel, fewer CDP moves
+          // wait for the pan (and any ease after release) to stop instead of a fixed 250 ms
+          const after = await waitStill(() => g.eval(`${S}.worldView()`), {
+            intervalMs: 80,
+            stable: 2,
+          });
           const moved = Math.hypot(after.x - before.x, after.y - before.y);
-          const sc = (await shot(g)).scale;
+          const sc = (await shot(g, true)).scale;
           const bad = await g.eval(`${S}.badPx(${JSON.stringify(r)}, ${sc})`);
           out.push(
             `${dx},${dy}: moved ${Math.round(moved)} mag ${bad.mag} black ${((100 * bad.black) / bad.n).toFixed(2)}%`,
@@ -209,7 +261,7 @@ await withGame(
           expect(bad.mag === 0, `magenta px ${bad.mag} after drag ${dx},${dy}`);
           expect(bad.black / bad.n < 0.02, `black ${bad.black}/${bad.n} after drag ${dx},${dy}`);
         }
-        await g.teleport(64, 48);
+        await g.teleport(64, 48, { settleMs: 0 });
         return `${vp}: ${out.join(' ; ')}`;
       },
     );
@@ -225,7 +277,7 @@ await withGame(
             axis === 'x' ? { x: sp.b + o, y: sp.a + k } : { x: sp.a + k, y: sp.b + o };
           const s0 = at(-4, 3),
             s1 = at(3, 3);
-          await g.teleport(s0.x, s0.y);
+          await g.teleport(s0.x, s0.y, { settleMs: 0 });
           await g.walkTo(s1.x, s1.y);
           await g.waitFor(
             async () => {
@@ -234,8 +286,8 @@ await withGame(
             },
             { label: `walked across border ${axis}=${sp.b}`, timeoutMs: 25000 },
           );
-          await g.teleport(at(0, 3).x, at(0, 3).y);
-          await waitStill(() => g.tileClient(sp.b, sp.a));
+          await g.teleport(at(0, 3).x, at(0, 3).y, { settleMs: 0 });
+          await g.settle();
           const sc = (await shot(g)).scale;
           if (process.env.SHOTS_DIR) {
             const { data } = await g.cdp.send('Page.captureScreenshot', { format: 'png' });
@@ -244,29 +296,16 @@ await withGame(
               Buffer.from(data, 'base64'),
             );
           }
-          const dir = async (o) => {
-            const a = await g.tileClient(...Object.values(at(o, 3))),
-              b = await g.tileClient(...Object.values(at(o + 1, 3)));
-            const l = Math.hypot(b.x - a.x, b.y - a.y);
-            return { d: { x: (b.x - a.x) / l, y: (b.y - a.y) / l }, a, b };
-          };
+          // Same sample points as before (midpoint of tiles (o,k)-(o+1,k), k 0..7; direction from row 3), but all
+          // client positions come from ONE page eval instead of ~18 round trips per measure.
           const measure = async (o) => {
-            const { d } = await dir(o);
-            const ps = [];
-            for (let k = 0; k < 8; k++) {
-              const t0 = at(o, k),
-                t1 = at(o + 1, k);
-              const a = await g.tileClient(t0.x, t0.y),
-                b = await g.tileClient(t1.x, t1.y);
-              for (const f of [0.2, 0.5, 0.8])
-                ps.push({
-                  x: a.x + (b.x - a.x) * 0.5 + (a.x - b.x) * 0 + f * 0,
-                  y: (a.y + b.y) / 2,
-                });
-              ps.length -= 3;
-              ps.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-            }
-            return g.eval(`${S}.seam(${JSON.stringify(ps)}, ${JSON.stringify(d)}, ${sc})`);
+            const pairs = [];
+            for (let k = 0; k < 8; k++) pairs.push([at(o, k), at(o + 1, k)]);
+            return g.eval(`(async () => { const tc = window.__e.tileClient; const pairs = ${JSON.stringify(pairs)};
+              const cs = await Promise.all(pairs.map(async ([t0, t1]) => [await tc(t0.x, t0.y), await tc(t1.x, t1.y)]));
+              const [a, b] = cs[3], l = Math.hypot(b.x - a.x, b.y - a.y), d = { x: (b.x - a.x) / l, y: (b.y - a.y) / l };
+              const ps = cs.map(([a, b]) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }));
+              return ${S}.seam(ps, d, ${sc}); })()`);
           };
           // border sits between offsets -1 and 0; controls are inside chunks
           const border = await measure(-1);
@@ -286,25 +325,20 @@ await withGame(
       'f5',
       'Reduced sway < On sway, both within their amplitude (no double sway)',
       async () => {
+        // Was 40 wall-clock samples x 100 ms per mode; now one full Reduced period (4000 ms) of synthetic 50 ms frames
+        // per mode, sampling every frame (denser, so the max is at least as tight as before).
         const amp = async (mode) => {
           await g.eval(
             `window.__idleRpg.store.getState().setPref({ visuals: { vfx: 'on', animations: '${mode}' } })`,
           );
-          await g.sleep(400);
-          let max = 0;
-          for (let i = 0; i < 40; i++) {
-            const m = await g.eval(
-              `(() => { const v = window.__idleRpg.scene().camera.worldView; let m = 0; for (const o of ${S}.flowers()) if (o.visible && o.x > v.x && o.x < v.right && o.y > v.y && o.y < v.bottom) m = Math.max(m, Math.abs(o.rotation)); return m; })()`,
-            );
-            max = Math.max(max, m);
-            await g.sleep(100);
-          }
-          return (max * 180) / Math.PI;
+          await g.synth.step(50, 8); // 400 ms for the mode to apply (was a 400 ms sleep)
+          return g.eval(SWAY_MAX(4000, 50));
         };
-        await g.teleport(18, 15); // spawn meadow: flowers on screen
-        await waitStill(() => g.eval(`${S}.worldView()`));
+        await g.teleportSettled(18, 15); // spawn meadow: flowers on screen
+        await g.synth.freeze();
         const on = await amp('on');
         const red = await amp('reduced');
+        await g.synth.thaw();
         await g.eval(
           "window.__idleRpg.store.getState().setPref({ visuals: { vfx: 'on', animations: 'on' } })",
         );
@@ -332,14 +366,13 @@ await withGame(
           'pref not off',
         );
         await g.eval('window.__idleRpg.store.getState().closeSettings()');
-        await g.sleep(700);
-        const s1 = await g.eval(
-          `(() => { const a = ${S}.flowers().filter((o) => o.visible); return { n: a.length, nonzero: a.filter((o) => o.rotation !== 0).length }; })()`,
-        );
-        await g.sleep(500);
-        const s2 = await g.eval(
-          `(() => { const a = ${S}.flowers().filter((o) => o.visible); return { n: a.length, nonzero: a.filter((o) => o.rotation !== 0).length }; })()`,
-        );
+        // 700 ms then 500 ms more of synthetic frames (was two wall-clock sleeps)
+        await g.synth.freeze();
+        await g.synth.step(50, 14);
+        const s1 = await g.eval(ZERO);
+        await g.synth.step(50, 10);
+        const s2 = await g.eval(ZERO);
+        await g.synth.thaw();
         expect(s1.n > 0, 'no flowers');
         expect(
           s1.nonzero === 0 && s2.nonzero === 0,
@@ -353,8 +386,8 @@ await withGame(
 
 async function variance(g, vp, spot, kind) {
   expect(spot, `no ${kind} spot`);
-  await g.teleport(spot.x + 3, spot.y);
-  await waitStill(() => g.tileClient(spot.x, spot.y));
+  await g.teleport(spot.x + 3, spot.y, { settleMs: 0 });
+  await g.settle();
   const sc = (await shot(g)).scale;
   const nb = [[0, 0]];
   const cs = [];

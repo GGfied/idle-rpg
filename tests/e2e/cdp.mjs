@@ -249,6 +249,7 @@ class RawWebSocket {
 const WS = typeof globalThis.WebSocket === 'function' ? globalThis.WebSocket : RawWebSocket;
 export const wsKind = WS === RawWebSocket ? 'raw-socket' : 'global WebSocket';
 
+let browserId = 0;
 function openSocket(url) {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error('openSocket: timeout')), CDP_TIMEOUT_MS);
@@ -260,8 +261,11 @@ function openSocket(url) {
   });
 }
 
-/** Launch headless Chrome with a throwaway profile and attach to its first page. */
-export async function launchChrome({ width = 1280, height = 800 } = {}) {
+/**
+ * Start headless Chrome (throwaway profile) and return {proc, profile, port} without attaching to a page.
+ * Shared by launchChrome and by runParallel's parent (one Chrome for all children, see attach below).
+ */
+export async function startChrome({ width = 1280, height = 800 } = {}) {
   const profile = mkdtempSync(join(tmpdir(), `idle-rpg-e2e-${process.pid}-`));
   const proc = spawnTracked(
     findChrome(),
@@ -290,13 +294,62 @@ export async function launchChrome({ width = 1280, height = 800 } = {}) {
     killChild(proc);
     throw new Error('Chrome did not start');
   }
+  return { proc, profile, port };
+}
+
+/**
+ * Launch headless Chrome with a throwaway profile and attach to its first page.
+ * `attach: <debugging port>` (E2E_CHROME_PORT) instead joins a Chrome the runParallel parent already started: this
+ * child gets its OWN browser context (isolated localStorage/cookies) + tab, and close() disposes just that context.
+ */
+export async function launchChrome({ width = 1280, height = 800, attach = 0 } = {}) {
+  let proc = null;
+  let profile = null;
+  let port = attach;
   let page;
-  for (let i = 0; i < 50 && !page; i++) {
-    const targets = await (
-      await fetch(`http://127.0.0.1:${port}/json`, { signal: AbortSignal.timeout(CDP_TIMEOUT_MS) })
+  let browserWs = null;
+  let contextId = null;
+  if (attach) {
+    const ver = await (
+      await fetch(`http://127.0.0.1:${attach}/json/version`, {
+        signal: AbortSignal.timeout(CDP_TIMEOUT_MS),
+      })
     ).json();
-    page = targets.find((t) => t.type === 'page');
-    if (!page) await sleep(100);
+    browserWs = await openSocket(ver.webSocketDebuggerUrl);
+    const call = (method, params = {}) =>
+      new Promise((resolve, reject) => {
+        const id = ++browserId;
+        const onMsg = (ev) => {
+          const m = JSON.parse(ev.data);
+          if (m.id !== id) return;
+          browserWs.removeEventListener('message', onMsg);
+          if (m.error) reject(new Error(`${method}: ${m.error.message}`));
+          else resolve(m.result);
+        };
+        browserWs.addEventListener('message', onMsg);
+        browserWs.send(JSON.stringify({ id, method, params }));
+      });
+    contextId = (await call('Target.createBrowserContext')).browserContextId;
+    const { targetId } = await call('Target.createTarget', {
+      url: 'about:blank',
+      width,
+      height,
+      browserContextId: contextId,
+    });
+    page = { webSocketDebuggerUrl: `ws://127.0.0.1:${attach}/devtools/page/${targetId}` };
+    browserWs.disposeContext = () =>
+      call('Target.disposeBrowserContext', { browserContextId: contextId });
+  } else {
+    ({ proc, profile, port } = await startChrome({ width, height }));
+    for (let i = 0; i < 50 && !page; i++) {
+      const targets = await (
+        await fetch(`http://127.0.0.1:${port}/json`, {
+          signal: AbortSignal.timeout(CDP_TIMEOUT_MS),
+        })
+      ).json();
+      page = targets.find((t) => t.type === 'page');
+      if (!page) await sleep(100);
+    }
   }
   const ws = await openSocket(page.webSocketDebuggerUrl);
 
@@ -312,7 +365,7 @@ export async function launchChrome({ width = 1280, height = 800 } = {}) {
       p.reject(new Error(`${p.method}: ${reason}`));
     }
   };
-  proc.on('exit', () => failAll('Chrome exited'));
+  proc?.on('exit', () => failAll('Chrome exited'));
   ws.addEventListener('close', () => failAll('Chrome exited (CDP socket closed)'));
   ws.addEventListener('error', () => failAll('Chrome exited (CDP socket error)'));
   ws.addEventListener('message', (ev) => {
@@ -370,9 +423,14 @@ export async function launchChrome({ width = 1280, height = 800 } = {}) {
       } catch {
         /* already closed */
       }
-      killChild(proc);
-      await sleep(200);
-      rmSync(profile, { recursive: true, force: true });
+      if (proc) {
+        killChild(proc);
+        await sleep(200);
+        rmSync(profile, { recursive: true, force: true });
+      } else if (browserWs) {
+        await browserWs.disposeContext?.().catch(() => {});
+        browserWs.close();
+      }
     },
   };
   return cdp;

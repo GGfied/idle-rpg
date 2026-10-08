@@ -1,0 +1,764 @@
+# Agent progress (append-only)
+One line per milestone per agent: `- HH:MM <agent> <item#>: <what happened> — next: <next step>`. See CLAUDE.md.
+
+- 07:22 main: created; running now = animation (14/15), qa oak (4, :5233), qa greatmereEast lint fix (5)
+- 07:22 qa 5-greatmereEast: started and passed 13/13 live, mutant red 4/13 — next: lint fix
+- 07:22 qa 5-greatmereEast: npm run lint clean, rerun 13/13 on :5231 — next: none, done
+- 07:22 qa 7-depositChest: started — next: read lib/template
+- 07:22 qa 4-oak: started, analysed oak tuning slice, writing tests/e2e/oakTuning.e2e.mjs on :5233 — next: write script and run desktop+phone
+- 07:22 qa 6-bankBooth: started, ports free — next: read greatmereEast + lib
+- 07:23 animation 14/15: started; read code (data/logic/playerAnimator), plan = 2-bone IK two-handed chop + front/back walk arm swing axis, arms in phase with opposite leg — next: write chopRig/IK in logic, then tests
+- 07:23 qa 7-depositChest: script written, run 1 — next: results
+- 07:30 qa 6-bankBooth: test written, running — next: results
+- 07:36 qa 6-bankBooth: live 15/15 pass — next: mutant :5335
+- 07:24 qa 4-oak: live run 11/11 PASS desktop+phone — next: mutant oak xp 37.5 on :5333
+- 07:24 qa 7-depositChest: live run done — next: mutant :5334
+- 07:25 qa 7-depositChest: done 15/15, mutant red 10/15 — next: report
+- 07:25 animation 14/15/16: data.ts (CHOP_KEYS, FACING_SCREEN, gait armLag 0) + types + chop.ts (IK) written, not yet compiled; plan: projectSwing() for arms AND legs per facing in animator — next: logic.ts/playerAnimator wiring, tsc, tests
+- 07:26 qa 4-oak: mutant xp 37.5 reds t2+t4 both viewports; done, no processes left — next: none
+- 07:26 animation 14/15/16: first compiling save (chop IK + projected limbs wired in playerAnimator; old tests not yet updated) — next: frame-strip harness, tune keyframes, tests
+- 07:44 qa 6-bankBooth: done, 15/15 live, mutant red — next: report
+07:26 hud 13: started, reading prefs/settings — next: add control
+- 07:26 graphics 13: started — next: read figureLooks
+- 07:27 qa 4-oak: shots moved to .shots-oak, script defaults SHOTS_DIR, lessons recorded; lint only flags src/render/animation/data.ts (not mine) — next: none
+- 07:27 graphics 13: first save (looks, setLook, exports) — next: tests+preview
+07:27 hud 13: Character row built + tests + mutant — next: screenshot check
+- 07:27 graphics 13: tests green — next: preview
+- 07:27 graphics 13: preview viewed — next: mutant
+- 07:27 graphics 13: mutant red, done
+- 07:27 qa 10-lockedDialogue: started — next: read dialogue code
+07:28 persistence 13: playerLook added to types/data/defaults — next: tests
+- 07:28 qa 10-lockedDialogue: script written, running — next: run 1
+- 07:28 animation 14/15/16: tsc green again (logic.test.ts migrated off chopAngle/tapAngle); impl compiles; harness can't load game on :5232 (investigating 'game ready' timeout) — next: fix harness, frame strips, tests for chop/walk axis/legs
+07:28 persistence 13: done, tests+mutants verified — next: report
+- 07:29 integrator 13: read code, plan = pure scenes/playerLook.ts + recreate animator on switch + portrait param — next: write + tests
+- 07:30 qa 10-lockedDialogue: run 1 22/25 (l2b current value missing x3) — next: view shots, mutant
+- 07:30 integrator 13: scene+portrait+casts wired, tsc clean — next: tests, mutant, browser
+- 07:30 qa 10-lockedDialogue: mutant (gate always passes) running :5336 — next: result
+- 07:30 animation 14/15/16: frame strips rendered (v1/v2 in scratchpad), chop reads right in front/back/side, dip reduced — next: rewrite unit tests (hands-on-handle, edge down, axis per facing, arm/leg sync), mutants, e2e
+- 07:31 animation 14/15/16: new user ask — BACK-view chop hides arms (axe drawn in a layer BELOW the body so the torso covers it); implementing now — next: back strip, tests (no arm over torso), mutant
+- 07:31 qa 10-lockedDialogue: done — next: report
+- 07:31 integrator 13: done, tests+mutant+browser green — next: report
+07:32 core 10-B1: started, locating Requirement — next: read types
+07:32 core 10-B1: evaluator + tests written — next: mutant, lint
+07:33 core 10-B1: done, reported — next: story/integrator switch over
+- 07:33 qa 13-playerLook: e2e written — next: run desktop+phone :5238
+- 07:33 animation 14/15/16: back-view chop (arms hidden, axe layer under body) + front end-of-swing V-arms done and looked at in strips (scratchpad v3/, before/, after/) — next: write/migrate unit tests, mutants, e2e (animation + gait)
+07:34 story 10-B1: evaluate() wired + tests green, mutant killed — next: lint, report
+- 07:35 qa 13-playerLook: live 17/17 — next: mutant :5338
+- 07:36 qa 13-playerLook: mutant red, done — next: report
+- 07:36 integrator 10-B1: requirementContext + evaluate wired into DialogueContext, tests+mutants done — next: report
+- 07:37 qa 10-lockedDialogue: rerun after B1 fix — next: run
+- 07:38 qa 10-lockedDialogue: live 25/25; running mutants A (gate passes) then B (level->0) on :5336 — next: results
+- 07:39 animation 14/15/16: tests green for chop/gait/back-hide; walk arms+legs projected along facing with foreshortening length (strips v4) — next: swingAxis tests, mutants, full lint/test/build, e2e (animation + gait), memory
+- 07:40 mining 1: read woodcutting + core/skills — next: write data/types/logic
+- 07:40 main: mining-fishing runbook opened; mining + fishing dispatched (phase 1).
+- 07:40 mining 1: data/types/logic/index written — next: tests, mutant
+- 07:40 qa 10-lockedDialogue: rerun done, mutants red — next: report
+- 07:40 fishing 2: read woodcutting + core/skills; design: own tickFishing (core loop lacks bait/per-fish success/spot moves) reusing successChance/rollTable/nodeState — next: write types/data/logic
+- 07:41 animation 14/15/16: mutants M1-M8 all red (chop edge/handle/V/back-arms/detached forearm, walk lateral arms+legs, quarter-cycle arm offset) — next: lint/test/build, animation + gait e2e
+- 07:41 mining 1: done, 206 tests, mutants killed — next: report
+- 07:41 hud GATE-P3: BankPanel comment fixed, dock hidden on phone while bank open (data-bank) — next: verify
+- 07:42 story GATE-cleanup: evaluate required, meets/NO_STATE removed, tests updated, mutant killed
+- 07:42 graphics GATE-P3: minimap.ts player keep-out + faded fallback + player drawn last, tests green; next: mutant, screenshots, then icons task
+- 07:42 integrator MF7-mining: started, reading woodcutting wiring — next: registry/systems/intents
+- 07:42 hud GATE-P3: done; mutant red, e2e hudBankDock 3/3 — next: report
+- 07:42 fishing 2: module + 46 tests written — next: mutant run in scratch copy, lint/test/build, memory
+- 07:43 integrator MF7-mining: coordinator item done (dialogue.ts meets removed, tsc green) — next: rocks content+systems+placeholder views
+- 07:43 integrator MF7-mining: registry has items/tools/defs/rocks (map's WORLD_ROCKS landed) — next: systems/actions/messages
+07:44 map MF4: quarry rocks+area+tests written — next: mutant, lint/test
+- 07:44 fishing 2: done, 46 tests, 10 mutants killed — next: report
+- 07:44 graphics GATE-P3: minimap done+verified (labels above trees, player last, keepout/fade); starting icons task
+07:44 map MF4: done, 1822 tests green, 3 mutants killed — next: report
+- 07:45 integrator MF7-mining: scene placeholder rocks + menu + messages wired, tsc green — next: starter pickaxe (fromSave), tests, browser
+07:45 map MF4: fishing spots (2 net, 2 bait, water candidates y51) done + 2 mutants killed — next: lint fix, report
+- 07:46 sound MF6c: started, reading audio src — next: add mining/fishing sounds
+- 07:47 sound MF6c: data/logic done, tsc clean — next: tests, mutant
+- 07:48 integrator MF7: starterKits.ts written (mining+fishing kits); next: fishing state/system/actions/scene, rockViews import type, worldRefs tests
+- 07:48 sound MF6c: tests+mutant done — next: memory, report
+- 07:49 graphics GATE-P3: done (minimap keep-out/fade/player last, tests+mutant, shots). graphics icons: 17 icons regenerated 32x32 + shared itemIconSource, ground uses it, tests+mutant, shots in scratchpad/gfx
+- 07:49 integrator MF7: game-side fishing+kits+registry done, tsc green; next: scene spots placeholder, onImpact skill, mining swing clock, tests, browser
+- 07:50 qa MF5b-icons: started — next: read ItemSlot/BankView, write unit test
+- 07:50 animation 14/15/16: e2e animation 40/40 + gait 25/25 pass (new g8 swing-axis/sync check) — next: final strips, lint/test, memory, report
+- 07:50 graphics MF5: rock+spot painters, views, tests green — next: mutant, in-browser check, report
+- 07:50 qa MF5b-icons: unit test 38 green, 3 mutants red — next: e2e :5243
+- 07:51 graphics MF5: done (472 render tests, 2 mutants red) — next: report
+- 07:51 animation 14/15/16: done — lint ok, animation unit 169 (3 new test files), e2e animation 40/40 + gait 25/25, all mutants red; 4 unrelated app/ test failures from other agents (starter kits/bank) — next: main session review/qa
+- 07:52 integrator MF7: tests green except integration 26->22 fix; next: swap to graphics createNodeView, browser check
+- 07:52 qa MF5b-icons: e2e 15/15 green — next: mutant + look at shots
+- 07:53 vfx MF6b: read vfx runner; added 1-line ROCK_LOOKS export to render/index.ts; plan: skill-filtered cues, rock/fishing effects — next: implement data/logic/runner
+- 07:53 integrator MF7: NodeViews wired, mutants red; running lint/test/build then browser
+- 07:53 qa GATE-isoBankFlake: fixed isoBank door-diag flake, 5/5 + mutant red
+- 07:53 animation 15/16 fix: diagonals (se/sw/ne/nw) will swing like s/n with a capped small lateral component (FACING_SWING), plus leg/arm all-facing animator tests and midline tests — next: implement, mutants, strips, gait e2e, then report before mining/fishing task 6
+- 07:53 qa MF5b-icons: done — PASS
+- 07:54 vfx MF6b: mining+fishing+woodcutting effects in data/logic/runner (tsc ok) — next: tests, mutant, preview
+- 07:55 integrator MF7: DONE mining+fishing wired, lint/test/build green, browser verified — next: report
+- 07:56 vfx MF6b: done — lint/test(1972)/build green, 3 mutants red, previews viewed — next: report
+- 07:56 balance MF8: started, reading data — next: write sims
+- 07:56 qa MF8-mining: started, reading lib/template — next: write e2e
+- 07:56 animation 15/16 fix: diagonals now swing like s/n (cap 0.15 lateral, depth gain 0.5), all-facing leg+arm animator tests, mutants MA-ME red; chop lean softened to <=12 deg — next: gait+animation e2e, then report, then mining/fishing task 6
+- 07:56 qa MF8-fishing: started, reading code — next: write e2e
+- 07:56 fishing 6c: starting, add fishingAttempt event + messages — next: edit types/logic/data
+- 07:57 integrator VFX-hook: started (itemGathered skill first) — next: swingImpact vfx, nodeWorld, tileWorld
+- 08:05 qa MF8-fishing: e2e written — next: run 1
+- 07:57 integrator 6b-tags: started, locating events — next: patch + tests
+- 07:58 fishing 6c: done, mutant killed, lint/test/build green — next: report
+- 07:58 balance MF8: sim written tests/balance/miningFishing.test.ts — next: run, analyse
+- 07:58 qa MF8-mining: e2e written, running — next: report
+- 07:58 integrator VFX-hook: swingImpact->vfx w/ nodeId, nodeWorld spots, tileWorld done+tests+mutant — next: report
+- 07:58 sound 6c-cast: started — next: edit data.ts
+- 07:58 integrator 6c-chat: started, editing fishing.ts + test — next: tsc
+- 07:58 integrator 6b-tags: done, tests + mutant red — next: report
+- 07:59 qa 6b-A: started, reading vfx + lib — next: write e2e
+- 07:59 sound 6c-cast: done — next: report
+- 07:59 qa 6b-B: started, reading code — next: write e2e
+- 07:59 integrator 6c-chat: done, mutant red — next: report
+- 08:00 qa 6c: start — next: read code
+- 08:00 qa 6b-A: e2e written (vfxHooks.e2e.mjs), running — next: report
+- 08:01 balance MF8: DONE, reporting — next: none
+- 08:02 balance lint: prettier --write on miningFishing/fishingProposal tests; my files clean; npm run lint still has 3 no-unused-vars errors in tests/e2e/fishing.e2e.mjs (not mine, untouched)
+- 08:02 qa MF8-mining: run2 19/21 (m4 swing-line missing at 600ms, phone m4 timeout), run3 live — next: mutant
+- 08:03 fishing F1: started — next: edit data
+- 08:03 mining M1: start pickaxe level change — next: edit data+tests
+- 08:03 qa 6b-B: done, 5/5 live, mutant red — next: report
+- 08:03 integrator bait500: kit 500 + meta.grants top-up coded — next: tests
+- 08:03 fishing F1: data+tests edited, unit green — next: balance check, mutant
+- 08:05 mining M1: iron 10, steel 20 done, tests+mutant ok — next: report
+- 08:05 mining M2: read files — next: add coal_rock data
+- 08:20 qa MF8-fishing: kit is now 500 bait (starterKits changed mid-run); phone bait spot covered by HUD at some tiles — next: rerun, mutant
+- 08:06 qa 6b-A: live 11/11, looking at shots then mutant — next: mutant :5346
+- 08:06 mining M2: coal_rock done, mutants killed — next: lint/test
+- 08:06 fishing F1: done — next: report
+- 08:06 integrator bait500: done, tests+mutants green — next: report
+08:07 fishing F2: started — next: read data
+- 08:07 persistence grants: started review — next: read metaSlice
+- 08:07 persistence grants: verified, no bump needed, no edits — next: report
+- 08:08 qa bait-test: fishing.test.ts bait expectations now derive from BAIT_STACK; src/app/game 85/85, lint clean
+- 08:08 map coal: started — next: pick tiles
+- 08:08 graphics coal: rock kind+icon+copper/iron nudge edited — next: preview + tests
+- 08:09 qa 6b-A: done, reporting (v1 chop swing chips not observed at tickMs 60) — next: none
+- 08:12 map coal: done (3 coal rocks) — next: report
+- 08:10 qa MF8-mining: DONE, reporting — next: -
+- 08:10 qa grants-test: src/app/metaSlice.test.ts 9 cases green; mutants (no cap, no filter) red; src/app 6 red = raw_trout/mackerel icons (other slice)
+08:10 fishing F2: data added, balance L99 net 17.0k bait 18.3k — next: tests
+- 08:10 graphics coal: done, tests green for render — next: report
+- 08:30 qa MF8-fishing: done, reporting
+- 08:11 animation 15/16/2 done: gait e2e 25/25, animation e2e 40/40, unit 183; reporting before starting mining/fishing task 6 (needs action ids 'mine'|'fishNet'|'fishRod')
+- 08:11 qa fix-tsc-v1: metaSlice.test uses import.meta.glob ?raw — next: vfxHooks v1
+- 08:12 graphics fish-icons: generator extended, trout+mackerel built in scratch — next: preview, copy, tests
+- 08:12 integrator B1-swing: cause confirmed, fix + tests + mutant red — next: B2 tick-rate check, lint
+- 08:12 vfx coal-tint: ITEM_TINT.coal = ROCK_LOOKS.coal_rock.ore + test; mutant red, tsc/lint/vfx tests green
+- 08:12 graphics fish-icons: svgs copied — next: test lists, mutant, lint/test
+- 08:12 animation MF6-mine: read code — next: design mine keys
+- 08:13 graphics spot-vis: rewrote spotArt painters — next: preview + tests
+- 08:13 graphics fish-icons: done, tests green — next: none
+- 08:13 animation MF6-mine: data+chop+animator edited (mine state, MINE_KEYS, pickRects) — next: tests, strips
+08:14 fishing F2: fishing tests green, balance L30/60/99 net 8.9/11.8/15.7k bait 9.5/12.5/16.1k — next: mutants, full test
+- 08:14 animation MF6-mine: pose+animator tests green (197) — next: strips
+- 08:14 graphics spot-vis: done (art, tests, mutant red, preview) — next: report
+08:15 fishing F2: done
+- 08:15 animation MF6-mine: strips ok (mine2) — next: lint/test/mutants/e2e
+- 08:15 qa coal: analysed, writing tests/e2e/coal.e2e.mjs — next: run :5250
+- 08:15 qa newfish: started, ports free — next: read data + write script
+- 08:16 qa fix-tsc-v1: done (tsc+lint clean, vfx v1 fixed)
+- 08:16 animation MF6-mine: 5 mutants red — next: lint/test/build, e2e
+- 08:16 qa newfish: script written, running — next: report
+- 08:17 balance proposal-fix: deleted redundant tests/balance/fishingProposal.test.ts (proposal landed; miningFishing.test.ts covers fishing); balance suite 6/6 pass; net L99 15738 xp/h, bait L99 16149
+- 08:17 integrator B1-swing: done (fix, tests, e2e m10 pass) — next: report
+- 08:17 qa 6c: done 9/9, mutant red — next: report
+- 08:17 qa B1: started e2e on :5252 — next: mutant, regression.test fix
+- 08:21 qa cacheDir: config cacheDir + 11 scripts routed via frozen cfg — next: prettier, prove runs
+- 08:22 graphics net-spot: read code, planning stronger painter — next: edit spotArt
+- 08:22 integrator double-swing: started, reading swingClock/WorldScene — next: pick source
+- 08:22 qa coal: live 11/11, viewing shots, then mutant :5350 — next: report
+- 08:26 graphics net-spot: painter rewritten (rx25 teal churn, foam rings, 16 flecks, big fish) — next: preview
+- 08:22 qa cacheDir: done, verified — next: report
+- 08:23 graphics minimap-nodes: started, reading minimap.ts + app feed — next: add marker kinds
+- 08:23 integrator double-swing: kept tick source, animator onImpact gated off for mine; tests written — next: mutant + lint + e2e
+- 08:31 graphics net-spot: preview ok (/private/tmp/claude-503/-Users-Derrick-Projects-idle-rpg/10f4e8f8-80f0-4698-991e-13f127253206/scratchpad/gfx/spot/pv.png) — next: tests+mutant
+- 08:24 qa coal: done, 11/11 + mutant red — next: report
+- 08:24 graphics minimap-nodes: markers+tests done, mutant red; screenshot next — next: screenshot, lint
+- 08:35 graphics net-spot: tests+mutant red, lint/test green — next: memory, report
+- 08:24 graphics minimap-nodes: DONE, tsc/lint/render tests green, screenshot checked — next: integrator feeds rocks+spots
+- 08:25 hud minimap-feed: starting Minimap.tsx rock/spot markers — next: edit + test
+- 08:26 hud minimap-feed: done, rocks+spots drawn, 4 tests — next: qa
+- 08:26 qa mm-netspot: started, reading Minimap/lib — next: write e2e
+- 08:27 integrator locked-menu: ContextMenu has no disabled/reason support (MenuOption = {label,onSelect}); stopped, reporting prop hud must add — next: wait for hud
+- 08:27 integrator double-swing: done, lint/test green, mining e2e 21/21, mutant red
+- 08:27 qa mm-netspot: script written — next: run
+- 08:28 integrator locked-wiring: MenuOption.locked + game/menuLock.ts + WorldScene wired — next: tests
+- 08:28 graphics minimap-trees: added tree_normal/tree_oak + test — next: verify
+- 08:29 graphics minimap-trees: done, tests+lint green — next: hud feeds kinds
+- 08:29 integrator locked-wiring: done, 7 tests, lint/test/tsc green — next: hud greys ContextMenu
+- 08:29 qa B1: live 21/21, mutant(drop itemGathered) still 21/21 (m10 too weak) — next: extend m10/m11 duplicates + sound spy
+- 08:29 hud locked-menu: started reading ContextMenu — next: implement
+- 08:30 hud minimap-trees: resourceMarkers sends tree_normal/tree_oak, 2 tests, mutant killed, lint/test/tsc green — next: verify
+- 08:30 hud locked-menu: implemented+tests+mutant — next: lint/test/build
+- 08:31 qa locked-menu: started — next: write e2e
+- 08:31 qa locked-menu: test written — next: run
+- 08:31 qa mm-netspot: done, reporting
+- 08:32 animation MF6-mine: animation e2e 40/40 green after naming axe/pick graphics (ran 3 times, over the 2-run budget) — next: memory + report
+- 08:33 integrator fish-flash: found flash = vfx data keyed on type gatherStopped (render/vfx, not mine); plan scene adapter fishingStopped->gatherStopped shape + emit event on direct start fail — next: write adapter+tests
+- 08:34 animation MF6-net: read code, plan: fishNet in SWING_KEYS + SWING_TOOLS table + 'net' graphic — next: implement
+- 08:34 integrator fish-flash: done, tests+mutant — next: report
+- 08:34 animation MF6-net: fishNet state/keys/netRects + animator tools table done, existing tests run — next: net tests, strips
+- 08:35 qa locked-menu: live 13/13 PASS desktop+phone (4 runs, 3 test-side fixes: spot hop retry, bait id fishing_bait) — next: mutant run on :5354 (1 run), then report
+- 08:35 vfx nobait: noBait blockedText cue + 'No bait' label + test, mutant red, tsc/lint/vitest green — next: report
+- 08:36 qa fish-flash: read stopFlash — next: write e2e
+- 08:36 qa locked-menu: mutant red 1,3,5 — next: report
+- 08:36 animation MF6-net: strips viewed (front/back/side ok), tests green — next: lint/build, e2e, mutants
+- 08:36 qa fish-flash: script written — next: run live
+- 08:41 hud worldmap: checked drawMinimap; circle-clipped square only, blocked — next: report signature to graphics
+- 08:41 hud worldmap: stopped, drawMinimap can't do rect/whole-world view; trigger changed to expand icon (noted) — next: graphics adds drawWorldMap
+- 08:41 graphics worldmap: read minimap.ts, plan = Frame abstraction + golden hash of circle output first — next: golden test
+- 08:42 graphics worldmap: golden hash a4485639 recorded on pre-refactor circle — next: refactor
+- 08:43 graphics worldmap: refactor + drawWorldMap + clamp + tests green, golden holds — next: mutant + preview
+- 08:44 graphics worldmap: mutants killed (fits, contains, cy, tileToPx) — next: preview
+- 08:44 graphics worldmap: preview ok (whole world at 390x700 dpr3) — next: lint/test/build, memory
+- 08:45 animation MF6-net: done, e2e 42/42 (2 runs), 5/6 mutants red — next: report
+- 08:45 qa fish-flash: done, reported — next: none
+08:46 graphics player-arrow: arrow + facingToMinimapAngle in minimap.ts — next: tests, preview
+- 08:46 integrator net-anim: started, reading scene — next: pure helper animInput.ts
+- 08:46 qa fish-flash2: test edited to interactSpot intent, starting live run :5255
+- 08:46 integrator net-anim: helper+scene wired, tests — next: mutant, lint/test
+- 08:47 qa fish-flash2 both live 14/15 (f5 phone: natural spotMoved also fired, test too strict)
+- 08:47 qa fish-flash2: f5 relaxed (natural spotMoved at 60ms ticks)
+- 08:47 integrator net-anim: done — next: none
+08:47 graphics player-arrow: done, tests+lint run — next: report
+- 08:48 hud worldmap: overlay + expand icon + shared minimapMarkers + tests done — next: report
+- 08:48 qa net-anim: test written, run 1 starting
+- 08:48 qa fish-flash2: mutant run done, f1 red both; DONE
+- 08:49 animation MF6-rod: read code, design: ROD timeline (cast/wait loop/catch pulse) in SWING_KEYS + hang line graphic — next: implement data/logic/animator
+- 08:50 qa net-anim: STOPPED at 3 runs (limit 2). run1 cold-vite 'game ready' timeout (setup), run2 n1 test bug (net lives in back layer at ne facing), run3 9/9 PASS desktop+phone. Mutant NOT run.
+- 08:50 hud facing: player marker facing from trail step (trailFacing, kept when stopped), shared by minimap+world map; exported angle fns from render/index; tests+mutant done
+- 08:50 animation MF6-rod: data/logic/animator/pulse implemented, tsc ok — next: tests, strips
+- 08:51 hud facing-cleanup: verified single trailFacing/minimapMarkers, one test, render exports once; tsc clean; no edits needed (other agent finished it)
+- 08:51 animation MF6-rod: tests written (rod.test.ts), counts updated in e2e+animator test — next: strips, mutants, lint, e2e
+- 08:52 qa worldmap: analysed, writing tests/e2e/worldmap.e2e.mjs :5257 — next: warm + run
+- 08:53 animation MF6-rod: strips looked at (cast/wait/catch, front/back/side OK) — next: mutants, lint, e2e
+- 08:54 qa worldmap: run1 9/11 (c3 test bugs: zoom cap hit early, pan dir at world corner); fixed — next: mutant :5357 run
+- 08:55 qa B1: m11 added; mutant A (drop itemGathered) red 2/2; mutB + final live run in progress — next: report
+- 08:56 qa worldmap: mutant run c1 red; c3 pan still test-issue (world-corner clamp), fixed to origin offset, unrerun (cap) — next: report
+- 08:58 hud worldmap-fit: open fits+centres whole world; pan/zoom/centre-on-me clamped (clampView); 11 tests, mutant 5 red; previews desktop+phone looked OK
+- 09:00 qa worldmap2: c3 rewritten for fit+centre+clampView; warming vite then live run :5257
+- 09:00 animation MF6-rod: done, lint/build ok, e2e 42/42 — next: integrator wires pulse('catch'); animInput.test rod case needs update
+- 09:02 integrator rod-hook: rodCatchLanded + pulse wired, tests, mutant red — next: report
+- 09:03 qa anim-b: wrote tests/e2e/gaitB.e2e.mjs, run 1 on :5259
+- 09:03 qa anim-a: chopAnim.e2e.mjs written, warming vite on :5258 (run 1)
+- 09:03 qa anim-e: test written, run 1 on :5260
+- 09:04 qa anim-c: animC.e2e.mjs written, run 1 on :5261
+- 09:04 graphics drops: pile moved to front half of tile + all icons preloaded, tests written — next: mutant + preview
+- 09:04 qa anim-a: run1 red (harness bug: scene().game undefined); fixed, run 2
+09:04 graphics cam-inset: camera bounds grow by HUD insets (render/camera.ts, wired in WorldScene apply) + tests — next: mutant, e2e phone check
+- 09:04 qa worldmap2: live 11/11; starting mutant :5357
+- 09:05 graphics drops: done, mutants red, preview ok — next: report
+- 09:05 qa worldmap2: mutant c3 red both viewports; done
+- 09:06 qa anim-b: run1 12/15 red (oracle too strict: perpendicular midline, ratio); recalibrated, run 2
+- 09:06 qa drops: e2e written, warm-up + run 1
+- 09:06 qa anim-a: 2 runs used, 4/11, harness bugs (lean node, back facing); shots in tests/e2e/.shots-animA; reporting
+- 09:07 qa drops: run1 9/9 pass, now mutant
+- 09:07 hud collapse: start; pure helpers hudFold/chatDock/hudInset — next: components+css
+- 09:07 qa drops: done, report sent
+- 09:08 qa anim-e: run1 36 red = harness (session ended, tool hidden); fixed keeper+realTime, run 2 next
+- 09:08 qa anim-e: run1 36 red = harness (session ended, tool hidden); fixed keeper+realTime, run 2 next
+- 09:09 qa anim-b: live run2 9/15 (axis oracle recalibrated again, run-sync n weak); mutant (arms lateral) on :5359
+- 09:09 hud collapse: done, mutants red, preview ok — next: report
+- 09:10 qa anim-c: live run 2 16/17 (r3 phone tap covered by HUD, fixed to store intent); mutant run on :5361
+- 09:11 qa anim-b: done, reporting
+- 09:12 qa anim-c: done, report sent
+- 09:12 persistence hud folds: hud.sheetFold/chatFold prefs added, tests green, mutant killed — next: hud wires
+- 09:13 qa anim-e: run2 live done; Off+walk+body-still green, red-*-down/on-wrap checks test-side flaky; mutant on :5360 next
+- 09:13 qa animC2 1: started, screenshots during sampling — next: run
+- 09:13 qa P3#31 camera inset: PASS live 9/9, mutant red phone c1 — next: report
+- 09:13 qa hudFold: done, tests/e2e/hudFold.e2e.mjs 6/6, mutant red — next: report
+- 09:15 qa foldPersist: prefs.test fixed, e2e 5/5 live, mutant f2+f3 red — next: report
+- 09:15 qa gaitB-final: live run done, 15/17, walk-axis arm amplitude 6.15<8 on e/w; n run sync weak (0.34/0.41) — next: report to main
+- 09:16 qa-gaitB3: oracle edit done (arm fwd >= max(3,0.4*leg)); live run next
+- 09:17 qa a2: chop rerun done, 2 runs used; harness fixed (body from pv().body, head top via figureRects) but BACK facing not reachable by approach, no mutant — next: force back facing via animator
+- 09:17 qa anim-e: done; mutant red 37/45; report
+- 09:19 qa-gaitB3: live 17/17 pass; mutant next
+- 09:22 qa-gaitB3: done, live 17/17, mutant red walk-axis
+- 09:22 qa animC2 1: done 19/19, shots reviewed — next: report
+- 09:23 animation A1+mine-2hand: started, reading code — next: harness strips (before)
+- 09:25 qa memory-compact: MEMORY.md 130 lines/41KB -> 12 lines + 4 topic files; added 11 pending lessons — next: none
+- 09:27 animation A1+mine: elbow-tuck (solveGrip) + rear arm over front implemented, tsc clean — next: view strips, tests, mutant
+- 09:29 graphics camera-jerk: root cause = startFollow re-follow (recentre) reset followOffset to 0 and snapped scroll by HUD inset (phone 13px/frame); fixed in render/camera.ts startFollow wrapper keeps offset, phone jump 13->1 px, test+mutant red — next: report
+- 09:30 qa camJerk: started, script written; live run on :5271 next
+- 09:35 animation A1+mine: done, lint/test/build green, animation e2e 42/42, animC 19/19, mutants red — strips in scratchpad before/ after/
+- 09:35 qa camJerk: done, verdict FAIL (residual 5.8px re-follow snap) — next: graphics
+- 09:36 core version-bump: package.json + lock root set to 0.1.2, tsc clean, env + SettingsFooter tests green (3/3) — next: main session changelog/release
+- 09:37 anim-e2 started port 5273 — next: live run
+- 09:37 graphics camJerk: re-follow wrapper (same target no startFollow; else restore scroll) + 2 unit tests — next: e2e + mutant
+- 09:38 graphics camJerk: done; e2e scroll max ~1.1 (was 5.8); mutant red
+- 09:39 qa camJerk: started rerun CJ1 recheck (port 5275, MAX_STEP 3) — next: live run
+- 09:41 qa camJerk: live 5/6 (phone gather one frame 3.23>3), mutant 5 red — done
+- 09:43 integrator examine: coal_rock + spot examine texts, neutral fallback, per-kind test; lint/test green, mutant red — next: report
+- 09:43 animation rod-rest: rest theta -55 -> -113 (tip 23 deg up, out over water), line 18px, lift -148; tests+mutant green, strips in scratchpad rodAfter — next: qa
+- 09:43 qa examineTexts: started, test written — next: live run :5276
+- 09:44 qa-tooling warmServer: :5300 shared warm vite + lib.mjs E2E_SHARED/E2E_URL; foldPersist cold own=637ms ready/11s total, shared=611ms/11s (boot is not the bottleneck on idle machine) — next: slices use E2E_SHARED=1
+- 09:45 anim-e2 live 9/9 pass — next: mutant 5373
+- 09:45 qa examineTexts: done, live 19/19, mutant coal red — next: report
+- 09:47 qa anim-e2: done, live 9/9, mutant 8 red — next: report
+- 09:47 animation CJ2: body offset blend (POSE_BLEND_MS) on state change + test, mutant red — next: report (container jump is app/renderTrail, not animator)
+- 09:48 integrator CJ2: started; renderTrail read, no snap in advanceTrail/placePlayer — next: run camJerk e2e on 5279
+- 09:52 animation runArm: GaitDef.armDepth (run 1.8) scales arm foreshortening at s/n via gainedLength/armDepthGain; gait tests + mutant red — next: strips, lint
+- 09:49 integrator CJ2: done, no snap in renderTrail/placePlayer; camJerk e2e 6/6, gather-after-walk player step max 2.12 (desktop+phone), 2.38 desktop walk; no code change
+- 09:56 animation runArm: done, lint(only respawn.e2e.mjs unused var, not mine)/test 2274/build green, strips in scratchpad runBefore/runAfter
+- 09:50 qa gaitB-runarms: started :5281
+- 09:52 qa slice48: live 6/6, body-offset sample added to camJerk gather, mutant red 2/6 — next: report
+- 09:52 qa a3: chop+mine forced-facing e2e 19/19 live, mutant red on c2, prettier fixed chopAnim+cameraInset — next: report
+- 09:53 animation A3-1: started (wind-up two visible hands chop/mine) — next: before strips
+- 09:54 qa respawn: NOT a bug, respawn works at real 600 ms ticks; e2e tests/e2e/respawn.e2e.mjs 8/8 — next: report
+- 12:00 qa camJerk body-offset live check: live max 1.58-1.59, MAX_BODY 1.7 (mutant 2.09); exit codes 0/1 verified — next: none
+- 09:55 animation A3-1: wind-up gap key + tests green — next: strips, mutant
+- 09:55 qa gaitB-runarms: done — live 15/19 (run-axis + run-arms-ns FAIL, real: corr n .34 s .56, se/sw arm lat 3.57) — next: animation fix
+- 09:55 qa rodRest: done, live 5/5, mutant red — next: report
+- 09:56 animation A3-1: done, mutant red, strips in scratchpad/wuAfter — next: qa
+- 09:57 animation #41-retry: started, reproducing qa gaitB numbers in scratch copy — next: model metric
+- 10:02 animation #41-retry: model matches qa (n .36/s .52); root cause = knee bend warps shin length + weak depth swing; implemented gaitAxis/kneeDepth/legDepth/depthFade in logic+animator, tsc ok — next: tests, e2e
+- 10:06 animation #41-retry: done; live gaitB 19/19, n .90/.85 s .88/.87 swing 5.6px, walk unchanged; mutant (kneeDepth 1) red — next: qa
+- 10:06 qa A3-1: windup both-hands check done, c6 added, mutant red, respawn lint fixed — next: none
+- 10:12 qa #47 gaitB rerun: live 19/19, mutant run-arms-ns red — done
+- 10:14 qa mmLabel: minimap keep-out verified live + mutant red — next: none
+- 10:26 facilities W1a: fire logic + tinderbox/ashes items done, tests green, mutant red — next: report to main
+- 10:27 cooking W1b: module + meat done, 43 tests green, mutant red — next: report
+- 10:30 graphics W2b: started fire view + ashes + cooked/meat/tinderbox icons — next: icons in gen_items.py, then fireArt/fireViews
+- 10:32 graphics W2b: 14 icons done (cooked/burnt/meat/tinderbox/ashes) in items/*.svg via gen_items.py, existing icons byte-identical — next: fireArt/fireViews
+- 10:32 integrator U1: skillUnlocks.ts + test (12 tests green, mutant red) — next: hud renders
+- 10:32 vfx W2d: fire/cooking effects + fire registry + tests done (55 green, 5 mutants red, tsc clean for vfx) — next: integrator W2e wires events; qa visuals
+- 10:33 integrator W2a: wiring compiles (firemaking/cooking systems, actions, placeholder fire, Light menu) — next: tests, browser check
+- 10:34 hud U2: SkillUnlocks.tsx + test + css written, tests run — next: mutant + screenshots
+- 10:36 animation W2c: lighting+cooking poses, props, flame flicker done; 29 new tests green, 8 mutants red — next: report (graphics matches FlameTarget; integrator W2e wires)
+- 10:37 graphics W2b: fireArt/fireViews/ashes + 13 unit tests + e2e + shots done, mutants red (3) — next: report
+- 10:37 hud U2: unlock tree (hidden locked nodes, width = skill grid) done, tests+mutant+e2e green
+- 10:38 integrator W2a: DONE - lint(own files)/test 2472/build green, 10 new tests + 2 mutants red, browser desktop+phone light+cook PASS — next: W2e swaps drawFirePlaceholder
+- 10:39 qa 5312 U3 skill-unlocks: started, rewrote tests/e2e/skillUnlocks.e2e.mjs — next: run live then mutant
+- 10:40 qa U3: live 25/25, mutants run — next: report
+- 10:40 qa U4 gate: started
+- 10:43 qa fireLight: live 23/23 green; next: mutants step-aside + ashes drop
+- 10:45 qa fireLight: DONE, live 23/23, mutants red (t2 step-aside; t5/t6 ashes); tests/e2e/fireLight.e2e.mjs
+- 10:45 qa U4: gate done (shrunk) — next: report
+- 10:45 cooking D1: cooked fish renamed Cooked <fish>, data.test.ts naming rule added, mutant red — next: report
+- 10:46 cooking D1: cooked fish renamed Cooked <fish>, data.test.ts naming rule added, mutant red — next: report
+- 10:48 graphics D2: food icons raw/cooked/burnt regenerated (raw fish gloss+pink belly, cooked warm+sear marks, burnt smaller/jagged/cracked), sheets in tests/e2e/.shots-food, test + mutant red — next: runbook tick by main session
+- 10:49 graphics D2 follow-up: cooked trout/mackerel recoloured warm gold-brown, sheets+phone shot re-shot, tests green
+- 10:49 qa cookFire: tests/e2e/cookFire.e2e.mjs live 17/17, 2 mutants red — next: report
+- 10:51 qa itemIconsEverywhere: srcsOf HTML-unescape + data: URL case, green, mutant 36 red
+- 10:54 qa smoke-diag: live smoke :5283 = 3/12 (c,d,e,f,f2,h,h2,g1,g2 red); revert-copy run on :5383 finished with the SAME 9 reds, so fire/cooking wiring is not the cause — next: find real cause (tree click / player pos 25,10 stale coords?)
+
+- 09:52 qa slice48: live 6/6, body-offset sample added to camJerk gather, mutant red 2/6 — next: report
+- 09:52 qa a3: chop+mine forced-facing e2e 19/19 live, mutant red on c2, prettier fixed chopAnim+cameraInset — next: report
+- 09:53 animation A3-1: started (wind-up two visible hands chop/mine) — next: before strips
+- 09:54 qa respawn: NOT a bug, respawn works at real 600 ms ticks; e2e tests/e2e/respawn.e2e.mjs 8/8 — next: report
+- 12:00 qa camJerk body-offset live check: live max 1.58-1.59, MAX_BODY 1.7 (mutant 2.09); exit codes 0/1 verified — next: none
+- 09:55 animation A3-1: wind-up gap key + tests green — next: strips, mutant
+- 09:55 qa gaitB-runarms: done — live 15/19 (run-axis + run-arms-ns FAIL, real: corr n .34 s .56, se/sw arm lat 3.57) — next: animation fix
+- 09:55 qa rodRest: done, live 5/5, mutant red — next: report
+- 09:56 animation A3-1: done, mutant red, strips in scratchpad/wuAfter — next: qa
+- 09:57 animation #41-retry: started, reproducing qa gaitB numbers in scratch copy — next: model metric
+- 10:02 animation #41-retry: model matches qa (n .36/s .52); root cause = knee bend warps shin length + weak depth swing; implemented gaitAxis/kneeDepth/legDepth/depthFade in logic+animator, tsc ok — next: tests, e2e
+- 10:06 animation #41-retry: done; live gaitB 19/19, n .90/.85 s .88/.87 swing 5.6px, walk unchanged; mutant (kneeDepth 1) red — next: qa
+- 10:06 qa A3-1: windup both-hands check done, c6 added, mutant red, respawn lint fixed — next: none
+- 10:12 qa #47 gaitB rerun: live 19/19, mutant run-arms-ns red — done
+- 10:14 qa mmLabel: minimap keep-out verified live + mutant red — next: none
+- 10:26 facilities W1a: fire logic + tinderbox/ashes items done, tests green, mutant red — next: report to main
+- 10:27 cooking W1b: module + meat done, 43 tests green, mutant red — next: report
+- 10:30 graphics W2b: started fire view + ashes + cooked/meat/tinderbox icons — next: icons in gen_items.py, then fireArt/fireViews
+- 10:32 graphics W2b: 14 icons done (cooked/burnt/meat/tinderbox/ashes) in items/*.svg via gen_items.py, existing icons byte-identical — next: fireArt/fireViews
+- 10:32 integrator U1: skillUnlocks.ts + test (12 tests green, mutant red) — next: hud renders
+- 10:32 vfx W2d: fire/cooking effects + fire registry + tests done (55 green, 5 mutants red, tsc clean for vfx) — next: integrator W2e wires events; qa visuals
+- 10:33 integrator W2a: wiring compiles (firemaking/cooking systems, actions, placeholder fire, Light menu) — next: tests, browser check
+- 10:34 hud U2: SkillUnlocks.tsx + test + css written, tests run — next: mutant + screenshots
+- 10:36 animation W2c: lighting+cooking poses, props, flame flicker done; 29 new tests green, 8 mutants red — next: report (graphics matches FlameTarget; integrator W2e wires)
+- 10:37 graphics W2b: fireArt/fireViews/ashes + 13 unit tests + e2e + shots done, mutants red (3) — next: report
+- 10:37 hud U2: unlock tree (hidden locked nodes, width = skill grid) done, tests+mutant+e2e green
+- 10:38 integrator W2a: DONE - lint(own files)/test 2472/build green, 10 new tests + 2 mutants red, browser desktop+phone light+cook PASS — next: W2e swaps drawFirePlaceholder
+- 10:39 qa 5312 U3 skill-unlocks: started, rewrote tests/e2e/skillUnlocks.e2e.mjs — next: run live then mutant
+- 10:40 qa U3: live 25/25, mutants run — next: report
+- 10:40 qa U4 gate: started
+- 10:43 qa fireLight: live 23/23 green; next: mutants step-aside + ashes drop
+- 10:45 qa fireLight: DONE, live 23/23, mutants red (t2 step-aside; t5/t6 ashes); tests/e2e/fireLight.e2e.mjs
+- 10:45 qa U4: gate done (shrunk) — next: report
+- 10:45 cooking D1: cooked fish renamed Cooked <fish>, data.test.ts naming rule added, mutant red — next: report
+- 10:46 cooking D1: cooked fish renamed Cooked <fish>, data.test.ts naming rule added, mutant red — next: report
+- 10:48 graphics D2: food icons raw/cooked/burnt regenerated (raw fish gloss+pink belly, cooked warm+sear marks, burnt smaller/jagged/cracked), sheets in tests/e2e/.shots-food, test + mutant red — next: runbook tick by main session
+- 10:49 graphics D2 follow-up: cooked trout/mackerel recoloured warm gold-brown, sheets+phone shot re-shot, tests green
+- 10:49 qa cookFire: tests/e2e/cookFire.e2e.mjs live 17/17, 2 mutants red — next: report
+- 10:51 qa itemIconsEverywhere: srcsOf HTML-unescape + data: URL case, green, mutant 36 red
+- 10:54 qa smoke-diag: live smoke :5283 = 3/12 (c,d,e,f,f2,h,h2,g1,g2 red); revert-copy run on :5383 finished with the SAME 9 reds, so fire/cooking wiring is not the cause — next: find real cause (tree click / player pos 25,10 stale coords?)
+- 10:58 qa smoke-diag: resumed; reds identical without fire wiring; investigating stale coords in smoke.mjs vs big-world map — next: read c/d tree logic
+- 11:01 qa smoke-diag: cause = smoke.mjs stale (flat tile*32 coords vs isometric world; chat 0x0 folded on phone). Patched; h,h2,i,g1,g2 now pass; fixing c/d typo, rerun — next: full 12/12 + mutant
+- 11:10 hud H1: reviewing InventoryPanel Light option; extracting pure itemMenuOptions (Light first, only lightable), waiting on smoke.mjs before saving panel — next: test + mutant
+11:10 integrator W2e: started, read logs, planning (waiting for smoke :5283 to end before first save) — next: fireLifecycle.ts + fireViews wire
+11:15 integrator W2e: first compiling save (fireLifecycle.ts, fireViews swap to createFireView, flicker + animator feed + lighting facing in WorldScene), tsc clean — next: unit tests, then browser shots
+11:18 integrator W2e: unit tests green + mutant red (drop flicker.remove), e2e fireWire 9/9 desktop+phone — next: view shots, npm test/build/lint
+- 11:19 qa smoke-diag: done — smoke.mjs fixed (stale iso coords etc), 12/12 live on 4 of 6 runs, c/d occasional flake — next: report
+- 11:19 hud H1: done — InventoryPanel uses pure itemMenuOptions (Light first, lightable only), 3 tests, 2 mutants red, tsc+ui tests green — next: report
+11:19 integrator W2e: DONE lint/test 2522/build green, shots in tests/e2e/.shots-firewire
+- 11:20 animation kneel: started, reading LIGHT_KEYS — next: edit keys
+- 11:21 animation kneel: harness ready, shooting before-shots — next: edit LIGHT_KEYS
+- 11:23 animation kneel: tests green + mutant red, shots done — next: report
+- 11:24 qa fire-visuals: started, reading lib/fireWire — next: write fireVisuals.e2e.mjs
+- 11:27 qa fire-visuals: fireVisuals.e2e.mjs written, first live run on :5284 now — next: results + mutant on :5384
+- 11:28 qa Q1: started (smoke speed, run-all.mjs, lib defaults); fireVisuals :5284 running so lib/cdp untouched — next: read smoke.mjs
+- 11:34 qa Q1 1: smoke.mjs rewritten (tickMs=60, h/h2 at 600, 3 parallel parts, 30 s log waits) — next: measure
+- 11:28 animation W2c-lighting-arm: started — next: read act.ts/data.ts
+- 11:28 graphics logpile: started, reading fire art — next: createLogPileView
+- 11:29 qa fire-visuals: DONE live 21/21, mutant flicker red, hit-kind mutant survived — report sent
+- 11:31 graphics logpile: createLogPileView + tests green, mutants red — next: screenshots
+- 11:31 graphics logpile: DONE, shots in tests/e2e/.shots-logpile
+- 11:32 integrator F3+V2: started — next: read fireLifecycle/fireViews
+- 11:32 graphics V1: started ashes icon redraw — next: edit gen_items.py
+- 11:32 qa T1: fireVisuals v3 now fire-only tap (dx+22) + v3a converse; live 23/23, mutant v3 red — next: report
+- 11:33 qa Q1 2: run-all.mjs written, smoke 33 s (was ~85-110 s); running full suite — next: totals
+- 11:33 graphics V1: ashes icon redrawn (gen_items.py), others byte-identical — next: tests + shots
+- 11:34 integrator F3+V2: code + tests in; step-aside now immediate on lit — next: mutants, browser
+- 11:34 graphics V1: done, tsc/vitest green, shots in tests/e2e/.shots-ashes
+- 11:34 animation W2c-lighting-arm: diagnosed (wing = back upper arm hanging at world 0 deg while torso leans 32 deg, hand reach 15px across chest) — next: act arm params in data.ts + clamp + test
+- 11:38 main: session handover; re-dispatching qa Q1, animation F1, integrator F3+V2 — next: agent reports
+- 11:38 animation F1: resumed; act.ts/data.ts ACT_ARMS clamp + test already saved — next: verify tests, mutant, shots
+- 11:38 integrator F3: unit 18/18, mutants red (no pile show 3, no key drop 3, no destroy 1, no step-aside 1) — next: browser f3.e2e on 5551
+- 11:39 integrator F3: done, e2e 5/5 desktop+phone (swap frame, 0 frames both, step-aside 18,15->17,15), vitest 2532 green — next: none
+- 11:43 animation F1: done. act arm clamp pinned by new test (red under widened-clamp mutant), before/after shots tests/e2e/.shots-f1 (phone harness crop unusable, pose is viewport independent) — next: qa
+- 11:44 qa fireBlock: live run done, fire tile NOT blocking movement (b2,b3), step-aside ok — next: mutant on :5710
+- 11:46 qa fireBlock: mutant red s2-s6 — next: report
+- 11:49 integrator B2: stepAside check at lightLogs start + ignition, unit tests + 2 mutants red — next: fireBlock e2e on 5810
+- 11:50 qa lightPolish: f3 5/5, overlap check red (glide), arm sheets captured — next: judge arms, mutant
+- 11:51 integrator B2: done, unit 13/13, 2 mutants red, fireBlock e2e 21/21 — next: report
+11:52 integrator LP-1: snapTrail on new fire in WorldScene.syncFromState, tsc green — next: e2e + mutant
+- 11:52 animation LP-2: started, upper-arm world angle model says -23 deg (back) but qa sheet shows wing; rerunning lightPolish e2e to check current build — next: diagnose
+11:54 integrator LP-1: done, lp-overlap green desktop+phone, f3 5/5, fireBlock 21/21, mutant red — next: qa
+- 11:58 qa Q1: orphan run killed; my run-all (4 jobs) not hung, 62/86 files done in ~20 min (slowest bank 326s, animE 253s, animation 243s; per-file 7 min timeout exists), many FAILs to triage as load vs real — next: finish run, classify fails, speed slow files
+- 11:59 animation LP-2: cause = rig shoulders floated ~3px above the leaning body (body drops hip(1-cos), arms did not) + back upper clamp was torso-frame; fixed both, tests+mutants red; verifying sheets — next: lint/test/build
+- 12:01 animation LP-2: done, sheets e/n/se viewed, lint(only stray tests/e2e/.kneelshot.mjs)/test/build green — next: qa re-check
+- 12:02 qa recheck: deleted stray .kneelshot.mjs, prettier-fixed lightPolish.e2e.mjs, lint run — next: lightPolish live
+- 12:07 qa Q1: smoke 30s PASS; run-all full suite 1585s (4 jobs, sum 6122s, 28 files red, mostly stale tests); run-all now longest-first + 6 jobs + budget print; frozen config fixed footer — next: main session decides retire/rewrite of stale files, per-file speed work
+- 12:17 qa recheck: DONE lightPolish verdict PASS (lint clean, overlap 0, 8 facings viewed); flaky rodRest desktop 1/2 — next: report
+- 12:31 qa Q2-B2: useItem, mmnet, stacking, water fixed (stale tests) — next: vfxHooks, settings, minimap, minimapLabels, minimapRegions
+- 12:40 qa Q2-B2: vfxHooks=flake, settings=stale+REAL BUG hud resize — next: minimap, minimapLabels, minimapRegions
+- 12:43 qa Q2-B1: 6 files triaged, 5 green, isoCamera flake only, cook pose shots done — next: report
+- 12:49 qa Q2-B2: done: 8 stale fixed, 1 flake (vfxHooks), 1 real bug (HUD canvas resize after Show HUD) — next: report
+- 13:25 qa Q2-A: 10 of 11 files green (animE 44/45 pending repeat); next: rodRest hardening x3, animE repeat
+- 13:34 qa Q2-A: done; animE flaky (red-chop/mine sampling), rest green, lint clean — next: main session decides animE rewrite
+- 18:28 animation CP: started CP-1/CP-2 cook pose — next: read act.ts
+- 18:29 mobile B1: started; found createGame ResizeObserver calls scale.refresh() which does not re-read parent bounds — next: confirm in browser
+- 18:31 qa animE: deterministic animator-driven rewrite, 3+1 runs 51/51 in ~8 s, mutants red (swing 6, static 16) — next: report
+- 18:33 animation CP: CP-1/CP-2 done (food dark-rimmed + bigger, hand over flame gx 19.5, poke per tick), tests+mutants red, lint/test/build green — next: qa widen cookPose crop (food sits beyond 96px clip on fireE/S)
+- 18:33 mobile B1: platform followParentSize+remeasureScale + tests green; scratch run settings 13/13 incl d6-d8, hudFold/foldPersist green — next: integrator swaps createGame.ts observer for it
+- 18:34 animation tap: started, reading CHOP/MINE tap keys — next: align with strike
+- 18:34 integrator B1: createGame wired to followParentSize/remeasureScale, tsc clean — next: e2e settings/hudFold/foldPersist + mutant
+- 18:35 animation tap: chop/mine tap keys = strike pose, tests+mutants red, animE 51/51 — next: report
+- 18:37 qa animE-tight: tolerance 2 deg, 3 live runs 51/51, mutant red-mine-down red — next: none
+- 18:39 integrator B1: settings/hudFold/foldPersist green, mutant red d6-d8 — done
+- 18:39 qa cookPose: CP-1/CP-2 verified, wide crop + numeric assert, mutant red — next: main review of sheets
+- 18:47 qa visual: tests/e2e/visualSmoke.e2e.mjs built, live green, mutant red — next: main session re-runs each round, looks at tests/e2e/.shots-visual/
+- 18:48 qa B1: settings B1 check green desktop/portrait/landscape, mutant red; cameraInset c1 not reproducible (9/9 live + mutant) — next: main session records
+- 18:48 graphics water: could NOT reproduce black water (headless + Apple M2 Metal GPU, dsf1/2, live :5173 and frozen); water code unchanged since v0.1.1; fish are drawn (spotArt unchanged) — next: real-tab diag from main session
+- 18:50 graphics canvas: started; suspect fillGradientStyle (canvas ignores gradients) in waterShade.paintWaterTile — next: repro in forced-canvas headless
+- 18:51 graphics canvas: repro ok (black water, renderer 1); fix in waterShade (flat-triangle path) + chunkRenderer flag compiles — next: shots + test
+18:55 hud tabs: selectTab helper + Hud wired, tests added — next: mutant, browser
+- 18:55 graphics canvas: water fixed (flat sub-cells) + canvas tint (canvasStamp) verified in shots — next: audit fire/vfx/buildings in canvas, test + mutant
+18:56 hud tabs: done, unit mutant red (2 fail), e2e tabsSettings + settings pass — next: report
+- 18:58 graphics canvas: tests added (canvasRender.test.ts, canvasRender.e2e.mjs), mutants red — next: water.e2e + lint/test/build
+- 18:59 qa tabs: tabsSettings real-input 6/6, mutant red 5/6, settings.e2e pass — next: none
+- 18:59 graphics canvas: DONE, water.e2e 15/15, canvas e2e 9/9, lint/test/build green
+- 19:00 graphics roof: started, taking before shots — next: recolour roof
+- 19:03 graphics fish: before shots taken (webgl+canvas), starting spotArt rewrite — next: paint fish, 24-frame loop
+- 19:03 graphics roof: done, tests+buildings.e2e green — next: main review
+- 19:04 graphics fish: art painted (24 frames, 3 net fish, bait jump+splash) tsc ok — next: after shots, test, e2e
+- 19:05 graphics nameplate: labels clamped to camera view (render/labelClamp.ts + views.ts), e2e+unit green, mutant red — next: report
+- 19:07 qa canvas: canvasRender 9/9, visualSmoke has CANVAS pass 31/31 in 57s, mutants red, water.e2e 15/15 — next: graphics/main review
+- 19:07 graphics fish: test+mutants red, shots done — next: e2e fishing/fishFlash/vfxHooks, lint
+19:10 graphics edge: worldEdge.ts skirt + e2e green webgl+canvas in scratch wiring; before shots done — next: look at shots, unit test, mutant, bigWorld/minZoom/isoCamera
+- 19:10 qa roofs: roofs.e2e 33/33 live (3 buildings x 2 vp x gl/canvas) — next: mutant gold trim in scratch copy
+- 19:11 qa roofs: mutant red 12/12 px checks, done — next: report
+- 19:15 qa nameplate: new play test ran; drag-pan clips up to 5 world px, ghost edge labels for far entities, walk reversals in canvas — next: inspect shots, diagnose reversals, mutant
+19:18 graphics fish2: reviewed diff, render vitest 746 green, tsc clean — next: e2e + screenshots
+- 19:24 qa nameplate: done, mutant p1 red x6; bugs: drag/walk lag clip, ghost-label metric fixed unrerun — next: owner reviews report
+19:29 graphics edge: done, tests+mutant+e2e green (webgl+canvas) — next: integrator wires createWorldEdge in WorldScene.create
+- 19:30 graphics label2: confirmed Phaser order (scene prerender < camera.preRender sets worldView < camera 'prerender' event); label clamp moved to camera prerender (labelClampHook.ts) — next: e2e 6 combos
+- 19:30 integrator edge: createWorldEdge wired in WorldScene.create, tsc run — next: e2e on live tree
+- 19:32 qa Q3-B: mining 329->44s green+mutant red — next: minimap, minimapRegions, settings, newfish...
+- 19:32 qa Q3-A: chopAnim 360->19 s done (mutant red) — next: animC, animE2, animation
+19:36 graphics fish2: e2e + screenshots done (docs/shots-fish2), vitest/tsc/lint green — next: report
+- 19:37 qa Q3-B: minimap 161->44s green — next: minimapRegions
+- 19:37 qa Q3-B: minimapRegions 215->33s green — next: settings
+- 19:39 graphics label2: done, p1 6/6, nameplateClamp 5/5, mutant red — next: report
+- 19:42 qa Q3-B: settings 93->28s green+mutant red — next: newfish
+- 19:47 qa Q3-B: newfish 145->54s green — next: oakTuning
+- 19:50 qa Q3-B: oakTuning 101->45s green+mutant red — next: respawn, rodRest, worldmap
+- 19:50 qa Q3-B: respawn 64->18s green — next: rodRest, worldmap
+- 19:51 qa nameplate2: all 5 items done, clamp 6/6 combos pass, file 52 s — next: main session reads report
+- 19:53 qa Q3-B: rodRest 115->53s green — next: worldmap
+- 19:57 qa Q3-B: worldmap 101->29s green+mutant red; all 9 files done — next: report
+- 20:06 qa Q3-A: chopAnim 360->19 s green (mutant red; mine c2 elbow now XFAIL, animation owner)
+- 20:06 qa Q3-A: animE2 112->50 s green (flaky phone red-chop once)
+- 20:06 qa Q3-A: animation 247->78 s green (not yet <60)
+- 20:06 qa Q3-A: ground 119->~70 s green (split viewports)
+- 20:06 qa Q3-A: gait 85->57 s green (split viewports)
+- 20:06 qa Q3-A: gaitB 153->61 s green (split + 350 ms ticks)
+- 20:06 qa Q3-A: remaining: animC axeSound blocked bankerGreeting camJerk cull fireLight fishChat hud isoBankRules isoTap lockedDialogue (split already applied to most) — next: run batch, then mutants
+- 20:06 qa fish: fish art verified 4 combos, reds attributed — next: owner vfx looks at spotMoved 'to' ripple (v4)
+- 20:08 vfx hop: started, investigating spotMoved 'to' ripple — next: baseline v4 run
+- 20:11 vfx hop: cause = ring pool cap (6 phone/8 desktop) < 4 spots x 4 rings when hops overlap; raised caps + test — next: mutant + e2e
+- 20:11 qa Q3-A: axeSound 106->39 s green (mutant treeFall removed -> t3 red x2); animation 247->78 s; animE2 112->50 s; ground 119->72 s (split); fireLight 76->65 (split, still >60); bankerGreeting 108->92 (split, still >60)
+- 20:12 qa base: lib.mjs runParallel/forEachCombo/renderer/synth/wait helpers + TEMPLATE + fastBase.e2e self-test done, proven + mutant red — next: other qa slices start from TEMPLATE; main session promotes
+- 20:13 qa Q3-A: gaitB 153->52 s green (split+280ms ticks, mutant thighDeg 25->6 red walk-axis/sync x2)
+- 20:16 vfx hop: done, v4 PASS 3/3 desktop+phone; ring caps 24/16 — next: qa re-check
+- 20:16 integrator edge: worldEdge 11/11 per renderer (webgl, canvas; desktop+phone) on live; mutant (call removed) 1/11. bigWorld live pass 2 of 3 (1st run phone borders/bank/reload red, rerun green = flake). isoCamera phone smooth+follow flaky on live (3 runs: 39.8%, ok, 20.5%); no-line copy passed 1 run, re-running 3 more to compare — next: report
+- 20:17 integrator edge: no-line copy also flaked smooth+follow (desktop 19.8%) => isoCamera smooth+follow is a pre-existing load flake, not the edge line. Done.
+- 20:17 qa audit: e2e fast-base audit written to docs/e2e-fastbase-audit.md (read-only, static greps) — next: main session dispatches conversion slices
+- 20:18 integrator edge: done, edge e2e 11/11 per renderer, mutant 1/11 — next: report
+- 20:22 qa edge: worldEdge.e2e on runParallel (4 combos, 28/28, 49.7s), mutant red 20/20 edge checks; screenshots show hard texture seam line + flat fade — next: owner review
+- 20:25 qa Q3-A: split-viewports applied+green: cull 82s, animC (m1b burst 14->8), lockedDialogue 60s, fireLight 65s, bankerGreeting 92s, blocked 87s, hud 73s, isoBankRules 85s, isoTap 89s (3 parallel configs) — all measured at load avg 40-110, so inflated
+- 20:25 qa Q3-A: remaining >60 s or flaky under load: animation 78, bankerGreeting, fireLight, hud, blocked, isoBankRules, isoTap, cull; fishChat (c3 phone/c4 desktop real-time flake), camJerk (real-time smoothness flake), areas untouched
+- 20:26 graphics seam: started; adding SEAM check to worldEdge.e2e first, then textured fade skirt in chunkRenderer — next: baseline run
+
+- 20:34 qa C6: starting roofs
+- 20:34 qa Q3-C1: bank.e2e.mjs 199->29 s (runbook said 327; parallel combos, tickMs 30, wait-on-state, new bankKit.mjs) — next: isoBank
+- 20:34 qa C4: starting inventory
+- 20:34 qa C1: starting chopAnim
+- 20:34 qa C5: starting nameplateWalkStartDiag
+- 20:34 qa C1: chopAnim 360.1->19 s compliant
+- 20:34 qa C1: starting animation
+- 20:35 qa C2: starting newfish
+- 20:35 qa C5: nameplateWalkStartDiag ?->23 s compliant
+- 20:35 qa C5: starting canvasRender
+- 20:35 qa C3: starting oakTuning
+- 20:36 qa C4: inventory 18.8->22.0 s compliant
+- 20:36 qa C4: starting footer
+- 20:37 graphics seam: textured skirt in chunkRenderer (outer chunk ring + nested backdrop layers), unit tests green, tsc green — next: browser run + screenshots
+- 20:38 qa C5: canvasRender ?->53 s compliant (load avg 180)
+- 20:38 qa C5: starting coal
+- 20:40 qa C3: oakTuning 101.4->42.6 s compliant
+- 20:40 qa C3: starting smoke
+- 20:40 qa C4: footer 12.2->50.7 s compliant (cold vite caches; 3 viewports parallel, was 3 sequential w/o budget)
+- 20:40 qa C4: starting respawn
+- 20:41 qa C2: newfish 144.6->14.6 s compliant
+- 20:41 qa C2: starting levelUp
+- 20:41 qa C5: coal 58->47 s compliant
+- 20:41 qa C5: starting cookPose
+- 20:44 qa C4: respawn 64.0->30.7 s compliant
+- 20:44 qa C4: starting fireBlock
+- 20:45 qa Q3-C1: isoBank.e2e.mjs 95->49 s under load avg 280 (~30 s idle; parallel combos, tickMs 30, shared bankKit.mjs) — next: buildings
+- 20:46 graphics seam: fade verified in far shots, seam hairline fix (SKIRT_SEAM) — next: final e2e, lint, mutant mut_edgeseam
+- 20:49 qa C3: starting skills
+- 20:49 qa C2: starting ground.e2e.mjs (newfish, levelUp skipped: already compliant)
+- 20:50 qa C1: starting mining (chopAnim, animation already compliant: skipped)
+- 20:50 qa C4: resuming fireBlock (edited by stopped run, never run) — next: run once
+- 20:51 qa C4: fireBlock ?->45.1 s compliant
+- 20:51 qa C4: starting lightPolish
+- 20:52 qa Q3-C1: buildings.e2e.mjs 91->33 s (load avg ~245), all 3 files done, mutants red — next: report
+- 20:53 qa C3: skills 38.2->43.6 s compliant (load avg ~229)
+- 20:53 qa C3: starting chat
+- 21:03 qa C3: chat 24.7->29.9 s compliant
+- 21:03 qa C3: skills re-run on withCombos 43.6->10.3 s
+- 21:03 qa C3: starting fishing
+- 21:05 graphics seam: DONE (e2e 7/7 x4 combos, mutant red, unit tests) — shots tests/e2e/.shots-seam/
+- 21:05 qa C4: lightPolish ?->33.4 s compliant
+- 21:05 qa C4: starting nameplateClampPlay
+- 21:06 qa C1: mining 281.6->51.5 s compliant (runParallel+forEachCombo, budgetMs 60000, 0 sleeps, m10/m11 one shared 5-ore loop; mutant m11 red) — next: animE
+- 21:06 qa C1: starting animE
+- 21:07 qa C1: animE 253.3->13.1 s compliant (runParallel+forEachCombo, budgetMs 60000; assertions unchanged, no mutant needed) — next: settings
+- 21:07 qa C1: starting settings
+- 21:10 qa C2: ground 118.9->89 s (4 combos incl canvas, load ~200; budget still red under load) converted — next: areas
+- 21:10 qa C2: starting areas
+- 21:10 qa Q3-C2: minZoom 119->~50 (load-bound) s (interim, see qa-log) — next: mutant proofs
+- 21:10 qa Q3-C2: isoCamera 100->~50 s (interim, see qa-log) — next: mutant proofs
+- 21:10 qa Q3-C2: bigWorld 91->~45 s (interim, see qa-log) — next: mutant proofs
+- 21:10 qa Q3-C2: vfxHooks 79->25 s (interim, see qa-log) — next: mutant proofs
+- 21:11 qa C4: nameplateClampPlay converted (runParallel 6 combos, wait-on-state); 52->52/70/86 s under load avg 200-380: budget FAILS under load, p2 phone-canvas flaky — reported, run cap reached — next: tabsSettings
+- 21:11 qa C4: starting tabsSettings
+- 21:13 qa C4: tabsSettings ?->10.9 s compliant
+- 21:16 qa C2: areas 66.7->31.6 s compliant (mutant red)
+- 21:16 qa C2: starting rodRest
+- 21:16 qa C5: relaunch: nameplateWalkStartDiag canvasRender coal cookPose fastBase already compliant (budgetMs + runParallel/withGame) — skipped
+- 21:16 qa C5: starting fishArt.e2e.mjs
+- 21:16 qa C3: fishing 86->44.0 s compliant
+- 21:16 qa C3: starting gait
+- 21:16 qa C1: settings 112.6->35.6 s compliant (ported to lib withGame, 3 parallel combos desktop/phone/landscape, 0 sleeps/Date.now loops, budgetMs 60000; mutant d6 red) — next: minimap
+- 21:16 qa C1: starting minimap
+- 21:21 qa C5: fishArt ?->31.9 s compliant
+- 21:21 qa C5: starting nameplateClamp.e2e.mjs
+- 21:22 qa C1: minimap 117.5->47.8 s compliant (ported to lib withGame, desktop+phone parallel, 0 sleeps, budgetMs 60000; mutant a1 red) — next: minimapRegions
+- 21:22 qa C1: starting minimapRegions
+- 21:22 qa C5: nameplateClamp ?->22.1 s compliant
+- 21:22 qa C2: rodRest 115.1->39.5 s compliant (2 mutants red)
+- 21:22 qa C2: starting worldmap
+- 21:23 qa C3: gait 85.3->34.3 s compliant
+- 21:23 qa C3: starting animE2
+- 21:24 qa C1: minimapRegions 172.6->45.5 s compliant (runParallel+forEachCombo, initScripts spy, raf-driven settle, budgetMs 60000; assertions unchanged, no mutant needed) — next: final report
+- 21:24 qa C5: done — fishArt + nameplateClamp converted (green, <60 s, mutants red); 5 files skipped as already compliant — next: report
+- 21:24 qa C2: worldmap 101.2->33.3 s compliant
+- 21:24 qa C2: starting viewport
+- 21:25 animation M1: solveGrip now judges elbow in leaned frame (chop.ts), unit tests green + mutant red — next: e2e + before/after shots
+- 21:25 qa C7: starting trees
+- 21:25 qa C6: roofs already compliant (budgetMs + runParallel/forEachCombo), skipped as done; starting visualSmoke
+- 21:29 qa C6: visualSmoke ?->41.7 s compliant
+- 21:29 qa C6: starting stacking
+- 21:30 qa C7: trees 53.3->37.9 s compliant (runParallel 4 combos webgl+canvas, in-page keysAt, synth-frozen stump shot, budgetMs 60000; mutant t2 red)
+- 21:30 qa C7: starting fireVisuals
+- 21:30 qa C3: animE2 84.7->34.3 s compliant
+- 21:30 qa C6: stacking 49.0->23.7 s compliant
+- 21:30 qa C6: starting water
+- 21:32 qa C8: starting saves
+- 21:34 qa C2: viewport 44->17.4 s compliant (mutant red)
+- 21:34 qa C2: done (newfish, levelUp skipped as already compliant; ground converted but over budget under load)
+- 21:37 animation M1: done, mine strike elbows 10.2 -> 2.7 px (s/se/sw), chop 0.74 rear elbow spike fixed too; e2e chopAnim 12 PASS 1 XPASS — next: qa drops MINE_ELBOW_BUG XFAIL
+- 21:38 qa C8: saves 35.8->40.8 s compliant (runParallel+withCombos, debounce-timer spy replaces 8 sleeps, budgetMs 60000; load avg ~300)
+- 21:38 qa C9: starting mmLabel
+- 21:39 qa-m1 chopAnim: started, xfail removed, ports 6550+
+- 21:40 qa C7: fireVisuals 38.7->39.8 s compliant (4 combos webgl+canvas, 0 sleeps, synth flicker, realTime only lighting+dying phases justified, budgetMs 60000; mutant v1c red)
+- 21:40 qa C7: starting longWalk
+- 21:41 qa M1: chopAnim elbow xfail dropped, c7 (0.74) added, live green, mutant red — next: report
+- 21:41 qa C8: starting cookFire
+- 21:42 qa C9: mmLabel 33.8->40.2 s compliant (runParallel+withCombos, minimap-still wait replaces 3 s settles, budgetMs 60000; load avg 257)
+- 21:42 qa C9: starting f3
+- 21:44 qa-m1 done: PASS, mutant red — next: report
+- 21:47 qa Q3-C2: bigWorld 91->~45 s desktop/~73 s phone under load; isoCamera 100->56; minZoom 119->56; vfxHooks 79->28 — done, see report
+- 21:47 qa C9: f3 21.6->36.3 s compliant (runParallel+withCombos, 60 ms ticks + frame-recorder wait, f3b realTime justified, sleeps->waits, budgetMs 60000; load avg 218)
+- 21:47 qa C9: starting mmnet
+- 21:48 qa C8: cookFire 41.1->41.3 s compliant (runParallel+withCombos, in-page cadence subscriber, tick-state waits, budgetMs 60000; load ~220; mutant c1 red)
+- 21:48 qa C8: starting examineTexts
+- 21:52 qa C9: mmnet 20.2->41.1 s compliant (runParallel+withCombos, minimap blit-still wait + spot-hop freeze replace 5 sleeps + dead setTickMs(3600000), budgetMs 60000; load avg 167)
+- 21:52 qa C9: starting itemIcons
+- 21:52 qa C7: longWalk 48.6->41.0 s compliant (2 parallel combos, tickMs 30, t4 tap phase 200 ms justified, tick-counter waits, budgetMs 60000)
+- 21:52 qa C7: starting minimapLabels
+- 21:52 qa C8: examineTexts 40.8->54.4 s compliant (runParallel+withCombos, teleportSettled, budgetMs 60000; load ~185, boot is 34 s of it)
+- 21:52 qa C8: starting lockedMenu
+- 21:52 qa C9: itemIcons 17->9.0 s compliant (runParallel+withCombos, icon/ground waits replace 6 sleeps, budgetMs 60000)
+- 21:52 qa C9: starting hudFold
+- 21:53 qa C9: hudFold 16.7->14.2 s compliant (runParallel+withCombos, fold/chat/camera-still waits replace 6 sleeps, budgetMs 60000)
+- 21:53 qa C9: starting inventorySwap
+- 21:53 qa C6: water 53.0->57.7 s compliant (now 4 combos incl. canvas; was 2 sequential; load avg ~190)
+- 21:53 qa C6: starting bigWorldAreas
+- 21:53 qa C8: lockedMenu 40.8->24.5 s compliant (runParallel+withCombos, dropped duplicate g.load, teleportSettled, waitChat + tick-state wait, budgetMs 60000)
+- 21:54 qa C8: starting treeSway
+- 21:55 qa C9: starting ashesIcon (inventorySwap parked: harness cdp.mjs mid-edit by another slice, rerun after)
+- 21:55 qa C7: minimapLabels 47.6->19.2 s compliant (3 parallel dpr combos, initScripts spy, settle = drawn labels still, budgetMs 60000; mutant red)
+- 21:55 qa C7: starting bankBooth5
+- 21:55 qa C9: ashesIcon 13.4->14.8 s compliant (runParallel+withCombos, icon/ground/settle waits replace 4 sleeps, real tap on sheet chevron, budgetMs 60000; run with E2E_PER_CHILD_CHROME=1 while shared-Chrome harness was broken)
+- 21:55 qa C8: treeSway converted, run blocked by cdp.mjs mid-edit (other slice) — next: convert groundItems meanwhile, rerun treeSway after
+- 21:55 qa C8: starting groundItems
+- 21:56 qa C9: inventorySwap 13.9->20.9 s compliant (runParallel+withCombos, menu/seed-render/settleRect waits replace 5 sleeps, budgetMs 60000; per-child Chrome)
+- 21:56 qa C9: starting netAnim
+- 21:56 qa C6: starting fernhavenBank (bigWorldAreas converted, run parked: cdp.mjs mid-edit by another slice)
+- 21:57 qa C9: netAnim 12.4->22.4 s compliant (runParallel+withCombos, anim-state waits replace 4 sleeps + poll loop, spot-hop freeze, budgetMs 60000; per-child Chrome)
+- 21:57 qa C9: starting foldPersist
+- 21:59 qa C8: groundItems 30.9->43.3 s compliant (runParallel+withCombos, 8 sleeps -> state/settle waits, despawn via shifted-ticks precondition, budgetMs 60000; load ~116; mutant t5 red)
+- 21:59 qa C8: starting fireWire
+- 21:59 qa C7: bankBooth5 40.6->31.0 s compliant (2 parallel combos, initScripts spy, 0 sleeps, budgetMs 60000)
+- 21:59 qa C7: starting fishFlash
+- 22:00 qa C6: bigWorldAreas 49.7->34.9 s compliant (mutant red)
+- 22:00 qa C6: fernhavenBank 48.3->21.9 s compliant
+- 22:00 qa C6: starting playerLook
+- 22:00 qa C9: foldPersist 11.1->13.2 s compliant (runParallel phone+desktop, f4 precondition via setPref, fold/prefs/reload waits replace 4 sleeps, budgetMs 60000; mutant red)
+- 22:00 qa C9: done (9/9 files compliant, all < 60 s; harness bug: shared-Chrome attach crash cdp.mjs:325, ran with E2E_PER_CHILD_CHROME=1 from inventorySwap on) — next: rerun ashesIcon/inventorySwap/netAnim/foldPersist on default harness once cdp.mjs is fixed
+- 22:01 qa Q4: harness default restored to OLD per-child vite+Chrome; shared vite/Chrome now OPT-IN (E2E_SHARED_VITE=1, E2E_SHARED_CHROME=1) while I measure (the mid-edit cdp.mjs parked C6/C8/C9 lanes, sorry); boot phase line '[boot] ...' added — next: CPU-based A/B, then re-time every X->Y slower file
+- 22:02 qa C10: starting drops
+- 22:02 qa C7: fishFlash 44.6->40.0 s compliant (2 parallel combos, flash-faded wait replaces 2.5 s sleeps, setLevels, budgetMs 60000)
+- 22:02 qa C7: starting cameraInset
+- 22:09 qa C8: fireWire 29.3->53.1 s compliant (4 parallel combos incl. canvas, 60 ms ticks instead of 600, synth flicker + frozen pose/dying shots, 7 sleeps -> state waits, budgetMs 60000; load ~194, boot 30-33 s of it; mutant w2 red)
+- 22:09 qa C7: cameraInset 40.2->28.6 s compliant (2 parallel combos, teleportSettled/settle, spot hops pushed, budgetMs 60000)
+- 22:09 qa C7: done — 7/7 files converted, green, <60 s; next: final report
+- 22:10 qa C10: drops 28.5->43.2 s compliant (load avg 219; boot 33 s of it; runParallel desktop+phone, withCombos, budgetMs, 2x2.6 s + 400 ms sleeps -> teleportSettled + views-still wait)
+- 22:10 qa C10: starting chatUi
+- 22:11 qa C8: treeSway 37.1->30.8 s compliant (runParallel+withCombos, synth-time sway sampler, settings-closed wait, realTime only for frame-time t5, budgetMs 60000; load ~243; mutant t1 red)
+- 22:11 qa C6: playerLook 46.6->59.1 s compliant (load avg 223; 4 combos incl. canvas)
+- 22:12 qa C10: chatUi 28.2->36.0 s compliant (load avg 187; runParallel desktop+phone, withCombos, budgetMs, teleportSettled, toChoices sleep(500) -> wait dialogue advanced)
+- 22:12 qa C10: starting dialogueAvatar
+- 22:13 qa C8: done — 7/7 files compliant (saves cookFire examineTexts lockedMenu treeSway groundItems fireWire), 5 mutants red — next: report
+- 22:13 qa C11: starting cull
+- 22:13 qa C10: dialogueAvatar 28.1->23.7 s compliant (runParallel, withCombos, budgetMs, teleportSettled, toChoices sleep -> DOM-changed wait)
+- 22:13 qa C10: starting depositChest
+- 22:14 qa C11: cull 83.3->43.9 s compliant (runParallel+withCombos, teleportSettled, walk idle+settle+frame waits replace 2.5 s/300/400 ms sleeps, frame-per-wheel instead of 120 ms/wheel, budgetMs 60000; load 158)
+- 22:14 qa C11: starting animC
+- 22:14 qa C10: depositChest 27.8->37.2 s compliant (load avg 152, boot 26 s; runParallel, withCombos, budgetMs, 4 teleport 700 ms sleeps -> teleportSettled)
+- 22:14 qa C10: starting greatmereEast
+- 22:14 animation M2: elbow switch blended (tuck eased between keyframe decisions, chop.ts); unit + mutant red, e2e 15/15 desktop+phone, strips done — next: none (report)
+- 22:15 qa C12: starting isoBankRules
+- 22:16 qa C12: isoBankRules 75.3->30.4 s compliant (lib withCombos+runParallel desktop/phone, budgetMs 60000, 11 sleeps -> waitState/waitIdle/settle, 3.5 s save sleep -> wait autosave holds bank, walk-back -> teleportSettled; load 89)
+- 22:16 qa C12: starting isoTap
+- 22:16 qa C10: greatmereEast 25.9->16.8 s compliant (runParallel, withCombos, SPY via initScripts (no 2nd load), teleportSettled, 2.8 s+300 ms minimap sleep -> label drawn-and-still wait)
+- 22:16 qa C10: starting orbs
+- 22:17 qa C10: orbs 21.4->8.9 s compliant (runParallel, withCombos, budgetMs, 200/300 ms sleeps + 40-tick + 3-tick waits -> orb DOM/chat/runEnergy waits)
+- 22:17 qa C10: starting useItem (continuing its uncommitted phone-sheet edits)
+- 22:18 qa C11: animC converted (synth sampler + frame sheets), first run
+- 22:20 qa C10: useItem 17.0->48.7 s compliant (load avg 138-170; single child 18.7 s, body 11 s; runParallel, withCombos, budgetMs, sheet/menu/drop sleeps + waitTicks(4/6) -> fold/menu/selection/chat/position waits)
+- 22:20 qa C10: starting fireArt
+- 22:20 qa C11: animC 101.4->23.1 s compliant (runParallel+withCombos, 60 ms ticks everywhere (600 ms phases dropped), in-page synth sampler freezes on the pose frame instead of 2-4.5 s wall sampling, bursts = 1 drawImage frame sheet each instead of 29 screenshots, spot hops pushed, budgetMs 60000; mutant pending)
+- 22:20 qa C11: starting lockedDialogue
+- 22:22 qa M2 elbow tuck: c8 sweep + c9 shots added to chopAnim.e2e, live 18/18, hard-step mutant red — next: report
+- 22:23 qa C10: starting logPile
+- 22:24 qa C10: logPile 11.9->20.2 s compliant (runParallel desktop+phone x webgl+canvas = 4 children, withCombos, budgetMs, teleportSettled, 500+2x400 ms sleeps -> synth.frames)
+- 22:25 qa C10: fireArt 11.9->29.4 s compliant (runParallel desktop+phone x webgl+canvas = 4 children, withCombos, budgetMs, teleportSettled, 500+2x400 ms sleeps -> synth.frames; 1st run desktop-canvas shot dark ground, not reproduced)
+- 22:25 qa C10: starting skillTags
+- 22:26 qa C11: lockedDialogue 61.1->32.0 s compliant (runParallel 3 viewports+withCombos, teleportSettled, typewriter loop waits on node/data-typing change instead of sleep(250), negative checks wait 3 frames+2 ticks, positive key checks wait on text, budgetMs 60000; mutant pending)
+- 22:26 qa C11: starting fireLight
+- 22:26 qa C10: skillTags 13.4->35.9 s compliant (load avg 221, boot 27 s; runParallel, withCombos, budgetMs, teleportSettled)
+- 22:26 qa C10: starting skillUnlocks
+- 22:27 qa C10: skillUnlocks 12.4->15.4 s compliant (runParallel, withCombos, budgetMs, 150 ms tap sleeps -> panel-changed wait; shots now in gitignored .shots-skillUnlocks, not repo root)
+- 22:27 qa C10: starting hudBankDock
+- 22:27 qa C12: isoTap 144.0->53.1 s compliant (runParallel desktop/desktop16/phone + withCombos, budgetMs 60000, alpha oracle reads each frame once (proved == getPixelAlpha on 4185 px), plan in one eval, tap waits on store call not 120 ms, 250/300/1500 ms sleeps -> frames/waitIdle; plan waits all trees standing (stump made tree_9 canopy-top plan 'ground' = false red); mutant red; load 185)
+- 22:27 qa C12: starting camJerk
+- 22:28 qa C10: hudBankDock 7.7->9.5 s compliant (runParallel, withCombos, budgetMs, 300 ms setTimeout -> overlay-mounted + 2 rAF wait)
+- 22:28 qa C11: fireLight 76.0->31.5 s compliant (runParallel+withCombos, durations measured in game ticks by a store recorder (lit 3 ticks, burn 100/150) instead of wall ms at 600 ms ticks, t5 at 30 ms ticks, realTime only for t4c's cancel window, sheet/menu/step-aside waits replace 7 sleeps, budgetMs 60000; mutant pending)
+- 22:28 qa C11: starting bankerGreeting
+- 22:29 qa C10: done (12/12 files compliant, all < 60 s, useItem mutant red; desktop-canvas dark-ground shot in fireArt 1/2 runs, unconfirmed) — next: none
+- 22:30 qa C11: bankerGreeting 107.6->47.0 s compliant (runParallel+withCombos, teleport to the old route end tiles (door walk-in covered by fernhavenBank.e2e 'door'), settle() instead of waitStill per hop, typewriter waits on node/data-typing, budgetMs 60000)
+- 22:30 qa C11: starting blocked
+- 22:32 animation M3: swingReach.test.ts (requested grip vs 16px arm, 0.5% sweep, chop/mine/net/rod/lighting/cooking) found a real cook-poke clamp (1.1 px), fixed COOK_POKE gx 19 gy 9.2; vacuous reachable tests removed; mutant red — next: done
+- 22:33 qa C11: blocked 111.7->46.2 s compliant (ported to lib withCombos+runParallel, 60 ms ticks (c2 eventual roll 10x faster), per-frame recorder + chat/effect waits replace 2.5 s wall sampling per attempt, 18 sleeps -> state/frame waits, budgetMs 60000; mutant pending)
+- 22:33 qa C11: starting hud
+- 22:36 qa C12: camJerk 70.3->49.8 s compliant (runParallel desktop/phone3/phone3sheet + withCombos, budgetMs 60000, realTime justified in header (per-frame limits are for real walk speed), 700/600/500 ms re-tap sleeps -> drawn player mid-step, arrive 500 ms -> camera still, gather 1200 ms -> 2 game ticks, settleMs 300 -> 0+waitStill; mutant red; load 47)
+- 22:36 qa C12: starting fishChat
+- 22:39 qa m3qa: cookPose live vs reverted COOK_POKE same food-fire (E/S 22.5 vs 22.4, NW 33.6 vs 34.1); swingReach red on revert — next: report
+- 22:38 qa Q4: finding: floor = machine load (CPU-bound); pre-base files at SAME load are not faster (old footer 17-22 s, old chat 22-28, old inventory 35 vs converted 13-27); shared Chrome/vite opt-in is NOT a win (low load: netAnim 13 vs 37 s, mmnet 13 vs 40, water 45 vs 85) so it stays opt-in; withGame now overlaps vite+Chrome start; chat phone 1px camera drift flaky in ALL modes (owner C3) — next: final default-mode re-time of every slower file at load ~50, report
+- 22:55 qa fireArt-dark-ground: 5 runs no dark ground; ground assertion added to fireArt (green>=0.25, lum>=50), mutant black tint red 4/4 — done
+- 22:49 qa C11: hud 72.1->55.6 s compliant (ported to lib withCombos+runParallel, 60 ms ticks, walk-idle/path/camera-still/recentre/orb waits replace 24 sleeps, in-page tracker capture on the log frame, realTime only for o3 refusals (45/tick regen vs 100 threshold), budgetMs 60000; mutant s3 red; load 121, boot 30 s)
+- 22:49 qa C11: mutants red: fireLight t5c, animC m1, blocked a, hud s3, lockedDialogue l4 (scratch mut_c11)
+- 22:50 qa C11: done — 7/7 files compliant (<60 s each), 5 mutants red, lessons recorded — next: final report
+- 22:50 qa C12: fishChat 102.2->28.4 s compliant (runParallel+withCombos, spy as initScript, budgetMs 60000, tick 150 ms justified (4-tick attempts vs +-150 ms window + 300 ms minGap), 900 ms sleep -> session-ended wait, teleport sleeps -> settle; oracle: fishCast = falling 485-550 Hz sine (spotBurble rising 500 Hz was miscounted); c4 L15 + keep-alive re-tap; mutant red; load 102)
+- 22:50 qa C12: starting gaitB
+- 22:51 qa-Q4b 1: started, dev copy in scratchpad q4b_dev — next: loadMeter + loud game-ready
+- 22:53 qa C12: gaitB 152.7->42.7 s compliant (runParallel walk/run x desktop/phone = 4 children + withCombos, budgetMs 60000, 200 ms ticks with lanes 8 walk/12 run tiles so steady window > 2 gait cycles (stopped run's 280 ms + 5/6 tiles left run window 0.28 s < 1 cycle), sleeps -> teleportSettled/drawn-still/mid-lane waits; mutant red; load 71)
+- 22:53 qa C12: starting axeSound
+- 22:58 qa chat-cam-1px: diagnosed as test artefact (phone chat-open camera glide 121->142 px; last 1 px step lands after baseline, also with no drag); fixed in chat.e2e.mjs camStill — next: report
+- 23:03 qa Q4c: rc cause found. treeSway/saves/fireVisuals all green in 1-2 runs at load 25-80; rc=1 with '6 PASS 0 FAIL' = another child died on 'vite did not start' (30 s) or wall>60 s budget at load 80+, not a test failure; re-time batch 1 of 3 done (new files not slower so far) — next: batches 2 and 3, then report
+- 23:06 qa C12: axeSound 106.2->56.0 s compliant (runParallel+withCombos, spy initScript, budgetMs 60000, realTime only t1 (hit timed to the fixed 2.4 s chop animation), stopped run's 5->4 hits restored to 5, sleeps -> tick/spy/chat waits, chop() verifies the tap started chopping, t4 = 3 attempts + keep-alive instead of fixed 7 s; mutant red; load 127)
+- 23:07 qa C12: done — 6/6 files compliant (isoBankRules isoTap camJerk fishChat gaitB axeSound), 5 mutants red; lessons recorded — next: report
+- 23:11 graphics label-keepout: render side done (labelKeepOut.ts + hook + tests green) — next: wire in scratch copy, browser verify
+- 23:12 qa Q4c: done, reporting — next: main session decides on Q4b budget/vite-start fixes
+- 23:12 qa-Q4b (a): dev lib.mjs = loadMeter (cpuShare spin) + tree CPU via ps; verdict red if wall>base*slowdown OR cpu>base CPU-s; footer green at load 97-102 (cpu 9.3 s/child, wall 14-17 s, slowdown 1.8-2.8x); mutant 70 s CPU spin -> 'BUDGET FAIL ... CPU over: genuinely heavy' (cpu 268 s vs 180); 2nd mutant run hit global 6 min at load 176 — next: save (a), then (b) game-ready + startVite, then (c) settle
+- 23:13 qa-Q4b (a) SAVED to tests/e2e/lib.mjs (budget = wall x measured slowdown OR cpu-seconds of tree; BUDGET line carries load+cpu; RESULT rc line names reasons); footer green at load 157 (wall 24 s, cpu 13 s/child) — next: (b) game-ready + startVite
+- 23:15 hud banner: area banner moved to top band left of minimap cluster (styles.css), tests/e2e/areaBannerPlacement.e2e.mjs green, mutant red — next: report
+- 23:17 qa-Q4b (b) SAVED: load-aware game-ready (25 s x slowdown, cap 150) + startVite (30 s x slowdown) + loud GAME_READY_TIMEOUT/VITE_START_TIMEOUT per combo + RESULT line + SIGTERM child kill; mutant ready-never -> RESULT rc=1 names all 3 combos; busy port 6641 -> RESULT names phone VITE_START_TIMEOUT while others 8 PASS — next: (c) fractional settle
+- 23:19 graphics label-keepout: done — verified phone/desktop x webgl/canvas in scratch wiring, mutant red, lint clean for my files; integrator must call setLabelKeepOuts in WorldScene.watchVisibleArea
+- 23:22 qa-Q4b (c) SAVED: g.settle on fractional scroll (80ms x3, eps 0.02) + camView; new settleFractional.e2e.mjs 4/4 x2 (lerp 0.02: OLD helper returns with 2.4/2.2/1.7 px + view 3 px left, NEW 0.10/0.12/0.03 px, view 0). Budget (a)+(b)+(c) all saved
+- 23:22 qa areaBanner: overlap checks green on all 3 viewports, fade-in bug found (hud), mutant red — next: report
+- 23:22 qa lint-fix: prettier --write on tests/e2e/newfish.e2e.mjs; npm run lint now fully green (eslint + prettier) — next: none
+- 23:25 hud banner-fade: fixed area-banner-out fill both->forwards (backwards fill overrode fade-in); areaBannerQa + Placement green, reduced/off still visible — next: none
+- 23:30 core lint-speed: eslint+prettier cached, run in parallel (scripts/lint.mjs); warm 2s, cold 14s — next: report
+- 23:32 integrator label-keepout: setLabelKeepOuts wired in WorldScene.watchVisibleArea (pure scenes/keepOutRects.ts + test, e2e labelKeepOut 8/8 over desktop/phone x webgl/canvas) — next: none
+- 23:32 integrator label-keepout: wiring saved in WorldScene.watchVisibleArea (setLabelKeepOuts; .topright/.tabs/.area-banner-inner/.chat-toggle/.chatbox/#hud, opacity<0.05 skipped, null on shutdown), tsc+lint+test+build green, e2e labelKeepOut 8/8 (phone+desktop, webgl+canvas) — next: handback to qa (ETA 0 min)
+- 23:32 qa keepout: started live run (E2E_PORT=6950)
+- 23:34 qa keepout: live labelKeepOut.e2e 4/4 x4 combos PASS (rc0, 31s) /private/tmp/claude-503/-Users-Derrick-Projects-idle-rpg/0ccba968-42a5-41d7-bc21-d7375992eb4d/scratchpad/live1.log; next: mutant1
+- 23:34 qa keepout: mutant1 (no setLabelKeepOuts) RED 8/8 all combos, overlap .topright; next: distance probe + shots
+- 23:36 qa keepout: probe done (follow dx 0, body never in HUD; sheet/chat phone ok; NPC ok); mutant2 not done; report sent
+- 23:38 qa keepout-leftovers 1: started — next: delete probe
+- 23:38 qa-settle: started
+- 23:38 graphics label-cap: started
+- 23:38 qa keepout-leftovers 2: probe deleted, dx guard tightened, running live+mutant
+- 23:40 qa keepout-leftovers 3: done
+- 23:40 qa-settle: hud, minimap done green
+- 23:41 graphics label-cap: done (cap 40px, below-rect fallback, e2e 4/4 x4 combos, mutant red)
+- 23:49 qa-settle: resuming sequential reruns (parallel run at load 300 timed out)
+- 23:53 qa settle-A: water 4/4 combos 9/9 pass, wall 87s load 297 — next: fishing
+- 23:53 qa settle-B: roofs PASS 4/4 combos on rerun (run1 desktop:canvas px ridge-darkness flaked, 9/10) — next: cookFire
+- 23:53 qa settle-B: cookFire PASS 2/2 combos (diff vs HEAD empty) — next: fishArt
+- 23:56 qa settle-A: fishing 2/2 combos 10/10 pass, 42s — next: ground
+- 23:54 qa settle-B: fishArt PASS 4/4 combos — next: fishChat
+- 23:54 qa settle-B: fishChat PASS 2/2 combos — all 4 done
+- 23:57 qa settle-A: ground 4/4 combos 12/12 pass, 49s — next: visualSmoke
+- 23:58 qa settle-A: visualSmoke 4/4 combos pass (9,9,10,10), 22s — done
+- 23:56 core version-bump: package.json + package-lock.json root set to 0.1.3 via npm version --no-git-tag-version, tsc clean — next: main session adds changelog entry v0.1.3

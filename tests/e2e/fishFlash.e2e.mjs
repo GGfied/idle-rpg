@@ -1,13 +1,22 @@
 // Fishing-stop overhead flash e2e: fishingStopped blocks flash the same red text as locked trees/rocks.
-// Run: node tests/e2e/fishFlash.e2e.mjs   (port 5255, E2E_PORT overrides; shots in tests/e2e/.shots-fishflash)
+// Run: node tests/e2e/fishFlash.e2e.mjs   (shots in tests/e2e/.shots-fishflash)
+// Fast base: desktop + phone as parallel children (webgl: the checks read the flash Text objects' text/colour/size,
+// the shots are evidence), ?tickMs=60, setInventory/setLevels/teleport preconditions, "previous flash faded" and the
+// negative spotMoved case wait on the scene (no fixed 2.5 s / 500 ms sleeps), budget 60 s.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Buffer } from 'node:buffer';
-import { check, expect, forEachViewport, withGame } from './lib.mjs';
+import { check, expect, runParallel, withCombos } from './lib.mjs';
 
+const PORT = 9326; // C7 port block 9301-9350; 2 combos use 9326-9327
+const BUDGET_MS = 60e3;
+const COMBOS = await runParallel(import.meta.url, PORT, {
+  viewports: ['desktop', 'phone'],
+  renderers: ['webgl'],
+  budgetMs: BUDGET_MS,
+});
 const SHOTS = resolve(dirname(fileURLToPath(import.meta.url)), '.shots-fishflash');
-const port = Number(process.env.E2E_PORT ?? 5255);
 const NET = { id: 'shore_net_1', x: 56, y: 51 };
 const BAIT = { id: 'shore_bait_1', x: 48, y: 51 };
 const IRON = { id: 'quarry_iron_1', x: 77, y: 45 };
@@ -17,6 +26,12 @@ const SPY = `(() => { const sc = window.__idleRpg.scene().camera.scene; if (wind
   v.handleEvent = (e, c) => { const r = orig(e, c); const texts = sc.children.list.filter((o) => o.type === 'Text' && o.visible && o.alpha > 0 && /needed|No |full|too low/.test(o.text)).map((o) => ({ t: o.text, color: o.style.color, px: o.style.fontSize }));
     window.__flash.push({ type: e.type, reason: e.reason, texts }); return r; }; return 2; })()`;
 const flashes = (g) => g.eval('JSON.stringify(window.__flash)').then(JSON.parse);
+// Visible blocked-action texts in the scene right now (same filter as the spy).
+const FLASH_TEXTS = `window.__idleRpg.scene().camera.scene.children.list.filter((o) => o.type === 'Text' && o.visible && o.alpha > 0 && /needed|No |full|too low/.test(o.text)).length`;
+const raf = (g, n = 2) =>
+  g.eval(
+    `new Promise((r) => { let k = ${n}; const f = () => (--k <= 0 ? r(0) : requestAnimationFrame(f)); requestAnimationFrame(f); })`,
+  );
 const labels = (fl) => fl.flatMap((f) => f.texts);
 async function shot(g, name) {
   const p = await g.eval(
@@ -59,75 +74,72 @@ async function flashOf(g, name, act) {
   );
   const l = labels(fl)[0];
   await g.eval('window.__idleRpg.store.getState().cancelAction?.()').catch(() => {});
-  await g.sleep(2500);
+  // was a fixed 2.5 s: wait until this flash has faded, so the next check's spy can't see the old text
+  await g.waitFor(async () => (await g.eval(FLASH_TEXTS)) === 0, {
+    label: `${name} flash faded`,
+    timeoutMs: 8000,
+  });
   return l;
 }
 
-await withGame(
-  { port },
-  forEachViewport(['desktop', 'phone'], async (g, vp) => {
-    g.vpn = vp;
-    let rockLabel;
-    await check('f0', 'Mining 1 iron rock: red "Level N needed" (reference style)', async () => {
-      await g.setInventory(['bronze_pickaxe']);
-      await g.setLevel('mining', 1);
-      await g.teleport(IRON.x, IRON.y + 3);
-      rockLabel = await flashOf(g, 'rock', () => tapAt(g, IRON, -12));
-      expect(/needed/.test(rockLabel.t), JSON.stringify(rockLabel));
-      return `${vp}: ${JSON.stringify(rockLabel)}`;
-    });
-    await check('f1', 'Fishing 1 bait spot: "Level 5 needed", same style as rock', async () => {
-      await g.setInventory(['fishing_rod', 'fishing_bait']);
-      await g.setLevel('fishing', 1);
-      await g.teleport(BAIT.x, BAIT.y + 2);
-      const l = await flashOf(g, 'level', () => intent(g, BAIT));
-      expect(l.t === 'Level 5 needed', JSON.stringify(l));
-      expect(
-        l.color === rockLabel.color && l.px === rockLabel.px,
-        `style ${JSON.stringify(l)} vs ${JSON.stringify(rockLabel)}`,
-      );
-      return `${vp}: ${JSON.stringify(l)}`;
-    });
-    await check('f2', 'No net: "No net"', async () => {
-      await g.setInventory([]);
-      await g.teleport(NET.x, NET.y + 2);
-      const l = await flashOf(g, 'nonet', () => intent(g, NET));
-      expect(l.t === 'No net', JSON.stringify(l));
-      return `${vp}: ${l.t}`;
-    });
-    await check('f3', 'Fishing 5, rod, 0 bait: "No bait"', async () => {
-      await g.setInventory(['fishing_rod']);
-      await g.setLevel('fishing', 5);
-      await g.teleport(BAIT.x, BAIT.y + 2);
-      const l = await flashOf(g, 'nobait', () => intent(g, BAIT));
-      expect(l.t === 'No bait', JSON.stringify(l));
-      return `${vp}: ${l.t}`;
-    });
-    await check('f4', 'Full inventory while fishing: "Inventory full" (as rocks)', async () => {
-      await g.setInventory(['small_fishing_net', ...Array(27).fill('logs')]);
-      await g.setLevel('fishing', 5);
-      await g.teleport(NET.x, NET.y + 2);
-      const l = await flashOf(g, 'full', () => intent(g, NET));
-      expect(l.t === 'Inventory full', JSON.stringify(l));
-      return `${vp}: ${l.t}`;
-    });
-    await check('f5', 'spotMoved: no flash', async () => {
-      await g.eval(SPY);
-      await g.eval(
-        `window.__idleRpg.scene().camera.scene.onTickEvents([{ type: 'spotMoved', spotId: ${JSON.stringify(NET.id)}, to: 1 }]); 0`,
-      );
-      await g.sleep(500);
-      const fl = await flashes(g);
-      expect(
-        fl.length >= 1 && fl.every((f) => f.type === 'spotMoved') && labels(fl).length === 0,
-        JSON.stringify(fl),
-      );
-      return `${vp}: handled ${fl.length} spotMoved event(s), ${labels(fl).length} texts`;
-    });
-    await check('f6', 'no console errors', async () => {
-      const e = g.consoleErrors();
-      expect(e.length === 0, e.join(' | '));
-      return `${vp}: 0 errors`;
-    });
-  }),
-);
+await withCombos({ port: PORT, budgetMs: BUDGET_MS }, COMBOS, async (g, vp) => {
+  g.vpn = vp;
+  let rockLabel;
+  await check('f0', 'Mining 1 iron rock: red "Level N needed" (reference style)', async () => {
+    await g.setInventory(['bronze_pickaxe']);
+    await g.setLevels({ mining: 1 });
+    await g.teleportSettled(IRON.x, IRON.y + 3); // real tap on the rock: camera must be on the player
+    rockLabel = await flashOf(g, 'rock', () => tapAt(g, IRON, -12));
+    expect(/needed/.test(rockLabel.t), JSON.stringify(rockLabel));
+    return `${vp}: ${JSON.stringify(rockLabel)}`;
+  });
+  await check('f1', 'Fishing 1 bait spot: "Level 5 needed", same style as rock', async () => {
+    await g.setInventory(['fishing_rod', 'fishing_bait']);
+    await g.setLevels({ fishing: 1 });
+    await g.teleportSettled(BAIT.x, BAIT.y + 2); // settled so the evidence shot clips the player
+    const l = await flashOf(g, 'level', () => intent(g, BAIT));
+    expect(l.t === 'Level 5 needed', JSON.stringify(l));
+    expect(
+      l.color === rockLabel.color && l.px === rockLabel.px,
+      `style ${JSON.stringify(l)} vs ${JSON.stringify(rockLabel)}`,
+    );
+    return `${vp}: ${JSON.stringify(l)}`;
+  });
+  await check('f2', 'No net: "No net"', async () => {
+    await g.setInventory([]);
+    await g.teleportSettled(NET.x, NET.y + 2);
+    const l = await flashOf(g, 'nonet', () => intent(g, NET));
+    expect(l.t === 'No net', JSON.stringify(l));
+    return `${vp}: ${l.t}`;
+  });
+  await check('f3', 'Fishing 5, rod, 0 bait: "No bait"', async () => {
+    await g.setInventory(['fishing_rod']);
+    await g.setLevels({ fishing: 5 });
+    await g.teleportSettled(BAIT.x, BAIT.y + 2);
+    const l = await flashOf(g, 'nobait', () => intent(g, BAIT));
+    expect(l.t === 'No bait', JSON.stringify(l));
+    return `${vp}: ${l.t}`;
+  });
+  await check('f4', 'Full inventory while fishing: "Inventory full" (as rocks)', async () => {
+    await g.setInventory(['small_fishing_net', ...Array(27).fill('logs')]);
+    await g.setLevels({ fishing: 5 });
+    await g.teleportSettled(NET.x, NET.y + 2);
+    const l = await flashOf(g, 'full', () => intent(g, NET));
+    expect(l.t === 'Inventory full', JSON.stringify(l));
+    return `${vp}: ${l.t}`;
+  });
+  await check('f5', 'spotMoved: no flash', async () => {
+    await g.eval(SPY);
+    await g.eval(
+      `window.__idleRpg.scene().camera.scene.onTickEvents([{ type: 'spotMoved', spotId: ${JSON.stringify(NET.id)}, to: 1 }]); 0`,
+    );
+    await raf(g, 3); // negative case: the spy records synchronously; give a few frames for any late text
+    const fl = await flashes(g);
+    expect(
+      fl.length >= 1 && fl.every((f) => f.type === 'spotMoved') && labels(fl).length === 0,
+      JSON.stringify(fl),
+    );
+    return `${vp}: handled ${fl.length} spotMoved event(s), ${labels(fl).length} texts`;
+  });
+  // old f6 "no console errors" is lib's built-in 'console' check (runs after every combo)
+});

@@ -1,59 +1,17 @@
-/* global fetch, console */
 // Minimap e2e: tap-to-walk, unwalkable taps, player dot, N compass, Settings toggle, no world click under it.
-// Own vite on :5188 (never 5173), fresh headless Chrome profile, real mouse/touch input over CDP.
-// Run: node tests/e2e/minimap.e2e.mjs   Exit 0 = all checks passed. Asserts in TILES (iso-safe).
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import process from 'node:process';
-import { fileURLToPath } from 'node:url';
-import { Buffer } from 'node:buffer';
-import {
-  activity,
-  hardTimeout,
-  killChild,
-  launchChrome,
-  runMain,
-  sleep,
-  spawnTracked,
-  waitFor as cdpWait,
-} from './cdp.mjs';
+// Real mouse/touch input over CDP. Asserts in TILES (iso-safe). Run: node tests/e2e/minimap.e2e.mjs
+// Fast base: port 9021 (+1 per combo; E2E_PORT overrides), desktop + phone as parallel children (lib runParallel),
+// ?tickMs=60, every wait is on state / still samples / page frames (no fixed sleeps), budget 60 s.
+// The minimap is a 2D canvas drawn by the HUD, not by Phaser: one renderer (webgl) is enough.
+import { check, expect, forEachCombo, runParallel, waitStill, withGame } from './lib.mjs';
 
-hardTimeout(6 * 60e3);
-
-const PORT = Number(process.env.MM_PORT ?? 5188);
-const ORIGIN = `http://127.0.0.1:${PORT}/`;
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const SHOTS = process.env.SHOTS_DIR;
-const results = [];
-const expect = (c, m) => {
-  if (!c) throw new Error(m);
-};
-
-async function startVite() {
-  const proc = spawnTracked(
-    resolve(ROOT, 'node_modules/.bin/vite'),
-    [
-      '--config',
-      resolve(ROOT, 'tests/e2e/vite.frozen.config.mjs'),
-      '--port',
-      String(PORT),
-      '--strictPort',
-      '--host',
-      '127.0.0.1',
-    ],
-    { cwd: ROOT, stdio: 'ignore' },
-  );
-  for (let i = 0; i < 150; i++) {
-    try {
-      if ((await fetch(ORIGIN)).ok) return proc;
-    } catch {
-      /* not up */
-    }
-    await sleep(200);
-  }
-  killChild(proc);
-  throw new Error('vite did not start');
-}
+const PORT = 9021;
+const BUDGET_MS = 60e3;
+const COMBOS = await runParallel(import.meta.url, PORT, {
+  viewports: ['desktop', 'phone'],
+  renderers: ['webgl'],
+  budgetMs: BUDGET_MS,
+});
 
 const PAGE = `(() => {
   const H = () => window.__idleRpg;
@@ -81,134 +39,64 @@ const PAGE = `(() => {
   };
 })();`;
 
-async function main() {
-  const vite = await startVite();
-  const cdp = await launchChrome({ width: 1280, height: 800 });
-  const errors = [];
-  cdp.on((m) => {
-    if (m.method === 'Runtime.exceptionThrown')
-      errors.push(
-        'exception: ' +
-          (m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text),
+await withGame(
+  { port: PORT, budgetMs: BUDGET_MS, initScripts: [PAGE] },
+  forEachCombo(COMBOS, async (g, vp) => {
+    const { cdp } = g;
+    const G = g; // checks below name the minimap geometry `g` (kept from the original); G is the game handle
+    const T = (e) => cdp.eval(`window.__t.${e}`);
+    const raf = (n = 2) =>
+      cdp.eval(
+        `new Promise((r) => { const f = (k) => (k <= 0 ? r(1) : requestAnimationFrame(() => f(k - 1))); f(${n}); })`,
       );
-    else if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error')
-      errors.push('console.error: ' + m.params.args.map((a) => a.value ?? a.description).join(' '));
-  });
-  await cdp.send('Page.enable');
-  await cdp.send('Runtime.enable');
-  await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: PAGE });
-  const T = (e) => cdp.eval(`window.__t.${e}`);
-  const waitFor = (what, pred, ms = 15000) => cdpWait(pred, { timeoutMs: ms, label: what });
-  let phase = 'desktop';
-  let touch = false;
-  const shot = async (name) => {
-    if (!SHOTS) return;
-    mkdirSync(SHOTS, { recursive: true });
-    const r = await cdp.send('Page.captureScreenshot', { format: 'png' });
-    writeFileSync(resolve(SHOTS, `${name}.png`), Buffer.from(r.data, 'base64'));
-  };
-  const check = async (id, title, fn) => {
-    try {
-      activity(`check ${phase} ${id}`);
-      console.error(`[progress] ${phase} ${id}`);
-      results.push({ phase, id, title, ok: true, ev: (await fn()) ?? '' });
-    } catch (e) {
-      results.push({ phase, id, title, ok: false, ev: e.message });
-      await shot(`${phase}-${id}-FAIL`);
-    }
-  };
-  const tap = async (x, y) => {
-    if (touch) {
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-    } else {
-      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
-      for (const type of ['mousePressed', 'mouseReleased'])
-        await cdp.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 });
-    }
-    await sleep(120);
-  };
-  const drag = async (x0, y0, x1, y1) => {
-    const steps = 12;
-    if (touch) {
-      await cdp.send('Input.dispatchTouchEvent', {
-        type: 'touchStart',
-        touchPoints: [{ x: x0, y: y0 }],
+    /** Bounded wait on a raw page expression; never throws (the assertion right after reports). */
+    const until = (expr, timeoutMs = 3000) =>
+      g
+        .waitFor(() => cdp.eval(expr).catch(() => false), { timeoutMs, label: expr })
+        .then(
+          () => true,
+          () => false,
+        );
+    const tap = (x, y) => g.tap(x, y);
+    /** Minimap picture still: same hash on 2 samples 100 ms apart (the trail/rebuild has finished). */
+    const mmStill = async () => {
+      let h = await T('canvasHash()');
+      for (let i = 0, same = 0; i < 30 && same < 2; i++) {
+        await raf(6);
+        const h2 = await T('canvasHash()');
+        same = h2 === h ? same + 1 : 0;
+        h = h2;
+      }
+    };
+    /** Rendered player (render trail) still, then the minimap picture still. */
+    const renderStill = async () => {
+      await waitStill(() => T('playerWorld()'), { intervalMs: 100 });
+      await mmStill();
+    };
+    /** Teleport (precondition) and wait for the render trail, camera and minimap instead of a fixed 1.3 s. */
+    const setPos = async (x, y) => {
+      await cdp.eval(
+        `(() => { const s = window.__idleRpg.store; const g = s.getState().game; s.setState({ game: { ...g, movement: { ...g.movement, position: { x: ${x}, y: ${y} }, path: [] }, gathering: { ...g.gathering, session: null } } }); })()`,
+      );
+      await g.settle();
+      await renderStill();
+    };
+    const pos = () => T('g().movement.position');
+    /** Minimap geometry (CSS px): centre of canvas, css px per tile. Player must be idle. */
+    const geom = async () => {
+      const r = await T(`rect('canvas.minimap')`);
+      expect(r, 'no minimap canvas');
+      return { r, perTile: (4 * r.w) / 160, radius: r.w / 2 };
+    };
+    const waitIdle = async (ms = 12000) => {
+      await g.waitFor(async () => (await T('g().movement.path.length')) === 0, {
+        timeoutMs: ms,
+        label: 'player idle',
       });
-      for (let i = 1; i <= steps; i++)
-        await cdp.send('Input.dispatchTouchEvent', {
-          type: 'touchMove',
-          touchPoints: [{ x: x0 + ((x1 - x0) * i) / steps, y: y0 + ((y1 - y0) * i) / steps }],
-        });
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-    } else {
-      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x0, y: y0 });
-      await cdp.send('Input.dispatchMouseEvent', {
-        type: 'mousePressed',
-        x: x0,
-        y: y0,
-        button: 'left',
-        clickCount: 1,
-      });
-      for (let i = 1; i <= steps; i++)
-        await cdp.send('Input.dispatchMouseEvent', {
-          type: 'mouseMoved',
-          x: x0 + ((x1 - x0) * i) / steps,
-          y: y0 + ((y1 - y0) * i) / steps,
-          button: 'left',
-          buttons: 1,
-        });
-      await cdp.send('Input.dispatchMouseEvent', {
-        type: 'mouseReleased',
-        x: x1,
-        y: y1,
-        button: 'left',
-        clickCount: 1,
-      });
-    }
-    await sleep(200);
-  };
-  const viewport = (w, h, mobile) =>
-    cdp.send('Emulation.setDeviceMetricsOverride', {
-      width: w,
-      height: h,
-      deviceScaleFactor: mobile ? 2 : 1,
-      mobile,
-    });
-  const load = async () => {
-    await cdp.send('Page.navigate', { url: 'about:blank' });
-    await sleep(600);
-    await cdp.send('Storage.clearDataForOrigin', {
-      origin: ORIGIN.slice(0, -1),
-      storageTypes: 'local_storage',
-    });
-    await cdp.send('Page.navigate', { url: ORIGIN + '?tickMs=60' });
-    await waitFor('ready', () => T('ready()').catch(() => false), 25000);
-    await sleep(800);
-  };
-  const setPos = async (x, y) => {
-    await cdp.eval(
-      `(() => { const s = window.__idleRpg.store; const g = s.getState().game; s.setState({ game: { ...g, movement: { ...g.movement, position: { x: ${x}, y: ${y} }, path: [] }, gathering: { ...g.gathering, session: null } } }); })()`,
-    );
-    await sleep(2500);
-  };
-  const pos = () => T('g().movement.position');
-  /** Minimap geometry (CSS px): centre of canvas, css px per tile. Player must be idle. */
-  const geom = async () => {
-    const r = await T(`rect('canvas.minimap')`);
-    expect(r, 'no minimap canvas');
-    return { r, perTile: (4 * r.w) / 160, radius: r.w / 2 };
-  };
-  const waitIdle = async (ms = 12000) => {
-    await waitFor('player idle', async () => (await T('g().movement.path.length')) === 0, ms);
-    await sleep(700); // let the render trail settle on the final tile
-  };
-  let world;
-
-  async function runPhase() {
-    await load();
+      await renderStill(); // the render trail settles on the final tile (was a fixed 350 ms)
+    };
     await tap(640, 20);
-    world = await T('world()');
+    const world = await T('world()');
     await T('spy()');
     const sp = world.spawn;
 
@@ -251,7 +139,8 @@ async function main() {
         const py = g.r.y + (target.y - from.y) * g.perTile;
         await T('spy()');
         await tap(px, py);
-        await sleep(150);
+        await until('window.__walks.length > 0', 2000);
+        await raf(); // a second (world-click) walkTo would land in the same frames
         const walks = await T('walks()');
         expect(
           walks.length === 1,
@@ -269,7 +158,7 @@ async function main() {
           d <= 1,
           `arrived ${JSON.stringify(end)}, wanted ${JSON.stringify(target)} (d=${d.toFixed(2)})`,
         );
-        await shot(`${phase}-m1`);
+        await G.screenshot(`minimap-${vp}-m1`);
         return `from ${JSON.stringify(from)} tap tile ${JSON.stringify(target)} -> walkTo ${JSON.stringify(sel)}, arrived ${JSON.stringify(end)} d=${d.toFixed(2)}, ${g.perTile.toFixed(2)}px/tile`;
       },
     );
@@ -350,8 +239,10 @@ async function main() {
             continue;
           }
           tried++;
+          await T('spy()');
           await tap(g.r.x + (found.x - from.x) * g.perTile, g.r.y + (found.y - from.y) * g.perTile);
-          await sleep(200);
+          await until('window.__walks.length > 0', 1000); // may legitimately do nothing
+          await raf();
           const path = await T('g().movement.path');
           await waitIdle(20000);
           const end = await pos();
@@ -390,13 +281,20 @@ async function main() {
         const target = await pickWalkable(from, g, 6, 10);
         expect(target, 'no walkable target');
         await tap(g.r.x + (target.x - from.x) * g.perTile, g.r.y + (target.y - from.y) * g.perTile);
-        await sleep(100);
+        await until('!!window.__t.findPx([255,42,42], 8)', 2000);
         const red = await T('findPx([255,42,42], 8)');
         expect(red, 'no red destination marker after tap');
         const wantX = cs.w / 2 + (target.x - from.x) * g.perTile * dpr;
         const wantY = cs.h / 2 + (target.y - from.y) * g.perTile * dpr;
         const err = Math.hypot(red.x - wantX, red.y - wantY) / (g.perTile * dpr);
-        await sleep(1500);
+        // mid-walk: wait until the player has stepped and the picture changed (was a fixed 700 ms)
+        await G.waitFor(
+          async () => {
+            const p = await pos();
+            return (p.x !== from.x || p.y !== from.y) && (await T('canvasHash()')) !== hash0;
+          },
+          { timeoutMs: 3000, label: 'moving' },
+        ).catch(() => {});
         const mid = await pos();
         const hashMid = await T('canvasHash()');
         expect(mid.x !== from.x || mid.y !== from.y, 'player did not move');
@@ -430,7 +328,7 @@ async function main() {
               const p = i / 4, x = p % c.width - r, y = Math.floor(p / c.width) - r; if (Math.hypot(x, y) > r * 0.75) { n++; sx += x; sy += y; } }
             return n ? { n, x: sx / n, y: sy / n } : null; })()`);
         await setDest(sp.x, sp.y);
-        await sleep(300);
+        await raf(3); // negative: the far cases below draw within the same frames
         expect((await rim()) === null, 'rim arrow drawn although destination is at the player');
         const far = [
           [60, 0, 'east'],
@@ -441,7 +339,17 @@ async function main() {
         const seen = [];
         for (const [dx, dy, name] of far) {
           await setDest(sp.x + dx, sp.y + dy);
-          await sleep(300);
+          const toward = (a) => {
+            if (!a) return false;
+            let e = Math.abs(Math.atan2(a.y, a.x) - Math.atan2(dy, dx));
+            if (e > Math.PI) e = 2 * Math.PI - e;
+            return e < 0.35;
+          };
+          // the previous direction's arrow is still drawn until the next frame: wait for this one (bounded)
+          await G.waitFor(async () => toward(await rim()), {
+            timeoutMs: 2000,
+            label: 'rim arrow ' + name,
+          }).catch(() => {});
           const a = await rim();
           expect(a, `no red rim arrow for ${name} destination`);
           const ang = Math.atan2(a.y, a.x);
@@ -452,7 +360,10 @@ async function main() {
           seen.push(`${name} ${diff.toFixed(2)}rad`);
         }
         await setDest(sp.x + 2, sp.y);
-        await sleep(300);
+        await G.waitFor(async () => (await rim()) === null, {
+          timeoutMs: 2000,
+          label: 'rim gone',
+        }).catch(() => {});
         expect((await rim()) === null, 'rim arrow drawn for a destination inside the circle');
         void rr;
         await cdp.eval(
@@ -467,13 +378,12 @@ async function main() {
       'N compass (real tap) re-centres camera after drag-pan, without walking',
       async () => {
         await setPos(sp.x, sp.y);
-        await sleep(600);
         const c0 = await T('camCentre()');
         const p0 = await T('playerWorld()');
         const vp = await cdp.eval('({ w: innerWidth, h: innerHeight })');
         const mid = { x: vp.w * 0.4, y: vp.h * 0.55 };
-        await drag(mid.x, mid.y, mid.x - 120, mid.y - 80);
-        await sleep(300);
+        await g.drag(mid.x, mid.y, mid.x - 120, mid.y - 80, 12);
+        await G.settle();
         const c1 = await T('camCentre()');
         const panned = Math.hypot(c1.x - c0.x, c1.y - c0.y);
         expect(panned > 30, `drag did not pan the camera (${panned.toFixed(0)}px)`);
@@ -484,7 +394,8 @@ async function main() {
         const rec0 = await T('st().recentre');
         await T('spy()');
         await tap(nr.x, nr.y);
-        await sleep(1500);
+        await until(`window.__t.st().recentre === ${rec0 + 1}`, 3000);
+        await G.settle();
         const rec1 = await T('st().recentre');
         const walks = await T('walks()');
         expect(
@@ -529,7 +440,7 @@ async function main() {
           `window.__idleRpg.store.getState().walkTo({ x: ${target.x}, y: ${target.y} })`,
         );
         await waitIdle(60000);
-        await sleep(2000);
+        await mmStill();
         const end = await pos();
         expect(
           end.x - from.x >= 40,
@@ -592,6 +503,19 @@ async function main() {
               transparent++;
               continue;
             }
+            // Region/bank label text + its black outline (greyscale, brighter than 90 or darker than 40; the wall
+            // colour 0x33333a is 51..58 so it is not skipped) and the per-species tree dots (tree_normal #5fd36b,
+            // tree_oak #18892f) are overlays, not terrain: v0.1.2 added more labels than WORLD_DEF.labels covers.
+            const grey = Math.abs(p[0] - p[1]) <= 8 && Math.abs(p[1] - p[2]) <= 8;
+            if (grey && (Math.min(p[0], p[1], p[2]) >= 90 || Math.max(p[0], p[1], p[2]) <= 40))
+              continue;
+            if (
+              [
+                [95, 211, 107],
+                [24, 137, 47],
+              ].some((m) => m.every((v, i) => Math.abs(p[i] - v) < 12))
+            )
+              continue;
             n++;
             const c = PAL[kind];
             if (c === undefined) continue;
@@ -643,17 +567,19 @@ async function main() {
           const b = await T(`rect('button[aria-label="Settings"]')`);
           expect(b, 'no settings button');
           await tap(b.x, b.y);
-          await sleep(300);
+          await until('!!document.querySelector(".settings")');
         }
         const r = await cdp.eval(
           `(() => { const b = [...document.querySelectorAll('.settings [role=switch]')].find((x) => x.textContent.trim().startsWith('Minimap')); if (!b) return null; b.scrollIntoView({ block: 'center' }); const q = b.getBoundingClientRect(); return { x: q.left + q.width / 2, y: q.top + q.height / 2, state: b.getAttribute('aria-checked') }; })()`,
         );
         expect(r, 'no Minimap switch in Settings');
         await tap(r.x, r.y);
-        await sleep(300);
+        await until(
+          `[...document.querySelectorAll('.settings [role=switch]')].find((x) => x.textContent.trim().startsWith('Minimap'))?.getAttribute('aria-checked') !== ${JSON.stringify(r.state)}`,
+        );
         const c = await T(`rect('button[aria-label="Close settings"]')`);
         if (c) await tap(c.x, c.y);
-        await sleep(300);
+        await until('!document.querySelector(".settings")');
         return r.state;
       };
       const s0 = await toggle();
@@ -664,37 +590,5 @@ async function main() {
       expect(shown, 'Minimap did not come back after turning it on');
       return `switch ${s0} -> off hides: ${hidden}; ${s1} -> on shows: ${shown}`;
     });
-  }
-
-  try {
-    phase = 'desktop';
-    touch = false;
-    await viewport(1280, 800, false);
-    await runPhase();
-    phase = 'phone';
-    touch = true;
-    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
-    await viewport(390, 844, true);
-    await runPhase();
-    results.push({
-      phase: 'both',
-      id: 'console',
-      title: 'no console errors / exceptions',
-      ok: errors.length === 0,
-      ev: errors.join(' || ') || 'none',
-    });
-  } catch (e) {
-    results.push({ phase, id: 'fatal', title: 'harness', ok: false, ev: e.stack });
-  } finally {
-    await cdp.close();
-    killChild(vite);
-  }
-  let fail = 0;
-  for (const r of results) {
-    if (!r.ok) fail++;
-    console.log(`${r.ok ? 'PASS' : 'FAIL'} [${r.phase}] ${r.id}: ${r.title}\n      ${r.ev}`);
-  }
-  console.log(`\n${results.length - fail}/${results.length} checks passed`);
-  return fail ? 1 : 0;
-}
-runMain(main);
+  }),
+);

@@ -11,6 +11,7 @@ import {
 } from '@render/index';
 import type { FigureLook, FigureRect, PlayerView } from '@render/index';
 import {
+  ACT_PLAN,
   AXE_GRIP_Y,
   BACK_VIEW_SWING_REACH,
   CHOP_SWING_PERIOD_MS,
@@ -22,7 +23,7 @@ import {
   TOOL_TINTS,
   TWIST_NARROW,
 } from './data';
-import type { SwingState } from './data';
+import type { ActState, SwingState } from './data';
 import {
   computePose,
   facingIsBack,
@@ -129,6 +130,19 @@ export function createPlayerAnimator(
       armFront.fore.add(handLine);
       tools[st].handLine = handLine;
     }
+  }
+  // One named prop per act (tinderbox, food): in the front forearm, drawn once, shown only in its act's state.
+  const ACT_STATES = Object.keys(ACT_PLAN) as ActState[];
+  const props = {} as Record<ActState, Phaser.GameObjects.Graphics>;
+  for (const st of ACT_STATES) {
+    const g = scene.add.graphics();
+    g.name = ACT_PLAN[st].prop;
+    for (const r of ACT_PLAN[st].rects())
+      g.fillStyle(r.color, r.alpha).fillRect(r.x, r.y, r.w, r.h);
+    g.setPosition(0, AXE_GRIP_Y);
+    g.setVisible(false);
+    armFront.fore.add(g);
+    props[st] = g;
   }
   rig.setScale(unit);
   rig.add([legBack.thigh, legFront.thigh, armBack.upper, armFront.upper]);
@@ -328,11 +342,14 @@ export function createPlayerAnimator(
       // Shoulders (narrowed by the chop's torso twist) rotated about the hip.
       const sx = SHOULDER_X * (1 - TWIST_NARROW * pose.twist);
       const dy = SHOULDER_Y - pivots.hipY;
-      armFront.upper.setPosition(sx * cos - dy * sin, pivots.hipY + sx * sin + dy * cos);
-      armBack.upper.setPosition(-sx * cos - dy * sin, pivots.hipY - sx * sin + dy * cos);
+      // The body is shifted DOWN by hip*(1-cos) (hem stays on the legs), which is 2*hip*(1-cos) below a pure rotation about the
+      // hips: the shoulders ride with it, or at a deep lean (kneeling) they float above the torso and the arm reads as a wing.
+      const sink = 2 * hip * (1 - cos);
+      armFront.upper.setPosition(sx * cos - dy * sin, pivots.hipY + sx * sin + dy * cos + sink);
+      armBack.upper.setPosition(-sx * cos - dy * sin, pivots.hipY - sx * sin + dy * cos + sink);
       // Arms: chop angles are already solved in the view (hands on the handle); a walk swing is projected so
       // it runs along the facing (forward/back on screen, up/down toward the camera), never across the body.
-      const chop = pose.axeVisible;
+      const chop = pose.armsSolved;
       const gait = running ? 'run' : 'walk';
       gaitAxis(gait, axis, gAxis);
       const gain = armDepthGain(gait, axis);
@@ -356,6 +373,10 @@ export function createPlayerAnimator(
         armsHidden = hide;
         armFront.upper.setVisible(!hide);
         armBack.upper.setVisible(!hide);
+      }
+      for (const st of ACT_STATES) {
+        props[st].setVisible(st === state);
+        if (st === state) props[st].setRotation(pose.axeAngle + pose.armAngle);
       }
       for (const st of SWING_STATES) {
         tools[st].back.setVisible(hide && st === active);

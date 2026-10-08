@@ -21,6 +21,8 @@ export function visibleChunks(
   view: ViewRect,
   grid: ChunkGridSize,
   margin = 0,
+  /** Also test this many chunks beyond each side of the grid (the world-edge skirt); result keeps real coords (can be -1). */
+  pad = 0,
 ): { cx: number; cy: number }[] {
   const out: { cx: number; cy: number }[] = [];
   const b = isoProjection.worldBounds(grid.chunkSize, grid.chunkSize);
@@ -30,8 +32,8 @@ export function visibleChunks(
   const top = view.y - margin;
   const right = view.x + view.width + margin;
   const bottom = view.y + view.height + margin;
-  for (let cy = 0; cy < grid.heightChunks; cy++) {
-    for (let cx = 0; cx < grid.widthChunks; cx++) {
+  for (let cy = -pad; cy < grid.heightChunks + pad; cy++) {
+    for (let cx = -pad; cx < grid.widthChunks + pad; cx++) {
       const o = isoProjection.tileToWorld(cx * grid.chunkSize, cy * grid.chunkSize);
       const mx = o.x + b.x + hw;
       const my = o.y + b.y + hh;
